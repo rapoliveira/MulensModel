@@ -45,7 +45,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
 
     # Subtracting light curve from first fit (before plotting to get t_0_2)
     (_, blend_flux_0) = event_0.get_flux_for_dataset(0)
-    flux_subt = my_dataset.flux - event_0.fits[0].get_model_fluxes() + blend_flux_0
+    flux_subt = my_dataset.flux - event_0.fits[0].get_model_fluxes() + _ + blend_flux_0
     subtracted_data = [my_dataset.time, flux_subt, my_dataset.err_flux]
     my_dataset_2 = mm.MulensData(subtracted_data, phot_fmt='flux')
     # breakpoint()    # super_wrong here!!!
