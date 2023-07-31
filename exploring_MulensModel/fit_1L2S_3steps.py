@@ -67,7 +67,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn, spec="u_0")
     best_1, pars_best_1, states_1, sampler_1 = output
-    if np.quantile(states_1, 0.84, axis=0)[1] > 3:
+    if np.quantile(states_1, 0.84, axis=0)[1] > 10:
         return event_0, best
     event_1 = make_three_plots(parameters_to_fit, sampler_1, nburn, best_1,
                             my_dataset_2, labels, lims, my_dataset, pdf=pdf)
@@ -127,8 +127,8 @@ def ln_prior(theta, event, params_to_fit, spec=""):
                 return -np.inf
     t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
     if spec:
-        if theta[params_to_fit.index('u_0')] > 15. or \
-            theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
+        # if theta[params_to_fit.index('u_0')] > 15. or \
+        if theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
             theta[params_to_fit.index('t_0')] > t_range[1]+100:
             return -np.inf
     t_E = theta[params_to_fit.index('t_E')]
@@ -287,10 +287,10 @@ def plot_fit(best, dataset, labels, lims=[], orig_data=[], best_50=[], pdf=""):
 
     if len(best) == 5:
         lims = sorted([best[0], best[2]]) if not lims else lims
-        lims = [lims[0]-2*model.parameters.t_E, lims[1]+2*model.parameters.t_E]
+        lims = [lims[0]-3*model.parameters.t_E, lims[1]+3*model.parameters.t_E]
     else:
-        lims = [model.parameters.t_0 - 3*model.parameters.t_E,
-                model.parameters.t_0 + 3*model.parameters.t_E]
+        lims = [model.parameters.t_0 - 5*model.parameters.t_E,
+                model.parameters.t_0 + 5*model.parameters.t_E]
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
                    't_start': lims[0], 't_stop': lims[1], 'zorder': 10,
                    'color': 'black'}
