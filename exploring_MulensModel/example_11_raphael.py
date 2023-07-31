@@ -31,13 +31,13 @@ def main():
     # Fix the seed for the random number generator so the behavior is reproducible.
     np.random.seed(12343)
 
-    nwlk, nstep, nburn = 20, 3000, 1500     # 20, 10000, 5000
-    n_emcee = {'nwalk': 20, 'nstep':3000, 'nburn': 1500}
-    my_dataset, event_orig, t_0_1, t_0_2 = sim_data_ex11()
+    # nwlk, nstep, nburn = 20, 3000, 1500     
+    n_emcee = {'nwalk': 20, 'nstep':3000, 'nburn': 1500} # 20, 10000, 5000
+    # my_dataset, event_orig, t_0_1, t_0_2 = sim_data_ex11()
+    my_dataset, event_orig = sim_data_ex11()
 
     pdf = PdfPages('1L2S_3steps_result.pdf')
-    event, best = fit_1L2S.make_all_fittings(my_dataset, n_emcee, t_0_1,
-                                             t_0_2, pdf=pdf)
+    event, best = fit_1L2S.make_all_fittings(my_dataset, n_emcee, pdf=pdf)
     print("chi2_2 = ", event.get_chi2())
     print("chi2 of model_orig = ", event_orig.get_chi2())
     pdf.close()
@@ -45,7 +45,7 @@ def main():
     pdf = PdfPages('1L2S_3steps_fit.pdf')
     labels = [f"t_0_1 = {best[0]:.2f}\nu_0_1 = {best[1]:.2f}\nt_0_2 = "+\
               f"{best[2]:.2f}\nu_0_2 = {best[3]:.2f}\nt_E = {best[4]:.2f}", ""]
-    fit_1L2S.plot_fit(best, my_dataset, labels, t_0_1, t_0_2, pdf=pdf)
+    fit_1L2S.plot_fit(best, my_dataset, labels, pdf=pdf)
     pdf.close()
 
 def sim_data_ex11():
@@ -87,7 +87,7 @@ def sim_data_ex11():
     # mag2= -2.5*np.log10(flux) + 22 # 21.5
     # mag_err2 = (2.5/np.log(10)) * (flux_err/flux) # +/- the same
 
-    return my_dataset, event_orig, t_0_1, t_0_2
+    return my_dataset, event_orig #, t_0_1, t_0_2
 
 if __name__ == "__main__":
     main()

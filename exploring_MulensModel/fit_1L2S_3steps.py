@@ -23,13 +23,13 @@ from matplotlib.gridspec import GridSpec
 import numpy as np
 from tqdm import tqdm
 
-def make_all_fittings(my_dataset, n_emcee, t_0_1, t_0_2, pdf=""):
+def make_all_fittings(my_dataset, n_emcee, pdf=""):
 
     # 1st fit: Fitting a PSPL/1L1S without parallax...
     mag_ids = np.argsort(my_dataset.mag)
     t_brightest = np.mean(my_dataset.time[mag_ids][:10])
-    # params = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': t_0_2-t_0_1}
-    params = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': 20}
+    # params = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': t_0_2-t_0_1}
+    params = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 20}
     my_model = mm.Model(params)
     my_event = mm.Event(datasets=my_dataset, model=my_model)
     parameters_to_fit = ['t_0', 'u_0', 't_E']
@@ -40,20 +40,24 @@ def make_all_fittings(my_dataset, n_emcee, t_0_1, t_0_2, pdf=""):
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn)
     best, pars_best, states, sampler = output
+    model_0 = mm.Model({'t_0': best[0], 'u_0': best[1], 't_E': best[2]})
+    event_0 = mm.Event(model=model_0, datasets=[my_dataset])    # repeated!!!
 
-    labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
-    event_0 = make_three_plots(parameters_to_fit, sampler, nburn, best,
-                            my_dataset, labels, t_0_1, t_0_2, pdf=pdf)
-
-    # Subtracting light curve from first curve
+    # Subtracting light curve from first fit (before plotting to get t_0_2)
     (_, blend_flux_0) = event_0.get_flux_for_dataset(0)
     flux_subt = my_dataset.flux - event_0.fits[0].get_model_fluxes() + blend_flux_0
     subtracted_data = [my_dataset.time, flux_subt, my_dataset.err_flux]
     my_dataset_2 = mm.MulensData(subtracted_data, phot_fmt='flux')
+    # breakpoint()    # super_wrong here!!!
 
-    # 2nd fit: ... PSPL to the subtracted data
     mag_ids = np.argsort(my_dataset_2.mag)
     t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
+    lims = sorted([best[0], round(t_brightest, 1)])
+    labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
+    event_0 = make_three_plots(parameters_to_fit, sampler, nburn, best,
+                               my_dataset, labels, lims, pdf=pdf)
+
+    # 2nd fit: ... PSPL to the subtracted data
     params = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': best[2]}
     my_model = mm.Model(params)
     my_event = mm.Event(datasets=my_dataset_2, model=my_model)
@@ -61,10 +65,13 @@ def make_all_fittings(my_dataset, n_emcee, t_0_1, t_0_2, pdf=""):
     sigmas = [1., 0.05, 1.]
     print(f"\n\033[1m -- Second fit: PSPL to subtracted data. {msg}\033[0m")
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
-                       n_walkers=nwlk, n_steps=nstep, n_burn=nburn)
+                       n_walkers=nwlk, n_steps=nstep, n_burn=nburn, spec="u_0")
     best_1, pars_best_1, states_1, sampler_1 = output
+    # breakpoint()
+    if best_1[1] > 3.:
+        return event_0, best
     event_1 = make_three_plots(parameters_to_fit, sampler_1, nburn, best_1,
-                            my_dataset_2, labels, t_0_1, t_0_2, pdf=pdf)
+                            my_dataset_2, labels, lims, my_dataset, pdf=pdf)
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     params = {'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best_1[0],
@@ -79,12 +86,12 @@ def make_all_fittings(my_dataset, n_emcee, t_0_1, t_0_2, pdf=""):
     best_2, pars_best_2, states_2, sampler_2 = output
     labels = ["1L2S, max_prob", "1L2S, 50th_perc"]
     event_2 = make_three_plots(parameters_to_fit, sampler_2, nburn, best_2,
-                            my_dataset, labels, t_0_1, t_0_2, pdf=pdf)
+                               my_dataset, labels, pdf=pdf)
     
     return event_2, best_2
 
-def make_three_plots(params, sampler, nburn, best, dataset, labels,
-                     t_0_1, t_0_2, pdf=""):
+def make_three_plots(params, sampler, nburn, best, dataset, labels, lims=[],
+                     orig_data=[], pdf=""):
     """
     plot results
     """
@@ -96,7 +103,7 @@ def make_three_plots(params, sampler, nburn, best, dataset, labels,
         pdf.savefig(fig1)
     else:
         plt.show()
-    event = plot_fit(best, dataset, labels, t_0_1, t_0_2, pdf=pdf)
+    event = plot_fit(best, dataset, labels, lims, orig_data, pdf=pdf)
 
     return event
 
@@ -113,20 +120,27 @@ def ln_like(theta, event, parameters_to_fit): # add my_dataset???
 
     return -0.5 * event.get_chi2()
 
-def ln_prior(theta, parameters_to_fit):
+def ln_prior(theta, event, params_to_fit, spec=""):
     """priors - we only reject obviously wrong models"""
     for param in ['t_E', 'u_0', 'u_0_1', 'u_0_2']:
-        if param in parameters_to_fit:
-            if theta[parameters_to_fit.index(param)] < 0.:
+        if param in params_to_fit:
+            if theta[params_to_fit.index(param)] < 0.:
                 return -np.inf
-    t_E = theta[parameters_to_fit.index('t_E')]
-    ln_prior_t_E = - (np.log(t_E) - np.log(25))**2 / (2*np.log(2)**2)
-    ln_prior_t_E += np.log(1/(np.sqrt(2*np.pi)*np.log(2)))
+    t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
+    if spec:
+        if theta[params_to_fit.index('u_0')] > 15. or \
+            theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
+            theta[params_to_fit.index('t_0')] > t_range[1]+100:
+            return -np.inf
+    t_E = theta[params_to_fit.index('t_E')]
+    sigma = 2 if len(params_to_fit) == 3 else 5
+    ln_prior_t_E = - (np.log(t_E) - np.log(25))**2 / (2*np.log(sigma)**2)
+    ln_prior_t_E += np.log(1/(np.sqrt(2*np.pi)*np.log(sigma)))
     return 0.0 + ln_prior_t_E
 
-def ln_prob(theta, event, parameters_to_fit):
+def ln_prob(theta, event, parameters_to_fit, spec=""):
     """ combines likelihood and priors"""
-    ln_prior_ = ln_prior(theta, parameters_to_fit)
+    ln_prior_ = ln_prior(theta, event, parameters_to_fit, spec)
     if not np.isfinite(ln_prior_):
         return -np.inf
     ln_like_ = ln_like(theta, event, parameters_to_fit)
@@ -141,7 +155,7 @@ def ln_prob(theta, event, parameters_to_fit):
     return ln_prior_ + ln_like_
 
 def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
-              n_walkers=20, n_steps=3000, n_burn=1500):
+              n_walkers=20, n_steps=3000, n_burn=1500, spec=""):
     """
     Fit model using EMCEE and print results.
     Arguments:
@@ -161,7 +175,7 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
 
     # Run emcee (this can take some time):
     sampler = emcee.EnsembleSampler(
-        n_walkers, n_dim, ln_prob, args=(event, parameters_to_fit))
+        n_walkers, n_dim, ln_prob, args=(event, parameters_to_fit, spec))
     sampler.run_mcmc(start, n_steps, progress=True)
 
     # Remove burn-in samples and reshape:
@@ -257,11 +271,7 @@ def clean_posterior_emcee(sampler, params, n_burn):
 
     return new_states
 
-def plot_fit(best, dataset, labels, t_0_1, t_0_2, orig_data=[], best_50=[], pdf=""):
-
-    plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
-                   't_start': t_0_1-50, 't_stop': t_0_2+50, 'zorder': 10,
-                   'color': 'black'}
+def plot_fit(best, dataset, labels, lims=[], orig_data=[], best_50=[], pdf=""):
 
     fig = plt.figure(figsize=(7.5,5.5))
     gs = GridSpec(3, 1, figure=fig)
@@ -273,7 +283,15 @@ def plot_fit(best, dataset, labels, t_0_1, t_0_2, orig_data=[], best_50=[], pdf=
                           'u_0_2': best[3], 't_E': best[4]})
     event = mm.Event(model=model, datasets=[dataset])
     data_label = "Simulated data" if not orig_data else "Subtracted data"
+    # breakpoint()
     event.plot_data(subtract_2450000=False, label=data_label)
+
+    lims = sorted([best[0], best[2]]) if not lims else lims
+    lims = [lims[0]-2*model.parameters.t_E, lims[1]+2*model.parameters.t_E]
+    plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
+                   't_start': lims[0], 't_stop': lims[1], 'zorder': 10,
+                   'color': 'black'}
+
     if orig_data:
         orig_data.plot(phot_fmt='mag', color='gray', alpha=0.2, label="Original data")
     if labels[1] == "":
@@ -289,7 +307,7 @@ def plot_fit(best, dataset, labels, t_0_1, t_0_2, orig_data=[], best_50=[], pdf=
     plt.tick_params(axis='both', direction='in')
     ax2.xaxis.set_ticks_position('both')
     ax2.yaxis.set_ticks_position('both')
-    plt.xlim(t_0_1-35, t_0_2+25)
+    plt.xlim(lims[0], lims[1])
     plt.tight_layout()
     plt.subplots_adjust(hspace=0)
 
