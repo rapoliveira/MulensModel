@@ -48,11 +48,14 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     flux_subt = my_dataset.flux - event_0.fits[0].get_model_fluxes() + _ + blend_flux_0
     subtracted_data = [my_dataset.time, flux_subt, my_dataset.err_flux]
     my_dataset_2 = mm.MulensData(subtracted_data, phot_fmt='flux')
-    # breakpoint()    # super_wrong here!!!
 
     mag_ids = np.argsort(my_dataset_2.mag)
     t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
-    lims = sorted([best[0], round(t_brightest, 1)])
+    # lims = sorted([best[0], round(t_brightest, 1)])
+    lims = [best[0] - 3*best[2], best[0] + 3*best[2]]
+    if lims[0] < min(my_dataset.time):
+        lims = [best[0] - 2*abs(best[0] - t_brightest),
+                best[0] + 2*abs(best[0] - t_brightest)]
     labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
     event_0 = make_three_plots(parameters_to_fit, sampler, nburn, best,
                                my_dataset, labels, lims, pdf=pdf)
@@ -69,6 +72,8 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     best_1, pars_best_1, states_1, sampler_1 = output
     if np.quantile(states_1, 0.84, axis=0)[1] > 10:
         return event_0, best
+    lims = [np.mean([best[0],best_1[0]]) - 2.5*abs(best[0]-best_1[0]),
+            np.mean([best[0],best_1[0]]) + 2.5*abs(best[0]-best_1[0])]
     event_1 = make_three_plots(parameters_to_fit, sampler_1, nburn, best_1,
                             my_dataset_2, labels, lims, my_dataset, pdf=pdf)
 
@@ -288,9 +293,6 @@ def plot_fit(best, dataset, labels, lims=[], orig_data=[], best_50=[], pdf=""):
     if len(best) == 5:
         lims = sorted([best[0], best[2]]) if not lims else lims
         lims = [lims[0]-3*model.parameters.t_E, lims[1]+3*model.parameters.t_E]
-    else:
-        lims = [model.parameters.t_0 - 5*model.parameters.t_E,
-                model.parameters.t_0 + 5*model.parameters.t_E]
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
                    't_start': lims[0], 't_stop': lims[1], 'zorder': 10,
                    'color': 'black'}
