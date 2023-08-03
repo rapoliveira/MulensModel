@@ -57,6 +57,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
         lims = [best[0] - 2*abs(best[0] - t_brightest),
                 best[0] + 2*abs(best[0] - t_brightest)]
     labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
+    print(lims)
     event_0 = make_three_plots(parameters_to_fit, sampler, nburn, best,
                                my_dataset, labels, lims, pdf=pdf)
 
@@ -70,8 +71,8 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn, spec="u_0")
     best_1, pars_best_1, states_1, sampler_1 = output
-    if np.quantile(states_1, 0.84, axis=0)[1] > 10:
-        return event_0, best
+    if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15
+        return event_0, best, lims
     lims = [np.mean([best[0],best_1[0]]) - 2.5*abs(best[0]-best_1[0]),
             np.mean([best[0],best_1[0]]) + 2.5*abs(best[0]-best_1[0])]
     event_1 = make_three_plots(parameters_to_fit, sampler_1, nburn, best_1,
@@ -92,7 +93,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     event_2 = make_three_plots(parameters_to_fit, sampler_2, nburn, best_2,
                                my_dataset, labels, pdf=pdf)
     
-    return event_2, best_2
+    return event_2, best_2, lims
 
 def make_three_plots(params, sampler, nburn, best, dataset, labels, lims=[],
                      orig_data=[], pdf=""):
@@ -180,6 +181,10 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
     # Run emcee (this can take some time):
     sampler = emcee.EnsembleSampler(
         n_walkers, n_dim, ln_prob, args=(event, parameters_to_fit, spec))
+    # sampler = emcee.EnsembleSampler(
+    #     n_walkers, n_dim, ln_prob,
+    #     moves=[(emcee.moves.DEMove(),0.8),(emcee.moves.DESnookerMove(),0.2)],
+    #     args=(event, parameters_to_fit, spec))
     sampler.run_mcmc(start, n_steps, progress=True)
 
     # Remove burn-in samples and reshape:

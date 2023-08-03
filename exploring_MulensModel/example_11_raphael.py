@@ -37,7 +37,7 @@ def main():
     my_dataset, event_orig = sim_data_ex11()
 
     pdf = PdfPages('1L2S_3steps_result.pdf')
-    event, best = fit_1L2S.make_all_fittings(my_dataset, n_emcee, pdf=pdf)
+    event, best, lims = fit_1L2S.make_all_fittings(my_dataset, n_emcee, pdf=pdf)
     print("chi2_2 = ", event.get_chi2())
     print("chi2 of model_orig = ", event_orig.get_chi2())
     pdf.close()
