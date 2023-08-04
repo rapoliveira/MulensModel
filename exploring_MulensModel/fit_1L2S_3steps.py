@@ -46,12 +46,13 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     # Subtracting light curve from first fit (before plotting to get t_0_2)
     (_, blend_flux_0) = event_0.get_flux_for_dataset(0)
     flux_subt = my_dataset.flux - event_0.fits[0].get_model_fluxes() + _ + blend_flux_0
-    subtracted_data = [my_dataset.time, flux_subt, my_dataset.err_flux]
+    # subtracted_data = [my_dataset.time, flux_subt, my_dataset.err_flux]
+    subtracted_data = [my_dataset.time[flux_subt > 0], flux_subt[flux_subt > 0],
+                       my_dataset.err_flux[flux_subt > 0]]
     my_dataset_2 = mm.MulensData(subtracted_data, phot_fmt='flux')
 
     mag_ids = np.argsort(my_dataset_2.mag)
     t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
-    # lims = sorted([best[0], round(t_brightest, 1)])
     lims = [best[0] - 3*best[2], best[0] + 3*best[2]]
     if lims[0] < min(my_dataset.time):
         lims = [best[0] - 2*abs(best[0] - t_brightest),
@@ -71,7 +72,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn, spec="u_0")
     best_1, pars_best_1, states_1, sampler_1 = output
-    if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15
+    if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15?
         return event_0, best, lims
     lims = [np.mean([best[0],best_1[0]]) - 2.5*abs(best[0]-best_1[0]),
             np.mean([best[0],best_1[0]]) + 2.5*abs(best[0]-best_1[0])]
@@ -90,12 +91,16 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn)
     best_2, pars_best_2, states_2, sampler_2 = output
     labels = ["1L2S, max_prob", "1L2S, 50th_perc"]
+    lims = sorted([best_2[0], best_2[2]])
+    lims = [lims[0]-3*best_2[4], lims[1]+3*best_2[4]]
     event_2 = make_three_plots(parameters_to_fit, sampler_2, nburn, best_2,
-                               my_dataset, labels, pdf=pdf)
+                               my_dataset, labels, lims, pdf=pdf)
     
+    if max(np.quantile(states_2[:,1],0.84), np.quantile(states_2[:,3],0.84)) > 3:
+        return event_0, best, lims
     return event_2, best_2, lims
 
-def make_three_plots(params, sampler, nburn, best, dataset, labels, lims=[],
+def make_three_plots(params, sampler, nburn, best, dataset, labels, lims,
                      orig_data=[], pdf=""):
     """
     plot results
@@ -112,7 +117,7 @@ def make_three_plots(params, sampler, nburn, best, dataset, labels, lims=[],
 
     return event
 
-def ln_like(theta, event, parameters_to_fit): # add my_dataset???
+def ln_like(theta, event, parameters_to_fit):
     """ likelihood function """
     for (param, theta_) in zip(parameters_to_fit, theta):
         # Here we handle fixing source flux ratio:
@@ -132,9 +137,9 @@ def ln_prior(theta, event, params_to_fit, spec=""):
             if theta[params_to_fit.index(param)] < 0.:
                 return -np.inf
     t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
-    if spec:
-        # if theta[params_to_fit.index('u_0')] > 15. or \
-        if theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
+    if spec:    # 15 or 100 or nothing?
+        if theta[params_to_fit.index('u_0')] > 100. or \
+            theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
             theta[params_to_fit.index('t_0')] > t_range[1]+100:
             return -np.inf
     t_E = theta[params_to_fit.index('t_E')]
@@ -149,8 +154,6 @@ def ln_prob(theta, event, parameters_to_fit, spec=""):
     if not np.isfinite(ln_prior_):
         return -np.inf
     ln_like_ = ln_like(theta, event, parameters_to_fit)
-    # print(theta)
-    # breakpoint()
 
     # In the cases that source fluxes are negative we want to return
     # these as if they were not in priors.
@@ -185,7 +188,19 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
     #     n_walkers, n_dim, ln_prob,
     #     moves=[(emcee.moves.DEMove(),0.8),(emcee.moves.DESnookerMove(),0.2)],
     #     args=(event, parameters_to_fit, spec))
-    sampler.run_mcmc(start, n_steps, progress=True)
+    # sampler.run_mcmc(start, n_steps, progress=True)
+    
+    # Setting up multi-threading
+    # import multiprocessing
+    # multiprocessing.set_start_method("fork", force=True) # already fork
+    import os
+    os.environ["OMP_NUM_THREADS"] = "1"
+    from multiprocessing import Pool
+    with Pool() as pool:
+        sampler = emcee.EnsembleSampler(n_walkers, n_dim, ln_prob, pool=pool,
+                                        args=(event, parameters_to_fit, spec))
+        sampler.run_mcmc(start, n_steps, progress=True)
+    # breakpoint()
 
     # Remove burn-in samples and reshape:
     samples = sampler.chain[:, n_burn:, :].reshape((-1, n_dim))
@@ -280,7 +295,7 @@ def clean_posterior_emcee(sampler, params, n_burn):
 
     return new_states
 
-def plot_fit(best, dataset, labels, lims=[], orig_data=[], best_50=[], pdf=""):
+def plot_fit(best, dataset, labels, lims, orig_data=[], best_50=[], pdf=""):
 
     fig = plt.figure(figsize=(7.5,5.5))
     gs = GridSpec(3, 1, figure=fig)
@@ -291,13 +306,9 @@ def plot_fit(best, dataset, labels, lims=[], orig_data=[], best_50=[], pdf=""):
         model = mm.Model({'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best[2],
                           'u_0_2': best[3], 't_E': best[4]})
     event = mm.Event(model=model, datasets=[dataset])
-    data_label = "Simulated data" if not orig_data else "Subtracted data"
+    data_label = "Original data" if not orig_data else "Subtracted data"
     # breakpoint()
     event.plot_data(subtract_2450000=False, label=data_label)
-
-    if len(best) == 5:
-        lims = sorted([best[0], best[2]]) if not lims else lims
-        lims = [lims[0]-3*model.parameters.t_E, lims[1]+3*model.parameters.t_E]
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
                    't_start': lims[0], 't_stop': lims[1], 'zorder': 10,
                    'color': 'black'}
