@@ -58,7 +58,6 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
         lims = [best[0] - 2*abs(best[0] - t_brightest),
                 best[0] + 2*abs(best[0] - t_brightest)]
     labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
-    print(lims)
     event_0 = make_three_plots(parameters_to_fit, sampler, nburn, best,
                                my_dataset, labels, lims, pdf=pdf)
 
@@ -73,7 +72,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn, spec="u_0")
     best_1, pars_best_1, states_1, sampler_1 = output
     if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15?
-        return event_0, best, lims
+        return event_0, best
     lims = [np.mean([best[0],best_1[0]]) - 2.5*abs(best[0]-best_1[0]),
             np.mean([best[0],best_1[0]]) + 2.5*abs(best[0]-best_1[0])]
     event_1 = make_three_plots(parameters_to_fit, sampler_1, nburn, best_1,
@@ -97,8 +96,8 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
                                my_dataset, labels, lims, pdf=pdf)
     
     if max(np.quantile(states_2[:,1],0.84), np.quantile(states_2[:,3],0.84)) > 3:
-        return event_0, best, lims
-    return event_2, best_2, lims
+        return event_0, best
+    return event_2, best_2
 
 def make_three_plots(params, sampler, nburn, best, dataset, labels, lims,
                      orig_data=[], pdf=""):
@@ -137,9 +136,9 @@ def ln_prior(theta, event, params_to_fit, spec=""):
             if theta[params_to_fit.index(param)] < 0.:
                 return -np.inf
     t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
-    if spec:    # 15 or 100 or nothing?
-        if theta[params_to_fit.index('u_0')] > 100. or \
-            theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
+    if spec:    # 15, 100, 1000 or nothing?
+        # if theta[params_to_fit.index('u_0')] > 1000. or \
+        if theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
             theta[params_to_fit.index('t_0')] > t_range[1]+100:
             return -np.inf
     t_E = theta[params_to_fit.index('t_E')]
