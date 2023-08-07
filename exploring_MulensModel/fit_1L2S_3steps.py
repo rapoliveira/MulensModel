@@ -16,6 +16,7 @@ except ImportError as err:
     print("and re-run the script")
     sys.exit(1)
 
+from itertools import chain
 import MulensModel as mm
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -60,8 +61,8 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
         lims = [best[0] - 2*abs(best[0] - t_brightest),
                 best[0] + 2*abs(best[0] - t_brightest)]
     labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
-    event_0 = make_three_plots(parameters_to_fit, sampler, states, nburn, best,
-                               my_dataset, labels, lims, pdf=pdf)
+    event_0, cplot = make_three_plots(parameters_to_fit, sampler, states, nburn,
+                                      best, my_dataset, labels, lims) #, pdf=pdf)
 
     # 2nd fit: ... PSPL to the subtracted data
     params = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': best[2]}
@@ -75,19 +76,21 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     best_1, pars_quant_1, states_1, sampler_1 = output
     # if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15?
     if pars_quant_1['u_0'][2] > 15:
-        return event_0, best
+        return event_0, best, cplot
     lims = [np.mean([best[0],best_1[0]]) - 2.5*abs(best[0]-best_1[0]),
             np.mean([best[0],best_1[0]]) + 2.5*abs(best[0]-best_1[0])]
-    event_1 = make_three_plots(parameters_to_fit, sampler_1, states_1, nburn,
-                        best_1, my_dataset_2, labels, lims, my_dataset, pdf=pdf)
+    event_1, cplot = make_three_plots(parameters_to_fit, sampler_1, states_1,
+                                      nburn, best_1, my_dataset_2, labels, lims,
+                                      my_dataset, pdf=pdf)
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     params = {'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best_1[0],
               'u_0_2': best_1[1], 't_E': best_1[2]}
     my_model = mm.Model(params)
     my_event = mm.Event(datasets=my_dataset, model=my_model)
-    parameters_to_fit = ["t_0_1", "u_0_1", "t_0_2", "u_0_2", "t_E"]
-    sigmas = [0.1, 0.05, 1., 0.01, 0.1]
+    # params['flux_ratio'] = 1 # 0.02
+    parameters_to_fit = ["t_0_1", "u_0_1", "t_0_2", "u_0_2", "t_E"] #, "flux_ratio"]
+    sigmas = [0.1, 0.05, 1., 0.01, 0.1] #, 0.001]
     print(f"\n\033[1m -- Third fit: 1L2S to original data. {msg}\033[0m")
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn)
@@ -95,15 +98,16 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     labels = ["1L2S, max_prob", "1L2S, 50th_perc"]
     lims = sorted([best_2[0], best_2[2]])
     lims = [lims[0]-3*best_2[4], lims[1]+3*best_2[4]]
-    event_2 = make_three_plots(parameters_to_fit, sampler_2, states_2, nburn,
-                               best_2, my_dataset, labels, lims, pdf=pdf)
+    event_2, cplot = make_three_plots(parameters_to_fit, sampler_2, states_2,
+                                      nburn, best_2, my_dataset, labels, lims,
+                                      pdf=pdf)
     
     # breakpoint()
     # if max(np.quantile(states_2[:,1],0.84), np.quantile(states_2[:,3],0.84)) > 3:
     # if max(best_2[1], best_2[3]) > 2.9:     ### or after cleaning chains...
     if max(pars_quant_2['u_0_1'][2], pars_quant_2['u_0_2'][2]) > 3.:
-        return event_0, best
-    return event_2, best_2
+        return event_0, best, cplot
+    return event_2, best_2, cplot
 
 def ln_like(theta, event, parameters_to_fit):
     """ likelihood function """
@@ -140,15 +144,16 @@ def ln_prob(theta, event, parameters_to_fit, spec=""):
     """ combines likelihood and priors"""
     ln_prior_ = ln_prior(theta, event, parameters_to_fit, spec)
     if not np.isfinite(ln_prior_):
-        return -np.inf
+        return -np.inf, -np.inf #, -np.inf
     ln_like_ = ln_like(theta, event, parameters_to_fit)
 
     # In the cases that source fluxes are negative we want to return
     # these as if they were not in priors.
     if np.isnan(ln_like_):
-        return -np.inf
+        return -np.inf, -np.inf #, -np.inf
+    # breakpoint()
 
-    return ln_prior_ + ln_like_
+    return ln_prior_ + ln_like_, event.fluxes #, ln_prior_
 
 def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
               n_walkers=20, n_steps=3000, n_burn=1500, spec=""):
@@ -170,8 +175,10 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
     start = abs(np.array(start))
 
     # Run emcee (this can take some time):
-    sampler = emcee.EnsembleSampler(
-        n_walkers, n_dim, ln_prob, args=(event, parameters_to_fit, spec))
+    dtype = [("event_fluxes", list)] #, ("log_prior", float)]
+    sampler = emcee.EnsembleSampler(n_walkers, n_dim, ln_prob,
+                                    blobs_dtype=dtype,
+                                    args=(event, parameters_to_fit, spec))
     # sampler = emcee.EnsembleSampler(
     #     n_walkers, n_dim, ln_prob,
     #     moves=[(emcee.moves.DEMove(),0.8),(emcee.moves.DESnookerMove(),0.2)],
@@ -179,17 +186,23 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
     sampler.run_mcmc(start, n_steps, progress=True)
     
     # Setting up multi-threading (std: fork in Linux, spawn in Mac)
-    # multiprocessing.set_start_method("fork", force=True) # already fork in
+    # multiprocessing.set_start_method("fork", force=True)
     # os.environ["OMP_NUM_THREADS"] = "1"
     # with multiprocessing.Pool() as pool:
     #     sampler = emcee.EnsembleSampler(n_walkers, n_dim, ln_prob, pool=pool,
     #                                     args=(event, parameters_to_fit, spec))
     #     sampler.run_mcmc(start, n_steps, progress=True)
     # pool.close()
-    # breakpoint()
 
     # Remove burn-in samples and reshape:
     samples = sampler.chain[:, n_burn:, :].reshape((-1, n_dim))
+    fluxes = sampler.get_blobs()[n_burn:].reshape(-1)#[:10]
+    fluxes = list(chain.from_iterable(chain.from_iterable(fluxes)))
+    source_flux = list(chain.from_iterable(fluxes))[::2]
+    source_flux = np.array([item[0] for item in source_flux])
+    deblend_flux = np.array(list(chain.from_iterable(fluxes))[1::2])
+    samples = np.c_[samples, source_flux, deblend_flux]
+    # breakpoint()
 
     # Results:
     results = np.percentile(samples, [16, 50, 84], axis=0)
@@ -214,6 +227,8 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
 
     new_states, pars_quant = clean_posterior_emcee(sampler, best, n_burn)
     pars_quant = dict(zip(parameters_to_fit, pars_quant.T))
+
+    breakpoint()
     
     # return best, pars_best, event.get_chi2(), states, sampler
     return best, pars_quant, new_states, sampler
@@ -223,7 +238,7 @@ def clean_posterior_emcee(sampler, params, n_burn):
     Manipulate emcee chains to reject stray walkers and clean posterior
     Arguments:
         sampler - ensemble sampler from EMCEE
-        params - set of best parameters from fit_EMCEE function
+        ## params - set of best parameters from fit_EMCEE function -> deactivate
         n_burn - number of steps considered as burn-in ( < n_steps)
     """
 
@@ -245,13 +260,26 @@ def clean_posterior_emcee(sampler, params, n_burn):
     # states = sampler.chain[w[0],burnin::thin,:].copy()  # with thinning
     new_states = sampler.chain[w[0],n_burn::,:].copy()  # no thinning
     gwlk, nthin, npars = np.shape(new_states)
+
+    # breakpoint()
+    # fluxes = sampler.get_blobs()[n_burn:][:,w[0]]
+    # fluxes = list(chain.from_iterable(chain.from_iterable(fluxes)))
+    # source_flux = list(chain.from_iterable(fluxes))[::2]
+    # source_flux = np.array([item[0] for item in source_flux]).T
+    # deblend_flux = np.array(list(chain.from_iterable(fluxes))[1::2]).T
+    # breakpoint()
+    # new_states
+    # samples = np.c_[samples, source_flux, deblend_flux]
+
+    # new_samples = samples[w[0]].copy()[npars:.]
+    # breakpoint()
     new_states = np.reshape(new_states,[gwlk*nthin, npars])
     n_rej, perc_rej = sampler.nwalkers-gwlk, 100*(1-gwlk/sampler.nwalkers)
     print(f'Obs: {n_rej} walkers ({round(perc_rej)}%) were rejected')
     
     # Finding median values and confidence intervals... FIT SKEWED GAUSSIANS!!!
     # To-Do... [...]
-    test = params # [...]
+    # test = params # [...]
     # do things here and return best only here!!! COPIED BELOW
 
     # Getting states and reshaping: e.g. (20, 1500, 3) -> (30000, 3)
@@ -273,15 +301,17 @@ def make_three_plots(params, sampler, new_states, nburn, best, dataset, labels,
     plot results
     """
     tracer_plot(params, sampler, nburn, pdf=pdf)
-    fig1 = corner.corner(new_states, labels=params, truths=best,
+    # breakpoint()
+    params += ['source_flux', 'deblend_flux']
+    cplot = corner.corner(new_states, labels=params, truths=best,
                          quantiles=[0.16,0.50,0.84], show_titles=True)
     if pdf:
-        pdf.savefig(fig1)
+        pdf.savefig(cplot)
     else:
         plt.show()
     event = plot_fit(best, dataset, labels, lims, orig_data, pdf=pdf)
 
-    return event
+    return event, cplot
 
 def tracer_plot(parameters_to_fit, sampler, nburn, pdf=""):
     """
@@ -308,7 +338,7 @@ def plot_fit(best, dataset, labels, lims, orig_data=[], best_50=[], pdf=""):
     ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
     if len(best) == 3:
         model = mm.Model({'t_0': best[0], 'u_0': best[1], 't_E': best[2]})
-    elif len(best) == 5:
+    elif len(best) >= 5:
         model = mm.Model({'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best[2],
                           'u_0_2': best[3], 't_E': best[4]})
     event = mm.Event(model=model, datasets=[dataset])
