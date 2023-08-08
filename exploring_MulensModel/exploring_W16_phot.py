@@ -38,8 +38,8 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
         continue
     # idx += 1
     # if idx < 53: continue
-    # if dat_file != "PAR-09.dat": # "PAR-09.dat":
-    #     continue
+    if dat_file != "PAR-06.dat": # "PAR-09.dat":
+        continue
     print(f'\n\033[1m * Running fit for {dat_file}\033[0m')
     tab = Table.read(f'./W16_photometry/{dat_file}', format='ascii')
     my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
@@ -73,7 +73,7 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
 
     pdf = PdfPages(f"W16_output/{dat_file.split('.')[0]}_fit.pdf")
     # try:
-    if len(best) == 5 + 2:
+    if len(best) == 5 + 3:
         labels = [f"t_0_1 = {best[0]:.2f}\nu_0_1 = {best[1]:.2f}\nt_0_2 = "+
                   f"{best[2]:.2f}\nu_0_2 = {best[3]:.2f}\nt_E = {best[4]:.2f}",
                   ""]

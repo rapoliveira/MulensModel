@@ -31,14 +31,11 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     # 1st fit: Fitting a PSPL/1L1S without parallax...
     mag_ids = np.argsort(my_dataset.mag)
     t_brightest = np.mean(my_dataset.time[mag_ids][:10])
-    # params = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': t_0_2-t_0_1}
     params = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 20}
-    my_model = mm.Model(params)
-    my_event = mm.Event(datasets=my_dataset, model=my_model)
+    my_event = mm.Event(datasets=my_dataset, model=mm.Model(params))
     parameters_to_fit = ['t_0', 'u_0', 't_E']
     sigmas = [1., 0.05, 1.]
-    msg = "This can take some time..."
-    print(f"\n\033[1m -- First fit: PSPL to raw data. {msg}\033[0m")
+    print("\n\033[1m -- First fit: PSPL to raw data...\033[0m")
     nwlk, nstep, nburn = n_emcee.values()
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn)
@@ -46,13 +43,14 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     model_0 = mm.Model({'t_0': best[0], 'u_0': best[1], 't_E': best[2]})
     event_0 = mm.Event(model=model_0, datasets=[my_dataset])    # repeated!!!
 
-    # Subtracting light curve from first fit (before plotting to get t_0_2)
-    (_, blend_flux_0) = event_0.get_flux_for_dataset(0)
-    flux_subt = my_dataset.flux - event_0.fits[0].get_model_fluxes() + _ + blend_flux_0
+    # Subtracting light curve from first fit
+    (flux1, blend_flux_0) = event_0.get_flux_for_dataset()
+    flux_subt = my_dataset.flux - event_0.fits[0].get_model_fluxes() + flux1 + blend_flux_0
     # subtracted_data = [my_dataset.time, flux_subt, my_dataset.err_flux]
     subtracted_data = [my_dataset.time[flux_subt > 0], flux_subt[flux_subt > 0],
                        my_dataset.err_flux[flux_subt > 0]]
     my_dataset_2 = mm.MulensData(subtracted_data, phot_fmt='flux')
+    breakpoint()
 
     mag_ids = np.argsort(my_dataset_2.mag)
     t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
@@ -66,11 +64,10 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
 
     # 2nd fit: ... PSPL to the subtracted data
     params = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': best[2]}
-    my_model = mm.Model(params)
-    my_event = mm.Event(datasets=my_dataset_2, model=my_model)
+    my_event = mm.Event(datasets=my_dataset_2, model=mm.Model(params))
     parameters_to_fit = ['t_0', 'u_0', 't_E']
     sigmas = [1., 0.05, 1.]
-    print(f"\n\033[1m -- Second fit: PSPL to subtracted data. {msg}\033[0m")
+    print("\n\033[1m -- Second fit: PSPL to subtracted data.\033[0m")
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn, spec="u_0")
     best_1, pars_quant_1, states_1, sampler_1 = output
@@ -86,12 +83,11 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     params = {'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best_1[0],
               'u_0_2': best_1[1], 't_E': best_1[2]}
-    my_model = mm.Model(params)
-    my_event = mm.Event(datasets=my_dataset, model=my_model)
+    my_event = mm.Event(datasets=my_dataset, model=mm.Model(params))
     # params['flux_ratio'] = 1 # 0.02
     parameters_to_fit = ["t_0_1", "u_0_1", "t_0_2", "u_0_2", "t_E"] #, "flux_ratio"]
     sigmas = [0.1, 0.05, 1., 0.01, 0.1] #, 0.001]
-    print(f"\n\033[1m -- Third fit: 1L2S to original data. {msg}\033[0m")
+    print("\n\033[1m -- Third fit: 1L2S to original data.\033[0m")
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn)
     best_2, pars_quant_2, states_2, sampler_2 = output
@@ -102,7 +98,6 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
                                       nburn, best_2, my_dataset, labels, lims,
                                       pdf=pdf)
     
-    # breakpoint()
     # if max(np.quantile(states_2[:,1],0.84), np.quantile(states_2[:,3],0.84)) > 3:
     # if max(best_2[1], best_2[3]) > 2.9:     ### or after cleaning chains...
     if max(pars_quant_2['u_0_1'][2], pars_quant_2['u_0_2'][2]) > 3.:
@@ -128,7 +123,7 @@ def ln_prior(theta, event, params_to_fit, spec=""):
         if param in params_to_fit:
             if theta[params_to_fit.index(param)] < 0.:
                 return -np.inf
-    event.get_chi2()
+    # event.get_chi2()
     # if min(event.source_fluxes[0]) < -50000 or event.blend_fluxes[0] < -50000:
     #     return -np.inf
     # if max(event.source_fluxes[0]) > 10000:
