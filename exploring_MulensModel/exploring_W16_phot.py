@@ -38,8 +38,8 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
         continue
     # idx += 1
     # if idx < 53: continue
-    if dat_file != "PAR-09.dat": # "PAR-09.dat":
-        continue
+    # if dat_file != "PAR-09.dat": # "PAR-09.dat":
+    #     continue
     print(f'\n\033[1m * Running fit for {dat_file}\033[0m')
     tab = Table.read(f'./W16_photometry/{dat_file}', format='ascii')
     my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
@@ -54,8 +54,8 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
     # Fix the seed for the random number generator so the behavior is reproducible.
     np.random.seed(12343)
 
-    # nwlk, nstep, nburn = 20, 3000, 1500     
-    n_emcee = {'nwalk': 20, 'nstep': 10000, 'nburn': 5000} # 20, 10000, 5000
+    # nwlk, nstep, nburn = 20, 3000, 1500 # 20, 10000, 5000    
+    n_emcee = {'nwalk': 20, 'nstep': 10000, 'nburn': 5000}
     # my_dataset, event_orig, t_0_1, t_0_2 = sim_data_ex11()
     # t_0_1, t_0_2 = 2000, 3000
 
@@ -72,13 +72,15 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
     pdf.close()
 
     pdf = PdfPages(f"W16_output/{dat_file.split('.')[0]}_fit.pdf")
-    try:
+    # try:
+    if len(best) == 5 + 2:
         labels = [f"t_0_1 = {best[0]:.2f}\nu_0_1 = {best[1]:.2f}\nt_0_2 = "+
                   f"{best[2]:.2f}\nu_0_2 = {best[3]:.2f}\nt_E = {best[4]:.2f}",
                   ""]
         lims = sorted([best[0], best[2]])
         lims = [lims[0]-3*best[4], lims[1]+3*best[4]]
-    except Exception:
+    # except Exception:
+    else:
         labels = [f"t_0 = {best[0]:.2f}\nu_0 = {best[1]:.2f}\nt_E = "+
                   f"{best[2]:.2f}", ""]
         lims = [best[0] - 3*best[2], best[0] + 3*best[2]]

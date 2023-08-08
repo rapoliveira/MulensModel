@@ -62,7 +62,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
                 best[0] + 2*abs(best[0] - t_brightest)]
     labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
     event_0, cplot = make_three_plots(parameters_to_fit, sampler, states, nburn,
-                                      best, my_dataset, labels, lims) #, pdf=pdf)
+                                      best, my_dataset, labels, lims, pdf=pdf)
 
     # 2nd fit: ... PSPL to the subtracted data
     params = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': best[2]}
@@ -128,6 +128,12 @@ def ln_prior(theta, event, params_to_fit, spec=""):
         if param in params_to_fit:
             if theta[params_to_fit.index(param)] < 0.:
                 return -np.inf
+    event.get_chi2()
+    # if min(event.source_fluxes[0]) < -50000 or event.blend_fluxes[0] < -50000:
+    #     return -np.inf
+    # if max(event.source_fluxes[0]) > 10000:
+    #     return -np.inf
+
     t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
     if spec:    # 15, 100, 1000 or nothing?
         # if theta[params_to_fit.index('u_0')] > 1000. or \
@@ -144,16 +150,15 @@ def ln_prob(theta, event, parameters_to_fit, spec=""):
     """ combines likelihood and priors"""
     ln_prior_ = ln_prior(theta, event, parameters_to_fit, spec)
     if not np.isfinite(ln_prior_):
-        return -np.inf, -np.inf #, -np.inf
+        return -np.inf, np.array([-np.inf,-np.inf]), -np.inf
     ln_like_ = ln_like(theta, event, parameters_to_fit)
 
     # In the cases that source fluxes are negative we want to return
     # these as if they were not in priors.
     if np.isnan(ln_like_):
-        return -np.inf, -np.inf #, -np.inf
-    # breakpoint()
+        return -np.inf, np.array([-np.inf,-np.inf]), -np.inf
 
-    return ln_prior_ + ln_like_, event.fluxes #, ln_prior_
+    return ln_prior_ + ln_like_, event.source_fluxes[0], event.blend_fluxes[0]
 
 def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
               n_walkers=20, n_steps=3000, n_burn=1500, spec=""):
@@ -175,9 +180,10 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
     start = abs(np.array(start))
 
     # Run emcee (this can take some time):
-    dtype = [("event_fluxes", list)] #, ("log_prior", float)]
+    # dtype = [("event_fluxes", list)] #, ("log_prior", float)]
+    blobs_type = [('source_fluxes', list), ('blend_fluxes', float)]
     sampler = emcee.EnsembleSampler(n_walkers, n_dim, ln_prob,
-                                    blobs_dtype=dtype,
+                                    blobs_dtype=blobs_type,
                                     args=(event, parameters_to_fit, spec))
     # sampler = emcee.EnsembleSampler(
     #     n_walkers, n_dim, ln_prob,
@@ -196,12 +202,16 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
 
     # Remove burn-in samples and reshape:
     samples = sampler.chain[:, n_burn:, :].reshape((-1, n_dim))
-    fluxes = sampler.get_blobs()[n_burn:].reshape(-1)#[:10]
-    fluxes = list(chain.from_iterable(chain.from_iterable(fluxes)))
-    source_flux = list(chain.from_iterable(fluxes))[::2]
-    source_flux = np.array([item[0] for item in source_flux])
-    deblend_flux = np.array(list(chain.from_iterable(fluxes))[1::2])
-    samples = np.c_[samples, source_flux, deblend_flux]
+    blobs = sampler.get_blobs()[n_burn:].reshape(-1) # [:10]
+    source_fluxes = np.array(list(chain.from_iterable(blobs))[::2])
+    blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
+    if len(parameters_to_fit) == 3:
+        samples = np.c_[samples, source_fluxes[:,0], blend_flux]
+    elif len(parameters_to_fit) == 5:
+        samples = np.c_[samples, source_fluxes[:,0], source_fluxes[:,1],
+                        blend_flux]
+    else:
+        raise RuntimeError('Wrong number of dimensions')
     # breakpoint()
 
     # Results:
@@ -226,10 +236,11 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
     print("chi2 = ", event.get_chi2())
 
     new_states, pars_quant = clean_posterior_emcee(sampler, best, n_burn)
-    pars_quant = dict(zip(parameters_to_fit, pars_quant.T))
 
-    breakpoint()
+    if new_states is None:
+        return best, results, samples, sampler
     
+    pars_quant = dict(zip(parameters_to_fit, pars_quant.T))
     # return best, pars_best, event.get_chi2(), states, sampler
     return best, pars_quant, new_states, sampler
 
@@ -257,23 +268,29 @@ def clean_posterior_emcee(sampler, params, n_burn):
     tau = sampler.get_autocorr_time(tol=0)
     acc = sampler.acceptance_fraction
     w = np.where(abs(acc-np.median(acc)) < min(0.1,3*np.std(acc)))
+
+    if len(w[0]) == 0:
+        return None, None
     # states = sampler.chain[w[0],burnin::thin,:].copy()  # with thinning
     new_states = sampler.chain[w[0],n_burn::,:].copy()  # no thinning
     gwlk, nthin, npars = np.shape(new_states)
+    new_states = np.reshape(new_states,[gwlk*nthin, npars])
 
+    # Trying to add the source_fluxes after flattening...
+    blobs = sampler.get_blobs().T # [:10]
+    blobs = blobs[w[0],n_burn:].reshape(-1)
+    source_fluxes = np.array(list(chain.from_iterable(blobs))[::2])
+    blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
+    if npars == 3:
+        new_states = np.c_[new_states, source_fluxes[:,0], blend_flux]
+    elif npars == 5:
+        new_states = np.c_[new_states, source_fluxes[:,0], source_fluxes[:,1],
+                           blend_flux]
     # breakpoint()
-    # fluxes = sampler.get_blobs()[n_burn:][:,w[0]]
-    # fluxes = list(chain.from_iterable(chain.from_iterable(fluxes)))
-    # source_flux = list(chain.from_iterable(fluxes))[::2]
-    # source_flux = np.array([item[0] for item in source_flux]).T
-    # deblend_flux = np.array(list(chain.from_iterable(fluxes))[1::2]).T
-    # breakpoint()
-    # new_states
-    # samples = np.c_[samples, source_flux, deblend_flux]
 
     # new_samples = samples[w[0]].copy()[npars:.]
     # breakpoint()
-    new_states = np.reshape(new_states,[gwlk*nthin, npars])
+    
     n_rej, perc_rej = sampler.nwalkers-gwlk, 100*(1-gwlk/sampler.nwalkers)
     print(f'Obs: {n_rej} walkers ({round(perc_rej)}%) were rejected')
     
@@ -301,10 +318,12 @@ def make_three_plots(params, sampler, new_states, nburn, best, dataset, labels,
     plot results
     """
     tracer_plot(params, sampler, nburn, pdf=pdf)
-    # breakpoint()
-    params += ['source_flux', 'deblend_flux']
+    if new_states.shape[1] == len(params) + 2:
+        params += ['source_flux', 'blending_flux']
+    elif new_states.shape[1] == len(params) + 3:
+        params += ['source_flux_1', 'source_flux_2', 'blending_flux']
     cplot = corner.corner(new_states, labels=params, truths=best,
-                         quantiles=[0.16,0.50,0.84], show_titles=True)
+                          quantiles=[0.16,0.50,0.84], show_titles=True)
     if pdf:
         pdf.savefig(cplot)
     else:
@@ -336,9 +355,9 @@ def plot_fit(best, dataset, labels, lims, orig_data=[], best_50=[], pdf=""):
     fig = plt.figure(figsize=(7.5,5.5))
     gs = GridSpec(3, 1, figure=fig)
     ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
-    if len(best) == 3:
+    if len(best)-2 == 3:
         model = mm.Model({'t_0': best[0], 'u_0': best[1], 't_E': best[2]})
-    elif len(best) >= 5:
+    elif len(best)-2 >= 5:
         model = mm.Model({'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best[2],
                           'u_0_2': best[3], 't_E': best[4]})
     event = mm.Event(model=model, datasets=[dataset])
