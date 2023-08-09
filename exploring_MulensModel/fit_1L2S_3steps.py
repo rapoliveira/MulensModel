@@ -39,18 +39,17 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     nwlk, nstep, nburn = n_emcee.values()
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn)
-    best, pars_quant, states, sampler = output
+    best, pars_quant, samples, states, sampler = output
     model_0 = mm.Model({'t_0': best[0], 'u_0': best[1], 't_E': best[2]})
     event_0 = mm.Event(model=model_0, datasets=[my_dataset])    # repeated!!!
 
     # Subtracting light curve from first fit
-    (flux1, blend_flux_0) = event_0.get_flux_for_dataset()
-    flux_subt = my_dataset.flux - event_0.fits[0].get_model_fluxes() + flux1 + blend_flux_0
+    (flux, blend) = event_0.get_flux_for_dataset(0)
+    flux_subt = my_dataset.flux - event_0.fits[0].get_model_fluxes() + flux + blend
     # subtracted_data = [my_dataset.time, flux_subt, my_dataset.err_flux]
     subtracted_data = [my_dataset.time[flux_subt > 0], flux_subt[flux_subt > 0],
                        my_dataset.err_flux[flux_subt > 0]]
     my_dataset_2 = mm.MulensData(subtracted_data, phot_fmt='flux')
-    breakpoint()
 
     mag_ids = np.argsort(my_dataset_2.mag)
     t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
@@ -59,7 +58,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
         lims = [best[0] - 2*abs(best[0] - t_brightest),
                 best[0] + 2*abs(best[0] - t_brightest)]
     labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
-    event_0, cplot = make_three_plots(parameters_to_fit, sampler, states, nburn,
+    event_0, cplot = make_three_plots(parameters_to_fit, sampler, samples, states, nburn,
                                       best, my_dataset, labels, lims, pdf=pdf)
 
     # 2nd fit: ... PSPL to the subtracted data
@@ -70,13 +69,13 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     print("\n\033[1m -- Second fit: PSPL to subtracted data.\033[0m")
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn, spec="u_0")
-    best_1, pars_quant_1, states_1, sampler_1 = output
+    best_1, pars_quant_1, samples, states_1, sampler_1 = output
     # if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15?
     if pars_quant_1['u_0'][2] > 15:
         return event_0, best, cplot
     lims = [np.mean([best[0],best_1[0]]) - 2.5*abs(best[0]-best_1[0]),
             np.mean([best[0],best_1[0]]) + 2.5*abs(best[0]-best_1[0])]
-    event_1, cplot = make_three_plots(parameters_to_fit, sampler_1, states_1,
+    event_1, cplot = make_three_plots(parameters_to_fit, sampler_1, samples, states_1,
                                       nburn, best_1, my_dataset_2, labels, lims,
                                       my_dataset, pdf=pdf)
 
@@ -86,15 +85,15 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     my_event = mm.Event(datasets=my_dataset, model=mm.Model(params))
     # params['flux_ratio'] = 1 # 0.02
     parameters_to_fit = ["t_0_1", "u_0_1", "t_0_2", "u_0_2", "t_E"] #, "flux_ratio"]
-    sigmas = [0.1, 0.05, 1., 0.01, 0.1] #, 0.001]
+    sigmas = [0.1, 0.05, 0.1, 0.01, 0.1] #, 0.001]
     print("\n\033[1m -- Third fit: 1L2S to original data.\033[0m")
     output = fit_EMCEE(parameters_to_fit, params, sigmas, ln_prob, my_event,
                        n_walkers=nwlk, n_steps=nstep, n_burn=nburn)
-    best_2, pars_quant_2, states_2, sampler_2 = output
+    best_2, pars_quant_2, samples, states_2, sampler_2 = output
     labels = ["1L2S, max_prob", "1L2S, 50th_perc"]
     lims = sorted([best_2[0], best_2[2]])
     lims = [lims[0]-3*best_2[4], lims[1]+3*best_2[4]]
-    event_2, cplot = make_three_plots(parameters_to_fit, sampler_2, states_2,
+    event_2, cplot = make_three_plots(parameters_to_fit, sampler_2, samples, states_2,
                                       nburn, best_2, my_dataset, labels, lims,
                                       pdf=pdf)
     
@@ -123,12 +122,8 @@ def ln_prior(theta, event, params_to_fit, spec=""):
         if param in params_to_fit:
             if theta[params_to_fit.index(param)] < 0.:
                 return -np.inf
-    # event.get_chi2()
-    # if min(event.source_fluxes[0]) < -50000 or event.blend_fluxes[0] < -50000:
-    #     return -np.inf
-    # if max(event.source_fluxes[0]) > 10000:
-    #     return -np.inf
 
+    # Additional priors distributions:
     t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
     if spec:    # 15, 100, 1000 or nothing?
         # if theta[params_to_fit.index('u_0')] > 1000. or \
@@ -139,7 +134,35 @@ def ln_prior(theta, event, params_to_fit, spec=""):
     sigma = 2 if len(params_to_fit) == 3 else 5
     ln_prior_t_E = - (np.log(t_E) - np.log(25))**2 / (2*np.log(sigma)**2)
     ln_prior_t_E += np.log(1/(np.sqrt(2*np.pi)*np.log(sigma)))
-    return 0.0 + ln_prior_t_E
+
+    # Trying to limit negative source/blending fluxes:
+    _ = event.get_chi2()
+    # if min(event.source_fluxes[0]) < -50000 or event.blend_fluxes[0] < -50000:
+    #     return -np.inf
+    # if max(event.source_fluxes[0]) > 10000:
+    #     return -np.inf
+    # breakpoint()
+    
+    #ln_prior_fluxes = 0
+    #for flux in [*event.source_fluxes[0], event.blend_fluxes[0]]:
+    #    if flux < 0.:
+    #        ln_prior_fluxes += - 1/2 * (flux/1000)**2
+    
+    """
+    min_flux = min([min(event.source_fluxes[0]), event.blend_fluxes[0]])
+    # # min_flux = min(event.source_fluxes[0])
+    if min_flux < 0:
+        # ln_prior_fluxes = - 1/2 * (np.log(abs(min_flux))/np.log(2))**2
+        # ln_prior_fluxes += np.log(1/(np.sqrt(2*np.pi)*np.log(2)))
+        # ln_prior_fluxes = - 1/2 * (min_flux/2)**2  # sigma = 2
+        ln_prior_fluxes = - 1/2 * (min_flux/10)**2  # sigma = 0.1
+        # breakpoint()  # min_flux -> abs(min_flux)
+        # print(_)  # Radek: printing the chi2 value (144k -> 6000)
+    else:
+        ln_prior_fluxes = 0.
+    """
+
+    return 0.0 + ln_prior_t_E # + ln_prior_fluxes
 
 def ln_prob(theta, event, parameters_to_fit, spec=""):
     """ combines likelihood and priors"""
@@ -174,12 +197,19 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
     start = [mean + np.random.randn(n_dim) * sigmas for i in range(n_walkers)]
     start = abs(np.array(start))
 
+    # Setting up backend h5
+    # breakpoint()
+    # backfile = 'rprof.'+ 'test' +'.h5'
+    # backend = emcee.backends.HDFBackend(backfile, name='test')
+    # backend.reset(n_walkers, len(parameters_to_fit))
+
     # Run emcee (this can take some time):
     # dtype = [("event_fluxes", list)] #, ("log_prior", float)]
     blobs_type = [('source_fluxes', list), ('blend_fluxes', float)]
     sampler = emcee.EnsembleSampler(n_walkers, n_dim, ln_prob,
                                     blobs_dtype=blobs_type,
                                     args=(event, parameters_to_fit, spec))
+                                    # backend=backend)
     # sampler = emcee.EnsembleSampler(
     #     n_walkers, n_dim, ln_prob,
     #     moves=[(emcee.moves.DEMove(),0.8),(emcee.moves.DESnookerMove(),0.2)],
@@ -231,13 +261,14 @@ def fit_EMCEE(parameters_to_fit, starting_params, sigmas, ln_prob, event,
     print("chi2 = ", event.get_chi2())
 
     new_states, pars_quant = clean_posterior_emcee(sampler, best, n_burn)
+    # breakpoint()
 
     if new_states is None:
-        return best, results, samples, sampler
+        return best, results, samples, samples, sampler
     
     pars_quant = dict(zip(parameters_to_fit, pars_quant.T))
     # return best, pars_best, event.get_chi2(), states, sampler
-    return best, pars_quant, new_states, sampler
+    return best, pars_quant, samples, new_states, sampler
 
 def clean_posterior_emcee(sampler, params, n_burn):
     """
@@ -307,7 +338,7 @@ def clean_posterior_emcee(sampler, params, n_burn):
 
     return new_states, np.quantile(new_states,[0.16,0.50,0.84],axis=0)
 
-def make_three_plots(params, sampler, new_states, nburn, best, dataset, labels,
+def make_three_plots(params, sampler, samples, new_states, nburn, best, dataset, labels,
                      lims, orig_data=[], pdf=""):
     """
     plot results
@@ -317,6 +348,15 @@ def make_three_plots(params, sampler, new_states, nburn, best, dataset, labels,
         params += ['source_flux', 'blending_flux']
     elif new_states.shape[1] == len(params) + 3:
         params += ['source_flux_1', 'source_flux_2', 'blending_flux']
+    
+    # saving the states to file
+    from astropy.table import Table
+    table = Table(samples, names=params)
+    prob = sampler.lnprobability[:, nburn:].reshape((-1))
+    table.add_column(prob, name="ln_prob")
+    table.write("xxx.txt", format='ascii', overwrite=True)
+    # breakpoint()
+
     cplot = corner.corner(new_states, labels=params, truths=best,
                           quantiles=[0.16,0.50,0.84], show_titles=True)
     if pdf:

@@ -38,7 +38,7 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
         continue
     # idx += 1
     # if idx < 53: continue
-    if dat_file != "PAR-06.dat": # "PAR-09.dat":
+    if dat_file != "PAR-09.dat": # "PAR-09.dat":
         continue
     print(f'\n\033[1m * Running fit for {dat_file}\033[0m')
     tab = Table.read(f'./W16_photometry/{dat_file}', format='ascii')
@@ -55,7 +55,7 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
     np.random.seed(12343)
 
     # nwlk, nstep, nburn = 20, 3000, 1500 # 20, 10000, 5000    
-    n_emcee = {'nwalk': 20, 'nstep': 10000, 'nburn': 5000}
+    n_emcee = {'nwalk': 20, 'nstep': 3000, 'nburn': 1500}
     # my_dataset, event_orig, t_0_1, t_0_2 = sim_data_ex11()
     # t_0_1, t_0_2 = 2000, 3000
 
@@ -87,7 +87,7 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
     fit_1L2S.plot_fit(best, my_dataset, labels, lims, pdf=pdf)
     # event = plot_fit(best, dataset, labels, lims, orig_data, pdf=pdf)
     pdf.close()
-    print(f", {dat_file.split('.')[0]}_fit.pdf", end='')
+    print(f", {dat_file.split('.')[0]}_fit.pdf", end=' ')
 
     with open(f"W16_output/txt/{dat_file.split('.')[0]}.txt", 'w') as txt:
         txt.truncate()
