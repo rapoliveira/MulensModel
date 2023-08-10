@@ -196,6 +196,17 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
     start = [mean + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
     start = abs(np.array(start))
 
+    # Doing the 1L2S fitting in two steps
+    if n_dim == 5:
+        sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob,
+                                        args=(event, params_to_fit, spec))
+        sampler.run_mcmc(start, int(nstep/3), progress=n_emcee['tqdm'])
+        samples = sampler.chain[:, int(nburn/3):, :].reshape((-1, n_dim))
+        results = np.percentile(samples, 50, axis=0)
+        start = [results + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
+        start = abs(np.array(start))
+        #breakpoint()
+
     # Run emcee (this can take some time):
     # dtype = [("event_fluxes", list)] #, ("log_prior", float)]
     blobs_type = [('source_fluxes', list), ('blend_fluxes', float)]
