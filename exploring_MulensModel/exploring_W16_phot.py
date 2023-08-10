@@ -55,7 +55,7 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
     np.random.seed(12343)
 
     # nwlk, nstep, nburn = 20, 3000, 1500 # 20, 10000, 5000    
-    n_emcee = {'nwalk':20, 'nstep':3000, 'nburn':1500, 'ans':'best',
+    n_emcee = {'nwlk':20, 'nstep':3000, 'nburn':1500, 'ans':'best',
                'clean_cplot': True}
     # my_dataset, event_orig, t_0_1, t_0_2 = sim_data_ex11()
     # t_0_1, t_0_2 = 2000, 3000

@@ -16,15 +16,14 @@ except ImportError as err:
     print("and re-run the script")
     sys.exit(1)
 
+from astropy.table import Table
 from itertools import chain
 import MulensModel as mm
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.gridspec import GridSpec
-import multiprocessing
+# import multiprocessing
 import numpy as np
-import os
-from tqdm import tqdm
+# import os
 
 def make_all_fittings(my_dataset, n_emcee, pdf=""):
 
@@ -194,15 +193,11 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
     """
     n_dim = len(params_to_fit)
     mean = [starting_params[p] for p in params_to_fit]
-    nwlk, nstep, nburn, ans, clean = n_emcee.values()
+    nwlk, nstep, nburn = n_emcee['nwlk'], n_emcee['nstep'], n_emcee['nburn']
     start = [mean + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
     start = abs(np.array(start))
 
-    # Setting up backend h5
-    # breakpoint()
-    # backfile = 'rprof.'+ 'test' +'.h5'
-    # backend = emcee.backends.HDFBackend(backfile, name='test')
-    # backend.reset(nwlk, len(params_to_fit))
+    # if params_to_fit
 
     # Run emcee (this can take some time):
     # dtype = [("event_fluxes", list)] #, ("log_prior", float)]
@@ -231,14 +226,14 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
     blobs = sampler.get_blobs()[nburn:].reshape(-1) # [:10]
     source_fluxes = np.array(list(chain.from_iterable(blobs))[::2])
     blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
+    prob = sampler.lnprobability[:, nburn:].reshape((-1))
     if len(params_to_fit) == 3:
-        samples = np.c_[samples, source_fluxes[:,0], blend_flux]
+        samples = np.c_[samples, source_fluxes[:,0], blend_flux, prob]
     elif len(params_to_fit) == 5:
         samples = np.c_[samples, source_fluxes[:,0], source_fluxes[:,1],
-                        blend_flux]
+                        blend_flux, prob]
     else:
         raise RuntimeError('Wrong number of dimensions')
-    # breakpoint()
 
     # Results:
     results = np.percentile(samples, [16, 50, 84], axis=0)
@@ -249,9 +244,9 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
         print(msg.format(r, results[2, i]-r, r-results[0, i]))
 
     # We extract best model parameters and chi2 from event:
-    prob = sampler.lnprobability[:, nburn:].reshape((-1))
     best_index = np.argmax(prob)
-    best = samples[best_index, :]
+    # breakpoint()
+    best = samples[best_index, :-1]
     for (key, value) in zip(params_to_fit, best):
         if key == 'flux_ratio':
             event.fix_source_flux_ratio = {event.datasets[0]: value}
@@ -261,15 +256,15 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
     print(*[repr(b) if isinstance(b, float) else b.value for b in best])
     print("chi2 = ", event.get_chi2())
 
-    new_states, pars_quant = clean_posterior_emcee(sampler, best, nburn)
-    breakpoint()
+    if n_emcee['clean_cplot']:
+        new_states, pars_quant = clean_posterior_emcee(sampler, best, nburn)
+        pars_quant = dict(zip(params_to_fit, pars_quant.T))
+        if new_states is None:
+            return best, results, samples, samples, sampler
+        return best, pars_quant, samples, new_states, sampler
 
-    if new_states is None:
-        return best, results, samples, samples, sampler
-    
-    pars_quant = dict(zip(params_to_fit, pars_quant.T))
-    # return best, pars_best, event.get_chi2(), states, sampler
-    return best, pars_quant, samples, new_states, sampler
+    # return best, pars_best, event.get_chi2(), states, sampler    
+    return best, results, samples, samples, sampler
 
 def clean_posterior_emcee(sampler, params, n_burn):
     """
@@ -351,11 +346,8 @@ def make_three_plots(params, sampler, samples, new_states, nburn, best, dataset,
         params += ['source_flux_1', 'source_flux_2', 'blending_flux']
     
     # saving the states to file
-    from astropy.table import Table
-    table = Table(samples, names=params)
-    prob = sampler.lnprobability[:, nburn:].reshape((-1))
-    table.add_column(prob, name="ln_prob")
-    table.write("xxx.txt", format='ascii', overwrite=True)
+    table = Table(samples, names=params+['ln_prob'])
+    table.write("chains.txt", format='ascii', overwrite=True)
     # breakpoint()
 
     cplot = corner.corner(new_states, labels=params, truths=best,
@@ -392,14 +384,13 @@ def plot_fit(best, dataset, labels, lims, orig_data=[], best_50=[], pdf=""):
     gs = GridSpec(3, 1, figure=fig)
     ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
     breakpoint()
-    if len(best) == 3:
+    if len(best) == 3+2:
         model = mm.Model({'t_0': best[0], 'u_0': best[1], 't_E': best[2]})
-    elif len(best) == 5:
+    elif len(best) == 5+3:
         model = mm.Model({'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best[2],
                           'u_0_2': best[3], 't_E': best[4]})
     event = mm.Event(model=model, datasets=[dataset])
     data_label = "Original data" if not orig_data else "Subtracted data"
-    # breakpoint()
     event.plot_data(subtract_2450000=False, label=data_label)
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
                    't_start': lims[0], 't_stop': lims[1], 'zorder': 10,
