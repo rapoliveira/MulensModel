@@ -56,37 +56,34 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
 
     # nwlk, nstep, nburn = 20, 3000, 1500 # 20, 10000, 5000    
     n_emcee = {'nwlk':20, 'nstep':3000, 'nburn':1500, 'ans':'best',
-               'clean_cplot': True}
+               'clean_cplot': False, 'tqdm': False}
     # my_dataset, event_orig, t_0_1, t_0_2 = sim_data_ex11()
     # t_0_1, t_0_2 = 2000, 3000
 
     pdf = PdfPages(f"W16_output/all_plots/{dat_file.split('.')[0]}_result.pdf")
-    event, best, cplot = fit_1L2S.make_all_fittings(my_dataset, n_emcee, pdf=pdf)
+    event, cplot = fit_1L2S.make_all_fittings(my_dataset, n_emcee, pdf=pdf)
     print("chi2_2 = ", event.get_chi2())
     # print("chi2 of model_orig = ", event_orig.get_chi2())
     pdf.close()
     print(f"Saved output: {dat_file.split('.')[0]}_result.pdf", end="")
-    # breakpoint()
 
     pdf = PdfPages(f"W16_output/{dat_file.split('.')[0]}_cplot.pdf")
     pdf.savefig(cplot)
     pdf.close()
 
-    pdf = PdfPages(f"W16_output/{dat_file.split('.')[0]}_fit.pdf")
-    # try:
-    if len(best) == 5 + 3:
-        labels = [f"t_0_1 = {best[0]:.2f}\nu_0_1 = {best[1]:.2f}\nt_0_2 = "+
-                  f"{best[2]:.2f}\nu_0_2 = {best[3]:.2f}\nt_E = {best[4]:.2f}",
-                  ""]
-        lims = sorted([best[0], best[2]])
-        lims = [lims[0]-3*best[4], lims[1]+3*best[4]]
-    # except Exception:
+    best, label = event.model.parameters.as_dict(), ''
+    for item in best:
+        label += f'{item} = {best[item]:.2f}\n'
+
+    # try: ...
+    if len(best) == 5:
+        lims = sorted([best['t_0_1'], best['t_0_2']])
+        lims = [lims[0]-3*best['t_E'].value, lims[1]+3*best['t_E'].value]
     else:
-        labels = [f"t_0 = {best[0]:.2f}\nu_0 = {best[1]:.2f}\nt_E = "+
-                  f"{best[2]:.2f}", ""]
-        lims = [best[0] - 3*best[2], best[0] + 3*best[2]]
-    fit_1L2S.plot_fit(best, my_dataset, labels, lims, pdf=pdf)
-    # event = plot_fit(best, dataset, labels, lims, orig_data, pdf=pdf)
+        lims = [best['t_0'] - 3*best['t_E'].value,
+                best['t_0'] + 3*best['t_E'].value]
+    pdf = PdfPages(f"W16_output/{dat_file.split('.')[0]}_fit.pdf")
+    fit_1L2S.plot_fit(best, my_dataset, [label[:-1],""], lims, pdf=pdf)
     pdf.close()
     print(f", {dat_file.split('.')[0]}_fit.pdf", end=' ')
 

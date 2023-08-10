@@ -39,7 +39,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
                        n_emcee)
     best, pars_quant, samples, states, sampler = output
-    model_0 = mm.Model({'t_0': best[0], 'u_0': best[1], 't_E': best[2]})
+    model_0 = mm.Model(dict(list(best.items())[:3]))
     event_0 = mm.Event(model=model_0, datasets=[my_dataset])    # repeated!!!
 
     # Subtracting light curve from first fit
@@ -52,16 +52,16 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
 
     mag_ids = np.argsort(my_dataset_2.mag)
     t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
-    lims = [best[0] - 3*best[2], best[0] + 3*best[2]]
+    lims = [best['t_0'] - 3*best['t_E'], best['t_0'] + 3*best['t_E']]
     if lims[0] < min(my_dataset.time):
-        lims = [best[0] - 2*abs(best[0] - t_brightest),
-                best[0] + 2*abs(best[0] - t_brightest)]
+        lims = [best['t_0'] - 2*abs(best['t_0'] - t_brightest),
+                best['t_0'] + 2*abs(best['t_0'] - t_brightest)]
     labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
-    event_0, cplot = make_three_plots(params_to_fit, sampler, samples, states, nburn,
-                                      best, my_dataset, labels, lims, pdf=pdf)
+    event_0, cplot = make_three_plots(best, sampler, samples, states, nburn,
+                                      my_dataset, labels, lims, pdf=pdf)
 
     # 2nd fit: PSPL to the subtracted data
-    start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': best[2]}
+    start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': best['t_E']}
     my_event = mm.Event(datasets=my_dataset_2, model=mm.Model(start))
     params_to_fit = ['t_0', 'u_0', 't_E']
     sigmas = [1., 0.05, 1.]
@@ -71,16 +71,16 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     best_1, pars_quant_1, samples, states_1, sampler_1 = output
     # if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15?
     if pars_quant_1['u_0'][2] > 15:
-        return event_0, best, cplot
-    lims = [np.mean([best[0],best_1[0]]) - 2.5*abs(best[0]-best_1[0]),
-            np.mean([best[0],best_1[0]]) + 2.5*abs(best[0]-best_1[0])]
-    event_1, cplot = make_three_plots(params_to_fit, sampler_1, samples, states_1,
-                                      nburn, best_1, my_dataset_2, labels, lims,
+        return event_0, cplot
+    lims = [np.mean([best['t_0'],best_1['t_0']]) - 2.5*abs(best['t_0']-best_1['t_0']),
+            np.mean([best['t_0'],best_1['t_0']]) + 2.5*abs(best['t_0']-best_1['t_0'])]
+    event_1, cplot = make_three_plots(best_1, sampler_1, samples, states_1,
+                                      nburn, my_dataset_2, labels, lims,
                                       my_dataset, pdf=pdf)
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
-    start = {'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best_1[0],
-              'u_0_2': best_1[1], 't_E': best_1[2]}
+    start = {'t_0_1': best['t_0'], 'u_0_1': best['u_0'], 't_0_2': best_1['t_0'],
+             'u_0_2': best_1['u_0'], 't_E': 25}  # best_1['t_E']
     my_event = mm.Event(datasets=my_dataset, model=mm.Model(start))
     # params['flux_ratio'] = 1 # 0.02
     params_to_fit = ["t_0_1", "u_0_1", "t_0_2", "u_0_2", "t_E"] #, "flux_ratio"]
@@ -90,17 +90,16 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
                        n_emcee)
     best_2, pars_quant_2, samples, states_2, sampler_2 = output
     labels = ["1L2S, max_prob", "1L2S, 50th_perc"]
-    lims = sorted([best_2[0], best_2[2]])
-    lims = [lims[0]-3*best_2[4], lims[1]+3*best_2[4]]
-    event_2, cplot = make_three_plots(params_to_fit, sampler_2, samples, states_2,
-                                      nburn, best_2, my_dataset, labels, lims,
-                                      pdf=pdf)
+    lims = sorted([best_2['t_0_1'], best_2['t_0_1']])
+    lims = [lims[0]-3*best_2['t_E'], lims[1]+3*best_2['t_E']]
+    event_2, cplot = make_three_plots(best_2, sampler_2, samples, states_2,
+                                      nburn, my_dataset, labels, lims, pdf=pdf)
     
     # if max(np.quantile(states_2[:,1],0.84), np.quantile(states_2[:,3],0.84)) > 3:
     # if max(best_2[1], best_2[3]) > 2.9:     ### or after cleaning chains...
     if max(pars_quant_2['u_0_1'][2], pars_quant_2['u_0_2'][2]) > 3.:
-        return event_0, best, cplot
-    return event_2, best_2, cplot
+        return event_0, cplot
+    return event_2, cplot
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -197,8 +196,6 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
     start = [mean + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
     start = abs(np.array(start))
 
-    # if params_to_fit
-
     # Run emcee (this can take some time):
     # dtype = [("event_fluxes", list)] #, ("log_prior", float)]
     blobs_type = [('source_fluxes', list), ('blend_fluxes', float)]
@@ -210,7 +207,7 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
     #     nwlk, n_dim, ln_prob,
     #     moves=[(emcee.moves.DEMove(),0.8),(emcee.moves.DESnookerMove(),0.2)],
     #     args=(event, params_to_fit, spec))
-    sampler.run_mcmc(start, nstep, progress=True)
+    sampler.run_mcmc(start, nstep, progress=n_emcee['tqdm'])
     
     # Setting up multi-threading (std: fork in Linux, spawn in Mac)
     # multiprocessing.set_start_method("fork", force=True)
@@ -218,7 +215,7 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
     # with multiprocessing.Pool() as pool:
     #     sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, pool=pool,
     #                                     args=(event, params_to_fit, spec))
-    #     sampler.run_mcmc(start, nstep, progress=True)
+    #     sampler.run_mcmc(start, nstep, progress=n_emcee['tqdm'])
     # pool.close()
 
     # Remove burn-in samples and reshape:
@@ -243,17 +240,24 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
         msg = params_to_fit[i] + ": {:.5f} +{:.5f} -{:.5f}"
         print(msg.format(r, results[2, i]-r, r-results[0, i]))
 
+    # Adding source_fluxes to params_to_fit
+    if samples.shape[1]-1 == len(params_to_fit) + 2:
+        params_to_fit += ['source_flux', 'blending_flux']
+    elif samples.shape[1]-1 == len(params_to_fit) + 3:
+        params_to_fit += ['source_flux_1', 'source_flux_2', 'blending_flux']
+    results = dict(zip(params_to_fit, results.T))
+
     # We extract best model parameters and chi2 from event:
     best_index = np.argmax(prob)
-    # breakpoint()
-    best = samples[best_index, :-1]
-    for (key, value) in zip(params_to_fit, best):
+    # best = samples[best_index, :-1]
+    best = dict(zip(params_to_fit, samples[best_index, :-1]))
+    for (key, value) in zip(params_to_fit, best.values()):
         if key == 'flux_ratio':
             event.fix_source_flux_ratio = {event.datasets[0]: value}
         else:
             setattr(event.model.parameters, key, value)
     print("\nSmallest chi2 model:")
-    print(*[repr(b) if isinstance(b, float) else b.value for b in best])
+    print(*[repr(b) if isinstance(b, float) else b.value for b in best.values()])
     print("chi2 = ", event.get_chi2())
 
     if n_emcee['clean_cplot']:
@@ -262,7 +266,7 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
         if new_states is None:
             return best, results, samples, samples, sampler
         return best, pars_quant, samples, new_states, sampler
-
+    
     # return best, pars_best, event.get_chi2(), states, sampler    
     return best, results, samples, samples, sampler
 
@@ -303,12 +307,12 @@ def clean_posterior_emcee(sampler, params, n_burn):
     blobs = blobs[w[0],n_burn:].reshape(-1)
     source_fluxes = np.array(list(chain.from_iterable(blobs))[::2])
     blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
+    prob = sampler.lnprobability[w[0], n_burn:].reshape(-1)
     if npars == 3:
-        new_states = np.c_[new_states, source_fluxes[:,0], blend_flux]
+        new_states = np.c_[new_states, source_fluxes[:,0], blend_flux, prob]
     elif npars == 5:
         new_states = np.c_[new_states, source_fluxes[:,0], source_fluxes[:,1],
-                           blend_flux]
-    # breakpoint()
+                           blend_flux, prob]
 
     # new_samples = samples[w[0]].copy()[npars:.]
     # breakpoint()
@@ -334,29 +338,27 @@ def clean_posterior_emcee(sampler, params, n_burn):
 
     return new_states, np.quantile(new_states,[0.16,0.50,0.84],axis=0)
 
-def make_three_plots(params, sampler, samples, new_states, nburn, best, dataset, labels,
+def make_three_plots(best, sampler, samples, new_states, nburn, dataset, labels,
                      lims, orig_data=[], pdf=""):
     """
     plot results
     """
+    params, values = list(best.keys()), list(best.values())
     tracer_plot(params, sampler, nburn, pdf=pdf)
-    if new_states.shape[1] == len(params) + 2:
-        params += ['source_flux', 'blending_flux']
-    elif new_states.shape[1] == len(params) + 3:
-        params += ['source_flux_1', 'source_flux_2', 'blending_flux']
     
     # saving the states to file
     table = Table(samples, names=params+['ln_prob'])
     table.write("chains.txt", format='ascii', overwrite=True)
-    # breakpoint()
 
-    cplot = corner.corner(new_states, labels=params, truths=best,
+    cplot = corner.corner(new_states[:,:-1], labels=params, truths=values,
                           quantiles=[0.16,0.50,0.84], show_titles=True)
     if pdf:
         pdf.savefig(cplot)
     else:
         plt.show()
-    event = plot_fit(best[:-2], dataset, labels, lims, orig_data, pdf=pdf)
+    
+    fit = dict(item for item in list(best.items()) if 'flux' not in item[0])
+    event = plot_fit(fit, dataset, labels, lims, orig_data, pdf=pdf)
 
     return event, cplot
 
@@ -364,8 +366,8 @@ def tracer_plot(params_to_fit, sampler, nburn, pdf=""):
     """
     Plot tracer plots (or walkers' time series)
     """
-    npars = len(params_to_fit)
-    fig, axes = plt.subplots(npars, 1, sharex=True, figsize=(10,10) )
+    npars = sampler.ndim
+    fig, axes = plt.subplots(npars, 1, sharex=True, figsize=(10,10))
     for i in range(npars):
         axes[i].plot(np.array(sampler.chain[:,:,i]).T,rasterized=True)
         axes[i].axvline(x=nburn, ls='--', color='gray', lw=1.5)
@@ -383,13 +385,13 @@ def plot_fit(best, dataset, labels, lims, orig_data=[], best_50=[], pdf=""):
     fig = plt.figure(figsize=(7.5,5.5))
     gs = GridSpec(3, 1, figure=fig)
     ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
-    breakpoint()
-    if len(best) == 3+2:
-        model = mm.Model({'t_0': best[0], 'u_0': best[1], 't_E': best[2]})
-    elif len(best) == 5+3:
-        model = mm.Model({'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best[2],
-                          'u_0_2': best[3], 't_E': best[4]})
-    event = mm.Event(model=model, datasets=[dataset])
+    # model = mm.Model(best)
+    # if len(best) == 3:
+    #     model = mm.Model({'t_0': best[0], 'u_0': best[1], 't_E': best[2]})
+    # elif len(best) == 5:
+    #     model = mm.Model({'t_0_1': best[0], 'u_0_1': best[1], 't_0_2': best[2],
+    #                       'u_0_2': best[3], 't_E': best[4]})
+    event = mm.Event(model=mm.Model(best), datasets=[dataset])
     data_label = "Original data" if not orig_data else "Subtracted data"
     event.plot_data(subtract_2450000=False, label=data_label)
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
