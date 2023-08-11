@@ -35,7 +35,6 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     params_to_fit = ['t_0', 'u_0', 't_E']
     sigmas = [1., 0.05, 1.]
     print("\n\033[1m -- First fit: PSPL to raw data...\033[0m")
-    nburn = n_emcee['nburn']
     output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
                        n_emcee)
     best, pars_quant, states, sampler = output
@@ -53,9 +52,8 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     mag_ids = np.argsort(my_dataset_2.mag)
     t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
     xlim = get_xlim(best, my_dataset, t_brightest)
-    labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
-    cplot = make_three_plots(best, sampler, states, nburn, my_dataset,
-                             labels, xlim, pdf=pdf)[1]
+    cplot = make_three_plots(best, sampler, states, n_emcee, my_dataset, xlim,
+                             pdf=pdf)[1]
 
     # 2nd fit: PSPL to the subtracted data
     start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': best['t_E']}
@@ -70,8 +68,8 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     if pars_quant['u_0'][2] > 15:
         return (best, states, event), cplot
     xlim = get_xlim(best_1, my_dataset_2, prev=best)
-    make_three_plots(best_1, sampler_1, states_1, nburn, my_dataset_2,
-                     labels, xlim, my_dataset, pdf=pdf)
+    make_three_plots(best_1, sampler_1, states_1, n_emcee, my_dataset_2, xlim,
+                     my_dataset, pdf=pdf)
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     start = {'t_0_1': best['t_0'], 'u_0_1': best['u_0'], 't_0_2': best_1['t_0'],
@@ -84,10 +82,9 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
                        n_emcee)
     best_2, pars_quant, states_2, sampler_2 = output
-    labels = ["1L2S, max_prob", "1L2S, 50th_perc"]
     xlim = get_xlim(best, my_dataset)
-    event_2, cplot_2 = make_three_plots(best_2, sampler_2, states_2, nburn,
-                                        my_dataset, labels, xlim, pdf=pdf)
+    event_2, cplot_2 = make_three_plots(best_2, sampler_2, states_2, n_emcee,
+                                        my_dataset, xlim, pdf=pdf)
     
     # if max(np.quantile(states_2[:,1],0.84), np.quantile(states_2[:,3],0.84)) > 3:
     # if max(best_2[1], best_2[3]) > 2.9:     ### or after cleaning chains...
@@ -96,7 +93,6 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
         return (best, states, event), cplot
     
     return (best_2, states_2, event_2), cplot_2
-
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -345,22 +341,20 @@ def clean_posterior_emcee(sampler, params, n_burn):
 
     return new_states, np.quantile(new_states,[0.16,0.50,0.84],axis=0)
 
-def make_three_plots(best, sampler, new_states, nburn, dataset, labels, xlim,
+def make_three_plots(best, sampler, new_states, n_emcee, dataset, xlim,
                      orig_data=[], pdf=""):
     """
     plot results
     """
     params, values = list(best.keys()), list(best.values())
-    tracer_plot(params, sampler, nburn, pdf=pdf)
+    tracer_plot(params, sampler, n_emcee['nburn'], pdf=pdf)
     cplot = corner.corner(new_states[:,:-1], labels=params, truths=values,
                           quantiles=[0.16,0.50,0.84], show_titles=True)
     if pdf:
         pdf.savefig(cplot)
     else:
         plt.show()
-    
-    fit = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    event = plot_fit(fit, dataset, labels, xlim, orig_data, pdf=pdf)
+    event = plot_fit(best, dataset, n_emcee, xlim, orig_data, pdf=pdf)
 
     return event, cplot
 
@@ -393,30 +387,33 @@ def get_xlim(best, dataset, t_brightest=0., prev={}):
                 (prev['t_0']+best['t_0'])/2 + 2.5*abs(prev['t_0']-best['t_0'])]
     else:
         xlim = [best['t_0'] - 3*best['t_E'], best['t_0'] + 3*best['t_E']]
-        if xlim[0] < min(dataset.time):
+        if xlim[0] < min(dataset.time) and t_brightest:
             xlim = [best['t_0'] - 2*abs(best['t_0'] - t_brightest),
                     best['t_0'] + 2*abs(best['t_0'] - t_brightest)]
-            
+    
+    # Obs: It still doesn't cover the PSPL/1L2S cases where t_E is too high...       
     return xlim
 
-def plot_fit(best, dataset, labels, xlim, orig_data=[], best_50=[], pdf=""):
+def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
 
     fig = plt.figure(figsize=(7.5,5.5))
     gs = GridSpec(3, 1, figure=fig)
     ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
+    best = dict(item for item in list(best.items()) if 'flux' not in item[0])
     event = mm.Event(model=mm.Model(best), datasets=[dataset])
     data_label = "Original data" if not orig_data else "Subtracted data"
     event.plot_data(subtract_2450000=False, label=data_label)
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
                    't_start': xlim[0], 't_stop': xlim[1], 'zorder': 10,
                    'color': 'black'}
-
     if orig_data:
         orig_data.plot(phot_fmt='mag', color='gray', alpha=0.2, label="Original data")
-    if labels[1] == "":
-        event.plot_model(label=labels[0], **plot_params)
-    else:
-        event.plot_model(label=r"%s"%labels[0], **plot_params)
+
+    label = 'PSPL' if event.model.n_lenses==1 else '1L2S'
+    label += f" ({n_emcee['ans']}):\n"
+    for item in best:
+        label += f'{item} = {best[item]:.2f}\n'
+    event.plot_model(label=r"%s"%label, **plot_params)
     plt.tick_params(axis='both', direction='in')
     ax1.xaxis.set_ticks_position('both')
     ax1.yaxis.set_ticks_position('both')
@@ -441,7 +438,7 @@ def plot_fit(best, dataset, labels, xlim, orig_data=[], best_50=[], pdf=""):
                                 't_E': best_50[4]})
         event_x = mm.Event(model=model_x, datasets=[dataset])
         plot_params['color'] = 'orange'
-        event_x.plot_model(label=labels[1], **plot_params)
+        event_x.plot_model(label='50th_perc', **plot_params)
 
     ax1.legend(loc='best')
     if pdf:
