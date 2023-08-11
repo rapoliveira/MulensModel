@@ -74,9 +74,9 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
         return event_0, cplot
     lims = [np.mean([best['t_0'],best_1['t_0']]) - 2.5*abs(best['t_0']-best_1['t_0']),
             np.mean([best['t_0'],best_1['t_0']]) + 2.5*abs(best['t_0']-best_1['t_0'])]
-    event_1, cplot = make_three_plots(best_1, sampler_1, samples, states_1,
-                                      nburn, my_dataset_2, labels, lims,
-                                      my_dataset, pdf=pdf)
+    make_three_plots(best_1, sampler_1, samples, states_1, nburn, my_dataset_2,
+                     labels, lims, my_dataset, pdf=pdf)
+    breakpoint()
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     start = {'t_0_1': best['t_0'], 'u_0_1': best['u_0'], 't_0_2': best_1['t_0'],
@@ -92,14 +92,14 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     labels = ["1L2S, max_prob", "1L2S, 50th_perc"]
     lims = sorted([best_2['t_0_1'], best_2['t_0_1']])
     lims = [lims[0]-3*best_2['t_E'], lims[1]+3*best_2['t_E']]
-    event_2, cplot = make_three_plots(best_2, sampler_2, samples, states_2,
+    event_2, cplot_2 = make_three_plots(best_2, sampler_2, samples, states_2,
                                       nburn, my_dataset, labels, lims, pdf=pdf)
     
     # if max(np.quantile(states_2[:,1],0.84), np.quantile(states_2[:,3],0.84)) > 3:
     # if max(best_2[1], best_2[3]) > 2.9:     ### or after cleaning chains...
     if max(pars_quant_2['u_0_1'][2], pars_quant_2['u_0_2'][2]) > 3.:
         return event_0, cplot
-    return event_2, cplot
+    return event_2, cplot_2
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
