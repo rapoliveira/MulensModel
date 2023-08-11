@@ -38,7 +38,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     nburn = n_emcee['nburn']
     output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
                        n_emcee)
-    best, pars_quant, samples, states, sampler = output
+    best, pars_quant, states, sampler = output
 
     # Subtracting light curve from first fit
     model = mm.Model(dict(list(best.items())[:3]))
@@ -54,7 +54,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
     xlim = get_xlim(best, my_dataset, t_brightest)
     labels = ["no pi_E, max_prob", "no pi_E, 50th_perc"]
-    cplot = make_three_plots(best, sampler, samples, states, nburn, my_dataset,
+    cplot = make_three_plots(best, sampler, states, nburn, my_dataset,
                              labels, xlim, pdf=pdf)[1]
 
     # 2nd fit: PSPL to the subtracted data
@@ -63,14 +63,14 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     params_to_fit = ['t_0', 'u_0', 't_E']
     sigmas = [1., 0.05, 1.]
     print("\n\033[1m -- Second fit: PSPL to subtracted data.\033[0m")
-    output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
-                       n_emcee, spec="u_0")
-    best_1, pars_quant, samples, states_1, sampler_1 = output
+    output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event, n_emcee,
+                       spec="u_0")
+    best_1, pars_quant, states_1, sampler_1 = output
     # if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15?
     if pars_quant['u_0'][2] > 15:
-        return event, cplot
+        return (best, states, event), cplot
     xlim = get_xlim(best_1, my_dataset_2, prev=best)
-    make_three_plots(best_1, sampler_1, samples, states_1, nburn, my_dataset_2,
+    make_three_plots(best_1, sampler_1, states_1, nburn, my_dataset_2,
                      labels, xlim, my_dataset, pdf=pdf)
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
@@ -83,17 +83,20 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     print("\n\033[1m -- Third fit: 1L2S to original data.\033[0m")
     output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
                        n_emcee)
-    best_2, pars_quant, samples, states_2, sampler_2 = output
+    best_2, pars_quant, states_2, sampler_2 = output
     labels = ["1L2S, max_prob", "1L2S, 50th_perc"]
     xlim = get_xlim(best, my_dataset)
-    event_2, cplot_2 = make_three_plots(best_2, sampler_2, samples, states_2,
-                                        nburn, my_dataset, labels, xlim, pdf=pdf)
+    event_2, cplot_2 = make_three_plots(best_2, sampler_2, states_2, nburn,
+                                        my_dataset, labels, xlim, pdf=pdf)
     
     # if max(np.quantile(states_2[:,1],0.84), np.quantile(states_2[:,3],0.84)) > 3:
     # if max(best_2[1], best_2[3]) > 2.9:     ### or after cleaning chains...
-    if max(pars_quant['u_0_1'][2], pars_quant['u_0_2'][2]) > 3.:
-        return event, cplot
-    return event_2, cplot_2
+    # if max(pars_quant['u_0_1'][2], pars_quant['u_0_2'][2]) > 3.:
+    if max(pars_quant['u_0_1'][1], pars_quant['u_0_2'][1]) > 3.:
+        return (best, states, event), cplot
+    
+    return (best_2, states_2, event_2), cplot_2
+
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -268,11 +271,11 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
         new_states, pars_quant = clean_posterior_emcee(sampler, best, nburn)
         pars_quant = dict(zip(params_to_fit, pars_quant.T))
         if new_states is None:
-            return best, results, samples, samples, sampler
-        return best, pars_quant, samples, new_states, sampler
+            return best, results, samples, sampler
+        return best, pars_quant, new_states, sampler
     
     # return best, pars_best, event.get_chi2(), states, sampler    
-    return best, results, samples, samples, sampler
+    return best, results, samples, sampler
 
 def clean_posterior_emcee(sampler, params, n_burn):
     """
@@ -342,18 +345,13 @@ def clean_posterior_emcee(sampler, params, n_burn):
 
     return new_states, np.quantile(new_states,[0.16,0.50,0.84],axis=0)
 
-def make_three_plots(best, sampler, samples, new_states, nburn, dataset, labels,
-                     xlim, orig_data=[], pdf=""):
+def make_three_plots(best, sampler, new_states, nburn, dataset, labels, xlim,
+                     orig_data=[], pdf=""):
     """
     plot results
     """
     params, values = list(best.keys()), list(best.values())
     tracer_plot(params, sampler, nburn, pdf=pdf)
-    
-    # saving the states to file
-    table = Table(samples, names=params+['ln_prob'])
-    table.write("chains.txt", format='ascii', overwrite=True)
-
     cplot = corner.corner(new_states[:,:-1], labels=params, truths=values,
                           quantiles=[0.16,0.50,0.84], show_titles=True)
     if pdf:
