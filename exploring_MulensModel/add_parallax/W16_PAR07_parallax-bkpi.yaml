@@ -1,0 +1,30 @@
+photometry_files:
+    - {file_name: data/Wyrzykowski+16/PAR-07.dat, add_2450000: True}
+starting_parameters:
+    t_0: gauss 2453850. 0.1
+    u_0: gauss 0.01 0.005
+    t_E: gauss 30. 10.
+    pi_E_N: gauss 0.0 0.1
+    pi_E_E: gauss 0.0 0.1
+model:
+    coords: 18:00:00.00 -30:00:00.0
+fixed_parameters:
+    t_0_par: 2453628.0
+min_values:
+    t_E: 0.
+    u_0: 0.
+    pi_E_N: -1.
+    pi_E_E: -1.
+max_values:
+    pi_E_N: 1.
+    pi_E_E: 1.
+fitting_parameters:
+    n_walkers: 10
+    n_steps: 10000
+    n_burn:  5000
+plots:
+    best model:
+        file: PAR-07_model.png
+        time range: 2453400 2454300
+    triangle:
+        file: PAR-07_triangle.png
