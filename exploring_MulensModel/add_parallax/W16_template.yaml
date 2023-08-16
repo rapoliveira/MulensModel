@@ -1,0 +1,35 @@
+photometry_files:
+    - {{file_name: ../W16_photometry/{0:}.dat, add_2450000: True}}
+starting_parameters:
+    t_0: gauss {1:} 0.1
+    u_0: gauss {2:} 0.005
+    t_E: gauss {3:} 10.
+    pi_E_N: gauss 0.0 0.1
+    pi_E_E: gauss 0.0 0.1
+model:
+    coords: {4:}
+fixed_parameters:
+    t_0_par: 2453628.0
+min_values:
+    t_E: 0.
+    u_0: 0.
+    pi_E_N: -1.
+    pi_E_E: -1.
+max_values:
+    pi_E_N: 1.
+    pi_E_E: 1.
+fitting_parameters:
+    n_walkers: {5:}
+    n_steps: {6:}
+    n_burn:  {7:}
+plots:
+    best model:
+        file: figs/{0:}_model.png
+        time range: {8:} {9:}
+    triangle:
+        file: figs/{0:}_triangle.png
+other_output:
+    models:
+        file name: chains/{0:}_all_models.txt
+    yaml output:
+        file name: results/{0:}_all_results.yaml
