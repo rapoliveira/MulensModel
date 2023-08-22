@@ -82,7 +82,7 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
                        n_emcee)
     best_2, pars_quant, states_2, sampler_2 = output
-    xlim = get_xlim(best, my_dataset)
+    xlim = get_xlim(best_2, my_dataset)
     event_2, cplot_2 = make_three_plots(best_2, sampler_2, states_2, n_emcee,
                                         my_dataset, xlim, pdf=pdf)
     
@@ -168,8 +168,8 @@ def ln_prob(theta, event, params_to_fit, spec=""):
 
     return ln_prior_ + ln_like_, event.source_fluxes[0], event.blend_fluxes[0]
 
-def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
-              n_emcee, spec=""):
+def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event, n_emcee,
+              spec=""):
     """
     Fit model using EMCEE and print results.
     Arguments:
@@ -236,23 +236,24 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
         raise RuntimeError('Wrong number of dimensions')
 
     # Print results from median and 1sigma-perc:
-    results = np.percentile(samples, [16, 50, 84], axis=0)
+    perc = np.percentile(samples, [16, 50, 84], axis=0)
     print("Fitted parameters:")
     for i in range(n_dim):
-        r = results[1, i]
+        r = perc[1, i]
         msg = params_to_fit[i] + ": {:.5f} +{:.5f} -{:.5f}"
-        print(msg.format(r, results[2, i]-r, r-results[0, i]))
+        print(msg.format(r, perc[2, i]-r, r-perc[0, i]))
 
-    # Adding source_fluxes to params_to_fit
+    # Adding fluxes to params_to_fit and setting up pars_perc
     if samples.shape[1]-1 == len(params_to_fit) + 2:
         params_to_fit += ['source_flux', 'blending_flux']
     elif samples.shape[1]-1 == len(params_to_fit) + 3:
         params_to_fit += ['source_flux_1', 'source_flux_2', 'blending_flux']
-    results = dict(zip(params_to_fit, results.T))
+    pars_perc = dict(zip(params_to_fit, perc.T))
 
     # We extract best model parameters and chi2 from event:
-    best_index = np.argmax(prob)
-    best = dict(zip(params_to_fit, samples[best_index, :-1]))
+    best_idx = np.argmax(prob)
+    best = samples[best_idx,:-1] if n_emcee['ans'] == 'max_prob' else perc[1]
+    best = dict(zip(params_to_fit, best))
     for (key, value) in zip(params_to_fit, best.values()):
         if key == 'flux_ratio':
             event.fix_source_flux_ratio = {event.datasets[0]: value}
@@ -260,18 +261,17 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event,
             setattr(event.model.parameters, key, value)
     print("\nSmallest chi2 model:")
     print(*[repr(b) if isinstance(b, float) else b.value for b in best.values()])
-    print("chi2 = ", event.get_chi2())
+    print("chi2 =", event.get_chi2())
 
     # Cleaning posterior and cplot if required by the user
     if n_emcee['clean_cplot']:
-        new_states, pars_quant = clean_posterior_emcee(sampler, best, nburn)
-        pars_quant = dict(zip(params_to_fit, pars_quant.T))
-        if new_states is None:
-            return best, results, samples, sampler
-        return best, pars_quant, new_states, sampler
+        new_states, new_perc = clean_posterior_emcee(sampler, best, nburn)
+        if new_states is not None:
+            pars_perc = dict(zip(params_to_fit, new_perc.T))
+            samples = new_states
     
     # return best, pars_best, event.get_chi2(), states, sampler    
-    return best, results, samples, sampler
+    return best, pars_perc, samples, sampler
 
 def clean_posterior_emcee(sampler, params, n_burn):
     """
@@ -391,8 +391,11 @@ def get_xlim(best, dataset, t_brightest=0., prev={}):
             xlim = [best['t_0'] - 2*abs(best['t_0'] - t_brightest),
                     best['t_0'] + 2*abs(best['t_0'] - t_brightest)]
     
-    # Obs: It still doesn't cover the PSPL/1L2S cases where t_E is too high...       
+    # Obs: Still doesn't cover the PSPL/1L2S cases where t_E is too low/high...       
     return xlim
+
+def get_xlim2():
+    pass
 
 def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
 
@@ -409,11 +412,11 @@ def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     if orig_data:
         orig_data.plot(phot_fmt='mag', color='gray', alpha=0.2, label="Original data")
 
-    label = 'PSPL' if event.model.n_lenses==1 else '1L2S'
+    label = 'PSPL' if event.model.n_sources==1 else '1L2S'
     label += f" ({n_emcee['ans']}):\n"
     for item in best:
         label += f'{item} = {best[item]:.2f}\n'
-    event.plot_model(label=r"%s"%label, **plot_params)
+    event.plot_model(label=r"%s"%label[:-1], **plot_params)
     plt.tick_params(axis='both', direction='in')
     ax1.xaxis.set_ticks_position('both')
     ax1.yaxis.set_ticks_position('both')
