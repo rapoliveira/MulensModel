@@ -15,7 +15,7 @@ from ulens_model_fit import UlensModelFit
 def get_yaml_files(path, files):
     '''
     Get the yaml files for all the 59 events. Input parameters are the path,
-    and the tables from template, coordinates and settings. 
+    and the files with template, coordinates and settings. 
     '''
     with open(files[0]) as template_file_:
         template = template_file_.read()
@@ -26,7 +26,7 @@ def get_yaml_files(path, files):
     
     for event, coord, line in zip(names, coords, all_settings):
         
-        # new code: Radek (16.aug.2023)
+        # new code: Radek, 16.aug.23 (old code is in bkpi folder)
         lst = np.array(list(line))[1:].tolist()
         lst.insert(4, f'{coord[0]} {coord[1]}')
         lst.insert(5, round(float(lst[1])))
@@ -37,27 +37,6 @@ def get_yaml_files(path, files):
         
         with open(line[0], 'w') as out_file:
             out_file.write(template.format(*lst))
-            # if float(lst[2]) >= 0.:
-            #     out_file.write(template.format(*lst))
-            # else:  # if initial u_0 < 0 (change from min to max value)
-            #     split = template.split('\n')
-            #     split.insert(17, split.pop(14))
-            #     out_file.write('\n'.join(split).format(*lst))
-
-        # old code: Raphael (14.aug.2023)
-        # with open(f'{path}/W16_PAR07_parallax-bkpi.yaml') as data:
-        #     settings = yaml.safe_load(data)
-        # phot_file = {'file_name': f'../W16_photometry/{event}.dat',
-        #              'add_2450000': True}
-        # settings['photometry_files'][0] = phot_file
-        # settings['model']['coords'] = f'{coord[0]} {coord[1]}'
-        # settings['plots']['best model']['file'] = f'figs/{event}_model.png'
-        # settings['plots']['triangle']['file'] = f'figs/{event}_triangle.png'
-        # settings['fitting_parameters'] = {'n_walkers': 20, 'n_steps': 20000,
-        #                                   'n_burn': 10000}
-        # filename = f"W16_{event.replace('-','')}_parallax.yaml"
-        # with open(f'{path}/yaml_files/{filename}', 'w') as file:
-        #     yaml.dump(settings, file, sort_keys=False, indent=4)
         print(event, end=', ')
         
     print(event, 'done!\n')
@@ -66,33 +45,28 @@ def get_yaml_files(path, files):
 
 def run_events(path, events_to_run, u0):
     """
-    Run the MulensModel with parallax for the events in events_to_run. The u_0
-    negative or positive values is checked with the pos_or_neg variable.
+    Run MulensModel with parallax for the selection of events in events_to_run.
+    The negative or positive value for u_0 is checked with the 3rd argument.
     """
 
     # TO-DO: empty the bkpi-folder and doing a backup of the previous results
     if len(os.listdir(f'{path}/chains/')) > 0:
         pass
 
-    # run MulensModel
+    # run MulensModel in loop
     for item in events_to_run:
-        # idx += 1
-        # if idx < 44: # or idx > 40:
-        #     continue
         with open(f'{path}/yaml_files/{item}', 'r') as data:
             settings = yaml.safe_load(data)
-        
+
         init_u0 = float(settings['starting_parameters']['u_0'].split()[1])
         if (init_u0 > 0. and u0 == 'neg') or (init_u0 < 0. and u0 == 'pos'):
             raise ValueError(f'Incoherent initial u_0 value and input.')
-        
-        print(f'\n- Starting fit for \033[1m{item}\033[0m\n')
         # settings['fitting_parameters']['n_walkers'] = 10  # quick-test
         # settings['fitting_parameters']['n_steps'] = 10000
         # settings['fitting_parameters']['n_burn'] = 5000
+        print(f'\n- Starting fit for \033[1m{item}\033[0m\n')
         ulens_model_fit = UlensModelFit(**settings)
         ulens_model_fit.run_fit()
-        # test = ulens_model_fit._parse_results()
         print('----------------------------------------------')
 
     return ulens_model_fit
@@ -114,9 +88,9 @@ def analyse_results(path_pos_neg, pos_or_neg):
     results_neg = sorted(os.listdir(f'{path_pos_neg[1]}/results'))
     params = ['t_0', 'u_0', 't_E', 'pi_E_N', 'pi_E_E']
     
+    # Get the result (from u0>0, <0 or best) and fill the table
     for (item_pos, item_neg) in zip(results_pos, results_neg):
         
-        # Get result from positive, negative or best between them
         with open(f'{path_pos_neg[0]}/results/{item_pos}') as posit:
             res_pos = yaml.safe_load(posit)
         with open(f'{path_pos_neg[1]}/results/{item_neg}') as negat:
@@ -126,7 +100,6 @@ def analyse_results(path_pos_neg, pos_or_neg):
             pos = res_pos['Best model']['chi2'] < res_neg['Best model']['chi2']
             result = res_pos if pos else res_neg
 
-        # fill the full table with all the events
         event_id = item_pos.split('_')[0]
         chi2, params_best, fluxes = result['Best model'].values()
         params_q = result['Fitted parameters']
@@ -158,7 +131,7 @@ if __name__ == '__main__':
     
     # Validating the inputs (method and pos_or_neg)
     if len(sys.argv) != 3:
-        raise ValueError(f'Exactly one argument needed {opts1} + {opts2}.')
+        raise ValueError(f'Exactly two arguments needed {opts1} + {opts2}.')
     elif sys.argv[1] not in ['yaml', 'run', 'analyse', 'all']:
         raise ValueError(f'Wrong argument: first {opts1}.')
     elif sys.argv[2].lower() not in ['positive','pos','negative','neg','both']:
@@ -183,7 +156,7 @@ if __name__ == '__main__':
                              'with both positive and negative u_0.')
         all_events = sorted(os.listdir(f'{path}/yaml_files/'))
         all_events = [event for event in all_events if 'bkpi' not in event]
-        to_run = all_events[:1] # e.g. [X], [:X], [X:], [X:X], [:]
+        to_run = all_events[:] # e.g. [X], [:X], [X:], [X:X], [:]
         if len(to_run) > 1:
             msg = f"MulensModel will be run from {to_run[0].split('_')[1]}" +\
                   f" to {to_run[-1].split('_')[1]} events (i.e. {len(to_run)}"+\
