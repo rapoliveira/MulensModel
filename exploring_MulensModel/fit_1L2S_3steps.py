@@ -30,11 +30,12 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     # 1st fit: Fitting a PSPL/1L1S without parallax...
     mag_ids = np.argsort(my_dataset.mag)
     t_brightest = np.mean(my_dataset.time[mag_ids][:10])
+    # still missing u(A) from baseline to get an initial u_0 !!!
     start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 20}
     my_event = mm.Event(datasets=my_dataset, model=mm.Model(start))
     params_to_fit = ['t_0', 'u_0', 't_E']
-    sigmas = [1., 0.05, 1.]
-    print("\n\033[1m -- First fit: PSPL to raw data...\033[0m")
+    sigmas = [1., 0.05, 1.]  # [1., 0.05, 1.] or [10., 0.5, 10.]
+    print("\n\033[1m -- 1st fit: PSPL to original data...\033[0m")
     output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
                        n_emcee)
     best, pars_quant, states, sampler = output
@@ -44,14 +45,13 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     event = mm.Event(model=model, datasets=[my_dataset])    # repeated!!!
     (flux, blend) = event.get_flux_for_dataset(0)
     f_subt = my_dataset.flux - event.fits[0].get_model_fluxes() + flux + blend
-    # subtracted_data = [my_dataset.time, f_subt, my_dataset.err_flux]
     subtracted_data = [my_dataset.time[f_subt > 0], f_subt[f_subt > 0],
                        my_dataset.err_flux[f_subt > 0]]
     my_dataset_2 = mm.MulensData(subtracted_data, phot_fmt='flux')
-
     mag_ids = np.argsort(my_dataset_2.mag)
     t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
-    xlim = get_xlim(best, my_dataset, t_brightest)
+    # xlim = get_xlim(best, my_dataset, t_brightest)
+    xlim = get_xlim2(best, my_dataset)  # checking with Radek... OK
     cplot = make_three_plots(best, sampler, states, n_emcee, my_dataset, xlim,
                              pdf=pdf)[1]
 
@@ -59,17 +59,19 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': best['t_E']}
     my_event = mm.Event(datasets=my_dataset_2, model=mm.Model(start))
     params_to_fit = ['t_0', 'u_0', 't_E']
-    sigmas = [1., 0.05, 1.]
-    print("\n\033[1m -- Second fit: PSPL to subtracted data.\033[0m")
+    sigmas = [1., 0.05, 1.]  # [1., 0.05, 1.] or [10., 0.5, 10.]
+    print("\n\033[1m -- 2nd fit: PSPL to subtracted data...\033[0m")
     output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event, n_emcee,
                        spec="u_0")
     best_1, pars_quant, states_1, sampler_1 = output
-    # if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15?
-    if pars_quant['u_0'][2] > 15:
-        return (best, states, event), cplot
-    xlim = get_xlim(best_1, my_dataset_2, prev=best)
+    # xlim = get_xlim(best_1, my_dataset_2, prev=best)
     make_three_plots(best_1, sampler_1, states_1, n_emcee, my_dataset_2, xlim,
                      my_dataset, pdf=pdf)
+    # if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15? 20?
+    if pars_quant['u_0'][2] > 20:
+    # if best_1['u_0'] > 5:
+        # breakpoint()
+        return (best, states, event), cplot, xlim
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     start = {'t_0_1': best['t_0'], 'u_0_1': best['u_0'], 't_0_2': best_1['t_0'],
@@ -77,12 +79,13 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     my_event = mm.Event(datasets=my_dataset, model=mm.Model(start))
     # params['flux_ratio'] = 1 # 0.02
     params_to_fit = ["t_0_1", "u_0_1", "t_0_2", "u_0_2", "t_E"] #, "flux_ratio"]
-    sigmas = [0.1, 0.05, 0.1, 0.01, 0.1] #, 0.001]
-    print("\n\033[1m -- Third fit: 1L2S to original data.\033[0m")
+    # sigmas = [0.1, 0.05, 0.1, 0.01, 0.1] #, 0.001]
+    sigmas = [0.1, 0.01, 0.1, 0.01, 0.1] # [1., 0.1, 1., 0.1, 1.] #, 0.001]
+    print("\n\033[1m -- 3rd fit: 1L2S to original data...\033[0m")
     output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
                        n_emcee)
     best_2, pars_quant, states_2, sampler_2 = output
-    xlim = get_xlim(best_2, my_dataset)
+    # xlim = get_xlim(best_2, my_dataset)
     event_2, cplot_2 = make_three_plots(best_2, sampler_2, states_2, n_emcee,
                                         my_dataset, xlim, pdf=pdf)
     
@@ -90,9 +93,10 @@ def make_all_fittings(my_dataset, n_emcee, pdf=""):
     # if max(best_2[1], best_2[3]) > 2.9:     ### or after cleaning chains...
     # if max(pars_quant['u_0_1'][2], pars_quant['u_0_2'][2]) > 3.:
     if max(pars_quant['u_0_1'][1], pars_quant['u_0_2'][1]) > 3.:
-        return (best, states, event), cplot
+        # breakpoint()
+        return (best, states, event), cplot, xlim
     
-    return (best_2, states_2, event_2), cplot_2
+    return (best_2, states_2, event_2), cplot_2, xlim
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -117,7 +121,7 @@ def ln_prior(theta, event, params_to_fit, spec=""):
     # Additional priors distributions:
     t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
     if spec:    # 15, 100, 1000 or nothing?
-        # if theta[params_to_fit.index('u_0')] > 1000. or \
+        # if theta[params_to_fit.index('u_0')] > 15. or \
         if theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
             theta[params_to_fit.index('t_0')] > t_range[1]+100:
             return -np.inf
@@ -183,21 +187,23 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event, n_emcee,
         n_steps - number of steps per walker   -> inactive
         n_burn - number of steps considered as burn-in ( < n_steps)  -> inactive
     """
-    n_dim = len(params_to_fit)
+    n_dim, sigmas = len(params_to_fit), np.array(sigmas)
     mean = [starting_params[p] for p in params_to_fit]
     nwlk, nstep, nburn = n_emcee['nwlk'], n_emcee['nstep'], n_emcee['nburn']
-    start = [mean + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
-    start = abs(np.array(start))
 
-    # Doing the 1L2S fitting in two steps
-    if n_dim == 5:
+    # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
+    if not spec: # n_dim == 5:
+        start = [mean + np.random.randn(n_dim)*10*sigmas for i in range(nwlk)]
+        start = abs(np.array(start))
         sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob,
                                         args=(event, params_to_fit, spec))
-        sampler.run_mcmc(start, int(nstep/3), progress=n_emcee['tqdm'])
-        samples = sampler.chain[:, int(nburn/3):, :].reshape((-1, n_dim))
-        results = np.percentile(samples, 50, axis=0)
-        start = [results + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
-        start = abs(np.array(start))
+        sampler.run_mcmc(start, int(nstep/2), progress=n_emcee['tqdm'])
+        samples = sampler.chain[:, int(nburn/2):, :].reshape((-1, n_dim))
+        mean = np.percentile(samples, 50, axis=0)
+        # prob_temp = sampler.lnprobability[:, int(nburn/2):].reshape((-1))
+        # mean = samples[np.argmax(prob_temp)]
+    start = [mean + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
+    start = abs(np.array(start))
 
     # Run emcee (this can take some time):
     # dtype = [("event_fluxes", list)] #, ("log_prior", float)]
@@ -391,11 +397,43 @@ def get_xlim(best, dataset, t_brightest=0., prev={}):
             xlim = [best['t_0'] - 2*abs(best['t_0'] - t_brightest),
                     best['t_0'] + 2*abs(best['t_0'] - t_brightest)]
     
+    # if np.diff(xlim)[0] < 250:
+    #     xlim = [best['t_0'] - 500, best['t_0']+500]
+
     # Obs: Still doesn't cover the PSPL/1L2S cases where t_E is too low/high...       
     return xlim
 
-def get_xlim2():
-    pass
+def get_xlim2(best, dataset):
+
+    # only works for PSPL case... (A' should be considered for 1L2S)
+    # Amax = (best['u_0']**2 + 2) / (best['u_0']*np.sqrt(best['u_0']**2 + 4))
+
+    # Radek: using get_data_magnification from MulensModel
+    bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
+    event = mm.Event(model=mm.Model(bst), datasets=[dataset])
+    event.get_flux_for_dataset(0)
+    Amax = max(event.fits[0].get_data_magnification())
+    dividend = best['source_flux']*Amax + best['blending_flux']
+    divisor = best['source_flux'] + best['blending_flux']
+    deltaI = 2.5*np.log10(dividend/divisor)  # deltaI ~ 3 for PAR-46 :: OK!
+
+    # Get the magnitude at the model peak (mag_peak ~ comp? ok)
+    idx_peak = np.argmin(abs(dataset.time-best['t_0']))
+    model_mag = event.fits[0].get_model_magnitudes()
+    mag_peak, comp = model_mag[idx_peak], dataset.mag[idx_peak]
+
+    # Summing 0.85*deltaI to the mag_peak, then obtain t_range (+2%)
+    mag_baseline = mag_peak + 0.85*deltaI
+    idx1 = np.argmin(abs(mag_baseline - model_mag[:idx_peak]))
+    idx2 = idx_peak + np.argmin(abs(mag_baseline - model_mag[idx_peak:]))
+    t_range = np.array([0.97*dataset.time[idx1], 1.03*dataset.time[idx2]])
+    max_diff_t_0 = max(abs(t_range - best['t_0'])) + 100
+    xlim = [best['t_0']-max_diff_t_0, best['t_0']+max_diff_t_0]
+
+    if np.diff(xlim)[0] < 500:
+        xlim = [best['t_0']-500, best['t_0']+500]
+    
+    return xlim
 
 def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
 

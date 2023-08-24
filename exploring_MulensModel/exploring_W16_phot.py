@@ -54,9 +54,9 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
     if dat_file == "v":
         continue
     # idx += 1
-    # if idx < 58: continue
-    if dat_file != "PAR-09.dat": # "PAR-45.dat":
-        continue
+    # if idx < 5: continue
+    # if dat_file != "PAR-04.dat": # "PAR-09.dat" # "PAR-45.dat":
+    #     continue
     print(f'\n\033[1m * Running fit for {dat_file}\033[0m')
     tab = Table.read(f'./W16_photometry/{dat_file}', format='ascii')
     my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
@@ -66,14 +66,15 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
     # fig = plt.figure(tight_layout=True)
     # my_dataset.plot(phot_fmt='mag')
     # plt.show()
+    # breakpoint()
 
-    # nwlk, nstep, nburn = 20, 3000, 1500 # 20, 10000, 5000
-    # ans should be 'max_prob' or '50th_perc'
+    # nwlk, nstep, nburn = 20, 3000*, 1500 # 20, 10000 (or 5000?), 5000
+    # ans: 'max_prob' or '50th_perc'
     n_emcee = {'nwlk':20, 'nstep':3000, 'nburn':1500, 'ans':'max_prob',
                'clean_cplot': False, 'tqdm': True}
 
     pdf = PdfPages(f"W16_output/all_plots/{dat_file.split('.')[0]}_result.pdf")
-    result, cplot = fit_1L2S.make_all_fittings(my_dataset, n_emcee, pdf=pdf)
+    result, cplot, xlim = fit_1L2S.make_all_fittings(my_dataset, n_emcee, pdf=pdf)
     # print("chi2_2 = ", result[0].get_chi2())
     # print("chi2 of model_orig = ", event_orig.get_chi2())
     pdf.close()
@@ -86,9 +87,9 @@ for dat_file in sorted(os.listdir('./W16_photometry/')):
     pdf.close()
 
     pdf = PdfPages(f"W16_output/{dat_file.split('.')[0]}_fit.pdf")
-    xlim = fit_1L2S.get_xlim(result[0], my_dataset)
+    # xlim = fit_1L2S.get_xlim(result[0], my_dataset)
+    # xlim = fit_1L2S.get_xlim2(result[0], my_dataset) # error...
     fit_1L2S.plot_fit(result[0], my_dataset, n_emcee, xlim, pdf=pdf)
     pdf.close()
-    print(f", {dat_file.split('.')[0]}_fit.pdf\n")
+    print(f"{dat_file.split('.')[0]}_fit.pdf\n")
     print("--------------------------------------------------")
-    
