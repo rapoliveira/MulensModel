@@ -1,0 +1,41 @@
+phot_settings:
+    name: W16_photometry/
+    subtract_245000: True
+    phot_fmt: mag
+# starting_parameters:  # Does not apply...?
+#     t_0: gauss 2453815.7 0.01
+#     u_0: gauss -1.6 0.01
+#     t_E: gauss 118.7 1.
+#     pi_E_N: gauss 0.0 0.01
+#     pi_E_E: gauss 0.0 0.01
+min_values:
+    t_E: 0.
+    u_0: 0.
+    # pi_E_N: -1.
+    # pi_E_E: -1.
+fitting_parameters: # DONE!
+    nwlk: 30
+    nstep: 10000
+    nburn: 5000
+    clean_cplot: False
+    ans: max_prob
+    progress: True
+    fix_blend_flux: False
+    sigmas: [[1., 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
+plots:
+    all_plots:
+        file_dir: W16_output/all_plots
+    best model:
+        file_dir: W16_output
+        # time range: 2452700 2454640
+    triangle:
+        file_dir: W16_output
+        # shift t_0: False
+other_output:
+    models:
+        file_dir: W16_output/chains
+    yaml output:
+        file_dir: W16_output/txt # change to yaml_results
+    table output:
+        file name: test.txt
+        columns: [event_id, param1, param2, param3, param4, param5, ln_prob]
