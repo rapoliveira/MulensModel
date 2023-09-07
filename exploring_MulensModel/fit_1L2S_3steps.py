@@ -25,78 +25,58 @@ from matplotlib.gridspec import GridSpec
 import numpy as np
 # import os
 
-def make_all_fittings(my_dataset, n_emcee, pdf=""):
+def make_all_fittings(data, n_emcee, pdf=""):
 
     # 1st fit: Fitting a PSPL/1L1S without parallax...
-    mag_ids = np.argsort(my_dataset.mag)
-    t_brightest = np.mean(my_dataset.time[mag_ids][:10])
+    t_brightest = np.mean(data.time[np.argsort(data.mag)][:10])
     # still missing u(A) from baseline to get an initial u_0 !!!
-    start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 20}
-    my_event = mm.Event(datasets=my_dataset, model=mm.Model(start))
-    params_to_fit = ['t_0', 'u_0', 't_E']
-    sigmas = [1., 0.05, 1.]  # [1., 0.05, 1.] or [10., 0.5, 10.]
+    start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 25}
+    fixed = {data: 0.} if n_emcee['fix_blend_flux'] else None
+    event = mm.Event(datasets=data, model=mm.Model(start), fix_blend_flux=fixed)
+    # sigmas = [1., 0.05, 1.]  # [1., 0.05, 1.] or [10., 0.5, 10.]
     print("\n\033[1m -- 1st fit: PSPL to original data...\033[0m")
-    output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
-                       n_emcee)
-    best, pars_quant, states, sampler = output
+    output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event, n_emcee)
+    xlim = get_xlim2(output[0], data, n_emcee)  # checking with Radek... OK
+    cplot = make_plots(output[:-1], n_emcee, data, xlim, pdf=pdf)[1]
 
     # Subtracting light curve from first fit
-    model = mm.Model(dict(list(best.items())[:3]))
-    event = mm.Event(model=model, datasets=[my_dataset])    # repeated!!!
-    (flux, blend) = event.get_flux_for_dataset(0)
-    f_subt = my_dataset.flux - event.fits[0].get_model_fluxes() + flux + blend
-    subtracted_data = [my_dataset.time[f_subt > 0], f_subt[f_subt > 0],
-                       my_dataset.err_flux[f_subt > 0]]
-    my_dataset_2 = mm.MulensData(subtracted_data, phot_fmt='flux')
-    mag_ids = np.argsort(my_dataset_2.mag)
-    t_brightest = np.mean(my_dataset_2.time[mag_ids][:10])
-    # xlim = get_xlim(best, my_dataset, t_brightest)
-    xlim = get_xlim2(best, my_dataset)  # checking with Radek... OK
-    cplot = make_three_plots(best, sampler, states, n_emcee, my_dataset, xlim,
-                             pdf=pdf)[1]
+    model = mm.Model(dict(list(output[0].items())[:3]))
+    aux_event = mm.Event(model=model, datasets=data, fix_blend_flux=fixed) # repeated?
+    (flux, blend) = aux_event.get_flux_for_dataset(0)
+    fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
+    subt_data = [data.time[fsub > 0], fsub[fsub > 0], data.err_flux[fsub > 0]]
+    subt_data = mm.MulensData(subt_data, phot_fmt='flux')
 
     # 2nd fit: PSPL to the subtracted data
-    start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': best['t_E']}
-    my_event = mm.Event(datasets=my_dataset_2, model=mm.Model(start))
-    params_to_fit = ['t_0', 'u_0', 't_E']
-    sigmas = [1., 0.05, 1.]  # [1., 0.05, 1.] or [10., 0.5, 10.]
+    t_brightest = np.mean(subt_data.time[np.argsort(subt_data.mag)][:10])
+    start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': output[0]['t_E']}
+    fixed = {subt_data: 0.} if n_emcee['fix_blend_flux'] else None
+    event = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fixed)
+    # sigmas = [1., 0.05, 1.]  # [1., 0.05, 1.] or [10., 0.5, 10.]
     print("\n\033[1m -- 2nd fit: PSPL to subtracted data...\033[0m")
-    output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event, n_emcee,
-                       spec="u_0")
-    best_1, pars_quant, states_1, sampler_1 = output
-    # xlim = get_xlim(best_1, my_dataset_2, prev=best)
-    make_three_plots(best_1, sampler_1, states_1, n_emcee, my_dataset_2, xlim,
-                     my_dataset, pdf=pdf)
-    # if np.quantile(states_1, 0.84, axis=0)[1] > 15: # fix that 15? 20?
-    if pars_quant['u_0'][2] > 20:
-    # if best_1['u_0'] > 5:
-        # breakpoint()
-        return (best, states, event), cplot, xlim
+    output_1 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, event, n_emcee,
+                         spec="u_0")
+    make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
+    if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
+    # if output_1[0]['u_0'] > 5:
+        return (output[0], output[2], event), cplot, xlim
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
-    start = {'t_0_1': best['t_0'], 'u_0_1': best['u_0'], 't_0_2': best_1['t_0'],
-             'u_0_2': best_1['u_0'], 't_E': 25}  # best_1['t_E']
-    my_event = mm.Event(datasets=my_dataset, model=mm.Model(start))
-    # params['flux_ratio'] = 1 # 0.02
-    params_to_fit = ["t_0_1", "u_0_1", "t_0_2", "u_0_2", "t_E"] #, "flux_ratio"]
-    # sigmas = [0.1, 0.05, 0.1, 0.01, 0.1] #, 0.001]
-    sigmas = [0.1, 0.01, 0.1, 0.01, 0.1] # [1., 0.1, 1., 0.1, 1.] #, 0.001]
+    start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
+             output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
+    event = mm.Event(datasets=data, model=mm.Model(start))
+    # # sigmas = [0.1, 0.05, 0.1, 0.01, 0.1]
+    # sigmas = [0.1, 0.01, 0.1, 0.01, 0.1] # [1., 0.1, 1., 0.1, 1.]
     print("\n\033[1m -- 3rd fit: 1L2S to original data...\033[0m")
-    output = fit_EMCEE(params_to_fit, start, sigmas, ln_prob, my_event,
-                       n_emcee)
-    best_2, pars_quant, states_2, sampler_2 = output
-    # xlim = get_xlim(best_2, my_dataset)
-    event_2, cplot_2 = make_three_plots(best_2, sampler_2, states_2, n_emcee,
-                                        my_dataset, xlim, pdf=pdf)
+    output_2 = fit_EMCEE( start, n_emcee['sigmas'][2], ln_prob, event, n_emcee)
+    event_2, cplot_2 = make_plots(output_2[:-1], n_emcee, data, xlim, pdf=pdf)
     
-    # if max(np.quantile(states_2[:,1],0.84), np.quantile(states_2[:,3],0.84)) > 3:
-    # if max(best_2[1], best_2[3]) > 2.9:     ### or after cleaning chains...
-    # if max(pars_quant['u_0_1'][2], pars_quant['u_0_2'][2]) > 3.:
-    if max(pars_quant['u_0_1'][1], pars_quant['u_0_2'][1]) > 3.:
-        # breakpoint()
-        return (best, states, event), cplot, xlim
+    # if max(output_2[0][1], output_2[0][3]) > 2.9:     ### or after cleaning chains...
+    # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
+    if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 3.:
+        return (output[0], output[2], event), cplot, xlim
     
-    return (best_2, states_2, event_2), cplot_2, xlim
+    return (output_2[0], output_2[0], event_2), cplot_2, xlim
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -138,10 +118,11 @@ def ln_prior(theta, event, params_to_fit, spec=""):
     #     return -np.inf
     
     # Radek's prior in fluxes
-    #ln_prior_fluxes = 0
-    #for flux in [*event.source_fluxes[0], event.blend_fluxes[0]]:
+    ln_prior_fluxes = 0
+    # for flux in [*event.source_fluxes[0], event.blend_fluxes[0]]:
     #    if flux < 0.:
-    #        ln_prior_fluxes += - 1/2 * (flux/1000)**2
+    #     #    ln_prior_fluxes += - 1/2 * (flux/1000)**2
+    #        ln_prior_fluxes += -1/2 * (flux/10)**2 # 1000* or 100 or less...
     
     # Raphael's prior in min_flux
     # min_flux = min([min(event.source_fluxes[0]), event.blend_fluxes[0]])
@@ -156,7 +137,7 @@ def ln_prior(theta, event, params_to_fit, spec=""):
     # else:
     #     ln_prior_fluxes = 0.
 
-    return 0.0 + ln_prior_t_E # + ln_prior_fluxes
+    return 0.0 + ln_prior_t_E + ln_prior_fluxes
 
 def ln_prob(theta, event, params_to_fit, spec=""):
     """ combines likelihood and priors"""
@@ -172,13 +153,12 @@ def ln_prob(theta, event, params_to_fit, spec=""):
 
     return ln_prior_ + ln_like_, event.source_fluxes[0], event.blend_fluxes[0]
 
-def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event, n_emcee,
-              spec=""):
+def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
     """
     Fit model using EMCEE and print results.
     Arguments:
-        params_to_fit - list of parameters
-        starting_params - dict that specifies values of these parameters
+        params_to_fit - list of parameters (REMOVED?)
+        dict_start - dict that specifies values of these parameters
         sigmas - list of sigma values used to find starting values
         ln_prob - function returning logarithm of probability
         event - MulensModel.Event instance
@@ -187,8 +167,8 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event, n_emcee,
         n_steps - number of steps per walker   -> inactive
         n_burn - number of steps considered as burn-in ( < n_steps)  -> inactive
     """
+    params_to_fit, mean = list(dict_start.keys()), list(dict_start.values())
     n_dim, sigmas = len(params_to_fit), np.array(sigmas)
-    mean = [starting_params[p] for p in params_to_fit]
     nwlk, nstep, nburn = n_emcee['nwlk'], n_emcee['nstep'], n_emcee['nburn']
 
     # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
@@ -206,10 +186,8 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event, n_emcee,
     start = abs(np.array(start))
 
     # Run emcee (this can take some time):
-    # dtype = [("event_fluxes", list)] #, ("log_prior", float)]
-    blobs_type = [('source_fluxes', list), ('blend_fluxes', float)]
-    sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob,
-                                    blobs_dtype=blobs_type,
+    blobs = [('source_fluxes', list), ('blend_fluxes', float)]
+    sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, blobs_dtype=blobs,
                                     args=(event, params_to_fit, spec))
                                     # backend=backend)
     # sampler = emcee.EnsembleSampler(
@@ -277,7 +255,7 @@ def fit_EMCEE(params_to_fit, starting_params, sigmas, ln_prob, event, n_emcee,
             samples = new_states
     
     # return best, pars_best, event.get_chi2(), states, sampler    
-    return best, pars_perc, samples, sampler
+    return best, sampler, samples, pars_perc #, samples, sampler
 
 def clean_posterior_emcee(sampler, params, n_burn):
     """
@@ -347,15 +325,25 @@ def clean_posterior_emcee(sampler, params, n_burn):
 
     return new_states, np.quantile(new_states,[0.16,0.50,0.84],axis=0)
 
-def make_three_plots(best, sampler, new_states, n_emcee, dataset, xlim,
-                     orig_data=[], pdf=""):
+def make_plots(results_states, n_emcee, dataset, xlim, orig_data=[], pdf=""):
     """
     plot results
     """
-    params, values = list(best.keys()), list(best.values())
+    best, sampler, states = results_states
+    condition = (n_emcee['fix_blend_flux'] and len(best) != 8)
+    c_states = states[:,:-2] if condition else states[:,:-1]
+    params = list(best.keys())[:-1] if condition else list(best.keys())
+    values = list(best.values())[:-1] if condition else list(best.values())
+    # params, values = list(best.keys()), list(best.values())
     tracer_plot(params, sampler, n_emcee['nburn'], pdf=pdf)
-    cplot = corner.corner(new_states[:,:-1], labels=params, truths=values,
-                          quantiles=[0.16,0.50,0.84], show_titles=True)
+    # if len(best) == 8:
+    #     cplot = corner.corner(states[:,:-1], labels=params, truths=values,
+    #                           quantiles=[0.16,0.50,0.84], show_titles=True)
+    # else:
+    #     cplot = corner.corner(states[:,:-2], labels=params[:-1], truths=values[:-1],
+    #                           quantiles=[0.16,0.50,0.84], show_titles=True)
+    cplot = corner.corner(c_states, quantiles=[0.16,0.50,0.84], labels=params,
+                          truths=values, show_titles=True)
     if pdf:
         pdf.savefig(cplot)
     else:
@@ -403,14 +391,15 @@ def get_xlim(best, dataset, t_brightest=0., prev={}):
     # Obs: Still doesn't cover the PSPL/1L2S cases where t_E is too low/high...       
     return xlim
 
-def get_xlim2(best, dataset):
+def get_xlim2(best, dataset, n_emcee):
 
     # only works for PSPL case... (A' should be considered for 1L2S)
     # Amax = (best['u_0']**2 + 2) / (best['u_0']*np.sqrt(best['u_0']**2 + 4))
 
     # Radek: using get_data_magnification from MulensModel
     bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    event = mm.Event(model=mm.Model(bst), datasets=[dataset])
+    fixed = {dataset: 0.} if n_emcee['fix_blend_flux'] else None
+    event = mm.Event(model=mm.Model(bst), datasets=[dataset], fix_blend_flux=fixed)
     event.get_flux_for_dataset(0)
     Amax = max(event.fits[0].get_data_magnification())
     dividend = best['source_flux']*Amax + best['blending_flux']
@@ -441,7 +430,12 @@ def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     gs = GridSpec(3, 1, figure=fig)
     ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
     best = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    event = mm.Event(model=mm.Model(best), datasets=[dataset])
+    if best == 5:
+        event = mm.Event(model=mm.Model(best), datasets=[dataset])
+    else:
+        fixed = {dataset: 0.} if n_emcee['fix_blend_flux'] else None
+        event = mm.Event(model=mm.Model(best), datasets=[dataset],
+                         fix_blend_flux=fixed)
     data_label = "Original data" if not orig_data else "Subtracted data"
     event.plot_data(subtract_2450000=False, label=data_label)
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
