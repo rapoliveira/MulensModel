@@ -19,21 +19,56 @@ except ImportError as err:
 from astropy.table import Table
 from itertools import chain
 import MulensModel as mm
+from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 # import multiprocessing
 import numpy as np
-# import os
+import os
+import yaml
+
+def read_data(path, phot_settings, plot=False):
+    '''
+    Start by checking if phot_files is directory or file... OK!
+    Return a list of Data instances and do the loop in main... OK!
+    '''
+    filenames, subtract, phot_fmt = phot_settings.values()
+    if os.path.isdir(f"{path}/{filenames}"):
+        data_list = []
+        for fname in sorted(os.listdir(f'{path}/{filenames}')):
+            tab = Table.read(f'{path}/{filenames}/{fname}', format='ascii')
+            my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
+            data_list.append(mm.MulensData(my_dataset, phot_fmt=phot_fmt))
+        return data_list, sorted(os.listdir(f'{path}/{filenames}'))
+
+    elif os.path.isfile(f"{path}/{filenames}"):
+        tab = Table.read(f"{path}/{filenames}", format='ascii')
+        my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
+        my_dataset[0] = my_dataset[0]-2450000 if subtract else my_dataset[0]
+        data_list = [mm.MulensData(my_dataset, phot_fmt=phot_fmt)]
+        return data_list, [filenames.split('/')[1]]
+
+    else:
+        raise RuntimeError(f'Photometry file(s) {filenames} not available.')
+
+    # if plot:
+    #     plt.figure(tight_layout=True)
+    #     for dataset in data_list:
+    #         dataset.plot(phot_fmt='mag', alpha=0.5)
+    #     plt.show()
+
+    # return data_list
 
 def make_all_fittings(data, n_emcee, pdf=""):
-
+    '''
+    Missing description for this function...
+    '''
     # 1st fit: Fitting a PSPL/1L1S without parallax...
     t_brightest = np.mean(data.time[np.argsort(data.mag)][:10])
     # still missing u(A) from baseline to get an initial u_0 !!!
     start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 25}
     fixed = {data: 0.} if n_emcee['fix_blend_flux'] else None
     event = mm.Event(datasets=data, model=mm.Model(start), fix_blend_flux=fixed)
-    # sigmas = [1., 0.05, 1.]  # [1., 0.05, 1.] or [10., 0.5, 10.]
     print("\n\033[1m -- 1st fit: PSPL to original data...\033[0m")
     output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event, n_emcee)
     xlim = get_xlim2(output[0], data, n_emcee)  # checking with Radek... OK
@@ -41,7 +76,7 @@ def make_all_fittings(data, n_emcee, pdf=""):
 
     # Subtracting light curve from first fit
     model = mm.Model(dict(list(output[0].items())[:3]))
-    aux_event = mm.Event(model=model, datasets=data, fix_blend_flux=fixed) # repeated?
+    aux_event = mm.Event(model=model, datasets=data, fix_blend_flux=fixed)
     (flux, blend) = aux_event.get_flux_for_dataset(0)
     fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
     subt_data = [data.time[fsub > 0], fsub[fsub > 0], data.err_flux[fsub > 0]]
@@ -52,9 +87,8 @@ def make_all_fittings(data, n_emcee, pdf=""):
     start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': output[0]['t_E']}
     fixed = {subt_data: 0.} if n_emcee['fix_blend_flux'] else None
     event = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fixed)
-    # sigmas = [1., 0.05, 1.]  # [1., 0.05, 1.] or [10., 0.5, 10.]
     print("\n\033[1m -- 2nd fit: PSPL to subtracted data...\033[0m")
-    output_1 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, event, n_emcee,
+    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event, n_emcee,
                          spec="u_0")
     make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
     if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
@@ -65,15 +99,13 @@ def make_all_fittings(data, n_emcee, pdf=""):
     start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
              output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
     event = mm.Event(datasets=data, model=mm.Model(start))
-    # # sigmas = [0.1, 0.05, 0.1, 0.01, 0.1]
-    # sigmas = [0.1, 0.01, 0.1, 0.01, 0.1] # [1., 0.1, 1., 0.1, 1.]
     print("\n\033[1m -- 3rd fit: 1L2S to original data...\033[0m")
-    output_2 = fit_EMCEE( start, n_emcee['sigmas'][2], ln_prob, event, n_emcee)
+    output_2 = fit_EMCEE( start, n_emcee['sigmas'][1], ln_prob, event, n_emcee)
     event_2, cplot_2 = make_plots(output_2[:-1], n_emcee, data, xlim, pdf=pdf)
     
     # if max(output_2[0][1], output_2[0][3]) > 2.9:     ### or after cleaning chains...
     # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
-    if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 3.:
+    if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
         return (output[0], output[2], event), cplot, xlim
     
     return (output_2[0], output_2[0], event_2), cplot_2, xlim
@@ -177,7 +209,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
         start = abs(np.array(start))
         sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob,
                                         args=(event, params_to_fit, spec))
-        sampler.run_mcmc(start, int(nstep/2), progress=n_emcee['tqdm'])
+        sampler.run_mcmc(start, int(nstep/2), progress=n_emcee['progress'])
         samples = sampler.chain[:, int(nburn/2):, :].reshape((-1, n_dim))
         mean = np.percentile(samples, 50, axis=0)
         # prob_temp = sampler.lnprobability[:, int(nburn/2):].reshape((-1))
@@ -194,7 +226,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
     #     nwlk, n_dim, ln_prob,
     #     moves=[(emcee.moves.DEMove(),0.8),(emcee.moves.DESnookerMove(),0.2)],
     #     args=(event, params_to_fit, spec))
-    sampler.run_mcmc(start, nstep, progress=n_emcee['tqdm'])
+    sampler.run_mcmc(start, nstep, progress=n_emcee['progress'])
     
     # Setting up multi-threading (std: fork in Linux, spawn in Mac)
     # multiprocessing.set_start_method("fork", force=True)
@@ -202,7 +234,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
     # with multiprocessing.Pool() as pool:
     #     sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, pool=pool,
     #                                     args=(event, params_to_fit, spec))
-    #     sampler.run_mcmc(start, nstep, progress=n_emcee['tqdm'])
+    #     sampler.run_mcmc(start, nstep, progress=n_emcee['progress'])
     # pool.close()
 
     # Remove burn-in samples and reshape:
@@ -370,27 +402,6 @@ def tracer_plot(params_to_fit, sampler, nburn, pdf=""):
     else:
         plt.show()
 
-def get_xlim(best, dataset, t_brightest=0., prev={}):
-
-    if len(best)==5+3:
-        xlim = sorted([best['t_0_1'], best['t_0_2']])
-        return [xlim[0]-3*best['t_E'], xlim[1]+3*best['t_E']]
-
-    if prev:
-        xlim = [(prev['t_0']+best['t_0'])/2 - 2.5*abs(prev['t_0']-best['t_0']),
-                (prev['t_0']+best['t_0'])/2 + 2.5*abs(prev['t_0']-best['t_0'])]
-    else:
-        xlim = [best['t_0'] - 3*best['t_E'], best['t_0'] + 3*best['t_E']]
-        if xlim[0] < min(dataset.time) and t_brightest:
-            xlim = [best['t_0'] - 2*abs(best['t_0'] - t_brightest),
-                    best['t_0'] + 2*abs(best['t_0'] - t_brightest)]
-    
-    # if np.diff(xlim)[0] < 250:
-    #     xlim = [best['t_0'] - 500, best['t_0']+500]
-
-    # Obs: Still doesn't cover the PSPL/1L2S cases where t_E is too low/high...       
-    return xlim
-
 def get_xlim2(best, dataset, n_emcee):
 
     # only works for PSPL case... (A' should be considered for 1L2S)
@@ -482,3 +493,32 @@ def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     else:
         plt.show()
     return event
+
+if __name__ == '__main__':
+
+    np.random.seed(12343)
+    path = os.path.dirname(os.path.realpath(__file__))
+    with open(sys.argv[1]) as in_data:
+        settings = yaml.safe_load(in_data)
+        n_emcee = settings['fitting_parameters']
+
+    data_list, filenames = read_data(path, settings['phot_settings'])
+    for data, name in zip(data_list, filenames):
+        print(f'\n\033[1m * Running fit for {name}\033[0m')
+        pdf_dir = settings['plots']['all_plots']['file_dir']
+        pdf = PdfPages(f"{pdf_dir}/{name.split('.')[0]}_result.pdf")
+        result, cplot, xlim = make_all_fittings(data, n_emcee, pdf=pdf)
+        pdf.close()
+        # Call write_tables???
+
+        pdf_dir = settings['plots']['triangle']['file_dir']
+        pdf = PdfPages(f"{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
+        pdf.savefig(cplot)
+        pdf.close()
+
+        pdf_dir = settings['plots']['best model']['file_dir']
+        pdf = PdfPages(f"{pdf_dir}/{name.split('.')[0]}_fit.pdf")
+        plot_fit(result[0], data, n_emcee, xlim, pdf=pdf)
+        pdf.close()
+        print("\n--------------------------------------------------")
+    breakpoint()
