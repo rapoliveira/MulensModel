@@ -28,10 +28,20 @@ import os
 import yaml
 
 def read_data(path, phot_settings, plot=False):
-    '''
-    Start by checking if phot_files is directory or file... OK!
-    Return a list of Data instances and do the loop in main... OK!
-    '''
+    """Read a catalogue or list of catalogues and creates MulensData instance
+
+    Args:
+        path (str): directory of the Python script and catalogues
+        phot_settings (dict): photometry settings from the yaml file
+        plot (bool, optional): Plot the catalogues or not. Defaults to False.
+
+    Raises:
+        RuntimeError: if photometry files(s) are not available.
+
+    Returns:
+        list: list of data instances to be looped in the main function
+    """
+
     filenames, subtract, phot_fmt = phot_settings.values()
     if os.path.isdir(f"{path}/{filenames}"):
         data_list = []
@@ -59,7 +69,7 @@ def read_data(path, phot_settings, plot=False):
 
     # return data_list
 
-def make_all_fittings(data, n_emcee, pdf=""):
+def make_all_fittings(data, name, settings, pdf=""):
     '''
     Missing description for this function...
     '''
@@ -67,7 +77,8 @@ def make_all_fittings(data, n_emcee, pdf=""):
     t_brightest = np.mean(data.time[np.argsort(data.mag)][:10])
     # still missing u(A) from baseline to get an initial u_0 !!!
     start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 25}
-    fixed = {data: 0.} if n_emcee['fix_blend_flux'] else None
+    n_emcee = settings['fitting_parameters']
+    fixed = {data: 0.} if n_emcee['blend_flux_zero'] else None
     event = mm.Event(datasets=data, model=mm.Model(start), fix_blend_flux=fixed)
     print("\n\033[1m -- 1st fit: PSPL to original data...\033[0m")
     output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event, n_emcee)
@@ -85,12 +96,14 @@ def make_all_fittings(data, n_emcee, pdf=""):
     # 2nd fit: PSPL to the subtracted data
     t_brightest = np.mean(subt_data.time[np.argsort(subt_data.mag)][:10])
     start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': output[0]['t_E']}
-    fixed = {subt_data: 0.} if n_emcee['fix_blend_flux'] else None
+    fixed = {subt_data: 0.} if n_emcee['blend_flux_zero'] else None
     event = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fixed)
     print("\n\033[1m -- 2nd fit: PSPL to subtracted data...\033[0m")
     output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event, n_emcee,
                          spec="u_0")
     make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
+    if settings['other_output']['2L1S_yaml_files']['t_or_f']:
+        generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
     if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
     # if output_1[0]['u_0'] > 5:
         return (output[0], output[2], event), cplot, xlim
@@ -100,7 +113,7 @@ def make_all_fittings(data, n_emcee, pdf=""):
              output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
     event = mm.Event(datasets=data, model=mm.Model(start))
     print("\n\033[1m -- 3rd fit: 1L2S to original data...\033[0m")
-    output_2 = fit_EMCEE( start, n_emcee['sigmas'][1], ln_prob, event, n_emcee)
+    output_2 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, event, n_emcee)
     event_2, cplot_2 = make_plots(output_2[:-1], n_emcee, data, xlim, pdf=pdf)
     
     # if max(output_2[0][1], output_2[0][3]) > 2.9:     ### or after cleaning chains...
@@ -108,7 +121,7 @@ def make_all_fittings(data, n_emcee, pdf=""):
     if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
         return (output[0], output[2], event), cplot, xlim
     
-    return (output_2[0], output_2[0], event_2), cplot_2, xlim
+    return (output_2[0], output_2[2], event_2), cplot_2, xlim
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -362,7 +375,7 @@ def make_plots(results_states, n_emcee, dataset, xlim, orig_data=[], pdf=""):
     plot results
     """
     best, sampler, states = results_states
-    condition = (n_emcee['fix_blend_flux'] and len(best) != 8)
+    condition = (n_emcee['blend_flux_zero'] and len(best) != 8)
     c_states = states[:,:-2] if condition else states[:,:-1]
     params = list(best.keys())[:-1] if condition else list(best.keys())
     values = list(best.values())[:-1] if condition else list(best.values())
@@ -409,7 +422,7 @@ def get_xlim2(best, dataset, n_emcee):
 
     # Radek: using get_data_magnification from MulensModel
     bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    fixed = {dataset: 0.} if n_emcee['fix_blend_flux'] else None
+    fixed = {dataset: 0.} if n_emcee['blend_flux_zero'] else None
     event = mm.Event(model=mm.Model(bst), datasets=[dataset], fix_blend_flux=fixed)
     event.get_flux_for_dataset(0)
     Amax = max(event.fits[0].get_data_magnification())
@@ -444,7 +457,7 @@ def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     if best == 5:
         event = mm.Event(model=mm.Model(best), datasets=[dataset])
     else:
-        fixed = {dataset: 0.} if n_emcee['fix_blend_flux'] else None
+        fixed = {dataset: 0.} if n_emcee['blend_flux_zero'] else None
         event = mm.Event(model=mm.Model(best), datasets=[dataset],
                          fix_blend_flux=fixed)
     data_label = "Original data" if not orig_data else "Subtracted data"
@@ -494,20 +507,78 @@ def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
         plt.show()
     return event
 
+def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
+    """Generate two yaml files with initial parameters for 2L1S fitting
+
+    Args:
+        path (str): directory of the Python script and catalogues
+        pspl_1 (dict): results from the first PSPL fit (t_0, u_0, t_E) 
+        pspl_2 (dict): results from the first PSPL fit (t_0, u_0, t_E)
+        name (str): name of the photometry file
+        settings (dict): setting from yaml file
+    """
+
+    yaml_dir = settings['other_output']['2L1S_yaml_files']['yaml_dir_name']
+    yaml_file_1 = yaml_dir.replace('.yaml', '_traj_between.yaml')
+    yaml_file_2 = yaml_dir.replace('.yaml', '_traj_beyond.yaml')
+
+    # equations for trajectory between the lenses
+    if (pspl_2['t_E'] / pspl_1['t_E']) ** 2 > 1.:
+        pspl_1, pspl_2 = pspl_2, pspl_1
+    q_2L1S = (pspl_2['t_E'] / pspl_1['t_E']) ** 2
+    t_0_2L1S = (q_2L1S*pspl_2['t_0'] + pspl_1['t_0']) / (1 + q_2L1S)
+    u_0_2L1S = (q_2L1S*pspl_2['u_0'] - pspl_1['u_0']) / (1 + q_2L1S) # negative!!!
+    t_E_2L1S = np.sqrt(pspl_1['t_E']**2 + pspl_2['t_E']**2)
+    t_a = (pspl_1['u_0']+pspl_2['u_0'])*t_E_2L1S / (pspl_2['t_0']-pspl_1['t_0'])
+    alpha_2L1S = np.degrees(np.arctan(t_a))
+    s_prime = np.sqrt(((pspl_2['t_0']-pspl_1['t_0'])/t_E_2L1S)**2 +
+                      (pspl_1['u_0']+pspl_2['u_0'])**2)
+    factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
+    s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
+
+    # writing traj_between yaml file
+    init_2L1S = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
+    init_2L1S = [round(param, 3) for param in init_2L1S]
+    init_2L1S[0], init_2L1S[2] = round(init_2L1S[0], 2), round(init_2L1S[2], 2)
+    if settings['phot_settings']['subtract_2450000']:
+        init_2L1S[0] += 2450000
+    init_2L1S.insert(0, name.split('.')[0])
+    f_template = settings['other_output']['2L1S_yaml_files']['yaml_template']
+    with open(f'{path}/{f_template}') as template_file_:
+        template = template_file_.read()
+    with open(yaml_file_1, 'w') as out_file_1:
+        out_file_1.write(template.format(*init_2L1S))
+    
+    # equations for trajectory beyond the lenses
+    u_0_2L1S = -(pspl_1['u_0'] + q_2L1S*pspl_2['u_0']) / (1 + q_2L1S) # negative!!!
+    init_2L1S[2] = round(u_0_2L1S, 3)
+    t_a = abs(pspl_1['u_0']-pspl_2['u_0'])*t_E_2L1S / (pspl_2['t_0']-pspl_1['t_0'])
+    init_2L1S[6] = round(np.degrees(np.arctan(t_a)), 3)
+    s_prime = np.sqrt(((pspl_2['t_0']-pspl_1['t_0'])/t_E_2L1S)**2 +
+                      (pspl_1['u_0']-pspl_2['u_0'])**2)
+    factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
+    init_2L1S[4] = round((s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2., 3)
+    with open(yaml_file_2, 'w') as out_file_2:
+        out_file_2.write(template.format(*init_2L1S))
+
+    # breakpoint()
+    # To-Do: negative alpha (ASK RADEK!)
+    # ALSO: Generalize ''methods: 2459900. point_source 2460300.''
+
 if __name__ == '__main__':
 
     np.random.seed(12343)
     path = os.path.dirname(os.path.realpath(__file__))
     with open(sys.argv[1]) as in_data:
         settings = yaml.safe_load(in_data)
-        n_emcee = settings['fitting_parameters']
 
     data_list, filenames = read_data(path, settings['phot_settings'])
     for data, name in zip(data_list, filenames):
+        
         print(f'\n\033[1m * Running fit for {name}\033[0m')
         pdf_dir = settings['plots']['all_plots']['file_dir']
         pdf = PdfPages(f"{pdf_dir}/{name.split('.')[0]}_result.pdf")
-        result, cplot, xlim = make_all_fittings(data, n_emcee, pdf=pdf)
+        result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
         pdf.close()
         # Call write_tables???
 
@@ -518,7 +589,7 @@ if __name__ == '__main__':
 
         pdf_dir = settings['plots']['best model']['file_dir']
         pdf = PdfPages(f"{pdf_dir}/{name.split('.')[0]}_fit.pdf")
-        plot_fit(result[0], data, n_emcee, xlim, pdf=pdf)
+        plot_fit(result[0], data, settings['fitting_parameters'], xlim, pdf=pdf)
         pdf.close()
         print("\n--------------------------------------------------")
     breakpoint()

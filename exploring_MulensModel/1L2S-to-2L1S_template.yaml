@@ -1,0 +1,50 @@
+photometry_files:
+    - {{file_name: ./OGLE-EWS_photometry/{0:}.dat, add_2450000: False}}
+starting_parameters:
+    t_0: gauss {1:} 0.01
+    u_0: gauss {2:} 0.001
+    t_E: gauss {3:} 0.01
+    s: gauss {4:} 0.001
+    q: gauss {5:} 0.001
+    alpha: gauss {6:} 0.001
+    # alpha: gauss 171.413 0.001
+model:
+    # methods: 2452800. point_source 2452833. VBBL 2452845. point_source 2452860. # (example16)
+    methods: 2459900. point_source 2460300.  # make it general...
+    default method: point_source_point_lens
+min_values:
+    # u_0: 0.
+    t_E: 1.
+    s: 1.
+    q: 0.
+    alpha: 0.
+max_values:
+    # u_0: 0.
+    s: 10.
+    q: 1.
+    alpha: 360.
+fitting_parameters:
+    n_walkers: 20  # 20w3000 (short), 20w10000 (long), 100w3000s (more walkers)
+    n_steps: 3000
+    n_burn:  1500
+    progress: True
+plots:
+    best model:
+        file: ./OGLE-EWS_photometry/{0:}_2L1S_model.png
+        time range: 2459800 2460300     # make it general...
+        second Y scale:
+            magnifications: [1, 1.5, 2] #, 2.5, 3, 3.5, 4]  # make it general...
+    trajectory:
+        file: ./OGLE-EWS_photometry/{0:}_2L1S_trajectory.png
+        time range: 2459800 2460300
+    triangle:
+        file: ./OGLE-EWS_photometry/{0:}_2L1S_triangle.png
+        shift t_0: False
+    trace:
+        file: ./OGLE-EWS_photometry/{0:}_2L1S_trace.png
+        shift t_0: False
+other_output:
+    models:
+        file name: ./OGLE-EWS_photometry/{0:}_2L1S_all_models.txt
+    yaml output:
+        file name: ./OGLE-EWS_photometry/{0:}_2L1S_all_results.txt
