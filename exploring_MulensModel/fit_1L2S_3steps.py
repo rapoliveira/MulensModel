@@ -39,7 +39,7 @@ def read_data(path, phot_settings, plot=False):
         RuntimeError: if photometry files(s) are not available.
 
     Returns:
-        list: list of data instances to be looped in the main function
+        tuple of lists: list of data instances and filenames to be looped
     """
 
     filenames, subtract, phot_fmt = phot_settings.values()
@@ -49,25 +49,26 @@ def read_data(path, phot_settings, plot=False):
             tab = Table.read(f'{path}/{filenames}/{fname}', format='ascii')
             my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
             data_list.append(mm.MulensData(my_dataset, phot_fmt=phot_fmt))
-        return data_list, sorted(os.listdir(f'{path}/{filenames}'))
+        filenames = sorted(os.listdir(f'{path}/{filenames}'))
 
     elif os.path.isfile(f"{path}/{filenames}"):
         tab = Table.read(f"{path}/{filenames}", format='ascii')
         my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
         my_dataset[0] = my_dataset[0]-2450000 if subtract else my_dataset[0]
         data_list = [mm.MulensData(my_dataset, phot_fmt=phot_fmt)]
-        return data_list, [filenames.split('/')[1]]
+        filenames = [filenames.split('/')[1]]
 
     else:
         raise RuntimeError(f'Photometry file(s) {filenames} not available.')
 
-    # if plot:
-    #     plt.figure(tight_layout=True)
-    #     for dataset in data_list:
-    #         dataset.plot(phot_fmt='mag', alpha=0.5)
-    #     plt.show()
+    if plot:
+        plt.figure(tight_layout=True)
+        for dataset in data_list:
+            dataset.plot(phot_fmt=phot_fmt, alpha=0.5)
+        plt.gca().set(**{'xlabel': 'Time', 'ylabel': phot_fmt})
+        plt.show()
 
-    # return data_list
+    return data_list, filenames
 
 def make_all_fittings(data, name, settings, pdf=""):
     '''
@@ -449,6 +450,21 @@ def get_xlim2(best, dataset, n_emcee):
     return xlim
 
 def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
+    """
+    Plot the best-fitting model(s) over the light curve in mag or flux.
+
+    Args:
+        best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
+        dataset (mm.MulensData instance): object containing all the data.
+        n_emcee (dict): parameters relevant to emcee fitting.
+        xlim (list): time interval to be plotted.
+        orig_data (list, optional): Plot with subtracted data. Defaults to [].
+        best_50 (list, optional): Additional percentile result. Defaults to [].
+        pdf (str, optional): pdf file to save the plot. Defaults to "".
+
+    Returns:
+        mm.Event: final event containing the model and datasets.
+    """
 
     fig = plt.figure(figsize=(7.5,5.5))
     gs = GridSpec(3, 1, figure=fig)
@@ -508,14 +524,15 @@ def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     return event
 
 def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
-    """Generate two yaml files with initial parameters for 2L1S fitting
+    """
+    Generate two yaml files with initial parameters for the 2L1S fitting.
 
     Args:
         path (str): directory of the Python script and catalogues
         pspl_1 (dict): results from the first PSPL fit (t_0, u_0, t_E) 
         pspl_2 (dict): results from the first PSPL fit (t_0, u_0, t_E)
         name (str): name of the photometry file
-        settings (dict): setting from yaml file
+        settings (dict): settings from yaml file
     """
 
     yaml_dir = settings['other_output']['2L1S_yaml_files']['yaml_dir_name']
@@ -546,8 +563,9 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
     f_template = settings['other_output']['2L1S_yaml_files']['yaml_template']
     with open(f'{path}/{f_template}') as template_file_:
         template = template_file_.read()
-    with open(yaml_file_1, 'w') as out_file_1:
+    with open(f'{path}/{yaml_file_1}', 'w') as out_file_1:
         out_file_1.write(template.format(*init_2L1S))
+    breakpoint()
     
     # equations for trajectory beyond the lenses
     u_0_2L1S = -(pspl_1['u_0'] + q_2L1S*pspl_2['u_0']) / (1 + q_2L1S) # negative!!!
@@ -558,7 +576,7 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
                       (pspl_1['u_0']-pspl_2['u_0'])**2)
     factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
     init_2L1S[4] = round((s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2., 3)
-    with open(yaml_file_2, 'w') as out_file_2:
+    with open(f'{path}/{yaml_file_2}', 'w') as out_file_2:
         out_file_2.write(template.format(*init_2L1S))
 
     # breakpoint()
@@ -568,7 +586,7 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
 if __name__ == '__main__':
 
     np.random.seed(12343)
-    path = os.path.dirname(os.path.realpath(__file__))
+    path = os.path.dirname(os.path.realpath(sys.argv[1]))
     with open(sys.argv[1]) as in_data:
         settings = yaml.safe_load(in_data)
 
@@ -577,19 +595,19 @@ if __name__ == '__main__':
         
         print(f'\n\033[1m * Running fit for {name}\033[0m')
         pdf_dir = settings['plots']['all_plots']['file_dir']
-        pdf = PdfPages(f"{pdf_dir}/{name.split('.')[0]}_result.pdf")
+        pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
         result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
         pdf.close()
         # Call write_tables???
 
         pdf_dir = settings['plots']['triangle']['file_dir']
-        pdf = PdfPages(f"{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
+        pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
         pdf.savefig(cplot)
         pdf.close()
 
         pdf_dir = settings['plots']['best model']['file_dir']
-        pdf = PdfPages(f"{pdf_dir}/{name.split('.')[0]}_fit.pdf")
+        pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_fit.pdf")
         plot_fit(result[0], data, settings['fitting_parameters'], xlim, pdf=pdf)
         pdf.close()
         print("\n--------------------------------------------------")
-    breakpoint()
+    # breakpoint()
