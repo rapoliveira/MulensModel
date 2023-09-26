@@ -470,7 +470,7 @@ def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     gs = GridSpec(3, 1, figure=fig)
     ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
     best = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    if best == 5:
+    if len(best) == 5:  # if best == 5:
         event = mm.Event(model=mm.Model(best), datasets=[dataset])
     else:
         fixed = {dataset: 0.} if n_emcee['blend_flux_zero'] else None
@@ -565,7 +565,6 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
         template = template_file_.read()
     with open(f'{path}/{yaml_file_1}', 'w') as out_file_1:
         out_file_1.write(template.format(*init_2L1S))
-    breakpoint()
     
     # equations for trajectory beyond the lenses
     u_0_2L1S = -(pspl_1['u_0'] + q_2L1S*pspl_2['u_0']) / (1 + q_2L1S) # negative!!!
