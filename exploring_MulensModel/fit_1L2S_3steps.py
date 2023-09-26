@@ -103,7 +103,7 @@ def make_all_fittings(data, name, settings, pdf=""):
     output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event, n_emcee,
                          spec="u_0")
     make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
-    if settings['other_output']['2L1S_yaml_files']['t_or_f']:
+    if settings['other_output']['yaml_files_2L1S']['t_or_f']:
         generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
     if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
     # if output_1[0]['u_0'] > 5:
@@ -530,12 +530,13 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
     Args:
         path (str): directory of the Python script and catalogues
         pspl_1 (dict): results from the first PSPL fit (t_0, u_0, t_E) 
-        pspl_2 (dict): results from the first PSPL fit (t_0, u_0, t_E)
+        pspl_2 (dict): results from the second PSPL fit (t_0, u_0, t_E)
         name (str): name of the photometry file
         settings (dict): settings from yaml file
     """
 
-    yaml_dir = settings['other_output']['2L1S_yaml_files']['yaml_dir_name']
+    yaml_dir = settings['other_output']['yaml_files_2L1S']['yaml_dir_name']
+    yaml_dir = yaml_dir.format(name.split('.')[0])
     yaml_file_1 = yaml_dir.replace('.yaml', '_traj_between.yaml')
     yaml_file_2 = yaml_dir.replace('.yaml', '_traj_beyond.yaml')
 
@@ -560,7 +561,7 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
     if settings['phot_settings']['subtract_2450000']:
         init_2L1S[0] += 2450000
     init_2L1S.insert(0, name.split('.')[0])
-    f_template = settings['other_output']['2L1S_yaml_files']['yaml_template']
+    f_template = settings['other_output']['yaml_files_2L1S']['yaml_template']
     with open(f'{path}/{f_template}') as template_file_:
         template = template_file_.read()
     with open(f'{path}/{yaml_file_1}', 'w') as out_file_1:
@@ -593,11 +594,12 @@ if __name__ == '__main__':
     for data, name in zip(data_list, filenames):
         
         print(f'\n\033[1m * Running fit for {name}\033[0m')
+        breakpoint()
         pdf_dir = settings['plots']['all_plots']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
         result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
         pdf.close()
-        # Call write_tables???
+        # Call write_tables from old.../exploring_W16_phot.py ???
 
         pdf_dir = settings['plots']['triangle']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
