@@ -16,7 +16,7 @@ fitting_parameters:
     clean_cplot: False
     ans: max_prob
     progress: True
-    blend_flux_zero: False  # True for 2L1S initial params, otherwise False
+    fix_blend: False  # float value for 2L1S initial params, otherwise False
     sigmas: [[1., 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
 plots:
     all_plots:

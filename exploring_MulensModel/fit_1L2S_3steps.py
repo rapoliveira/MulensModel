@@ -79,8 +79,8 @@ def make_all_fittings(data, name, settings, pdf=""):
     # still missing u(A) from baseline to get an initial u_0 !!!
     start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 25}
     n_emcee = settings['fitting_parameters']
-    fixed = {data: 0.} if n_emcee['blend_flux_zero'] else None
-    event = mm.Event(datasets=data, model=mm.Model(start), fix_blend_flux=fixed)
+    fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
+    event = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
     print("\n\033[1m -- 1st fit: PSPL to original data...\033[0m")
     output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event, n_emcee)
     xlim = get_xlim2(output[0], data, n_emcee)  # checking with Radek... OK
@@ -88,7 +88,7 @@ def make_all_fittings(data, name, settings, pdf=""):
 
     # Subtracting light curve from first fit
     model = mm.Model(dict(list(output[0].items())[:3]))
-    aux_event = mm.Event(model=model, datasets=data, fix_blend_flux=fixed)
+    aux_event = mm.Event(data, model=model, fix_blend_flux=fix)
     (flux, blend) = aux_event.get_flux_for_dataset(0)
     fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
     subt_data = [data.time[fsub > 0], fsub[fsub > 0], data.err_flux[fsub > 0]]
@@ -97,10 +97,10 @@ def make_all_fittings(data, name, settings, pdf=""):
     # 2nd fit: PSPL to the subtracted data
     t_brightest = np.mean(subt_data.time[np.argsort(subt_data.mag)][:10])
     start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': output[0]['t_E']}
-    fixed = {subt_data: 0.} if n_emcee['blend_flux_zero'] else None
-    event = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fixed)
+    fix = None if n_emcee['fix_blend'] is False else {subt_data: n_emcee['fix_blend']}
+    event_1 = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
     print("\n\033[1m -- 2nd fit: PSPL to subtracted data...\033[0m")
-    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event, n_emcee,
+    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event_1, n_emcee,
                          spec="u_0")
     make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
     if settings['other_output']['yaml_files_2L1S']['t_or_f']:
@@ -112,7 +112,7 @@ def make_all_fittings(data, name, settings, pdf=""):
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
              output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
-    event = mm.Event(datasets=data, model=mm.Model(start))
+    event = mm.Event(data, model=mm.Model(start))
     print("\n\033[1m -- 3rd fit: 1L2S to original data...\033[0m")
     output_2 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, event, n_emcee)
     event_2, cplot_2 = make_plots(output_2[:-1], n_emcee, data, xlim, pdf=pdf)
@@ -289,7 +289,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
             event.fix_source_flux_ratio = {event.datasets[0]: value}
         else:
             setattr(event.model.parameters, key, value)
-    print("\nSmallest chi2 model:")
+    print("\nSmallest chi2 model (except fluxes):")
     print(*[repr(b) if isinstance(b, float) else b.value for b in best.values()])
     print("chi2 =", event.get_chi2())
 
@@ -376,7 +376,7 @@ def make_plots(results_states, n_emcee, dataset, xlim, orig_data=[], pdf=""):
     plot results
     """
     best, sampler, states = results_states
-    condition = (n_emcee['blend_flux_zero'] and len(best) != 8)
+    condition = (n_emcee['fix_blend'] is not False and len(best) != 8)
     c_states = states[:,:-2] if condition else states[:,:-1]
     params = list(best.keys())[:-1] if condition else list(best.keys())
     values = list(best.values())[:-1] if condition else list(best.values())
@@ -416,15 +416,15 @@ def tracer_plot(params_to_fit, sampler, nburn, pdf=""):
     else:
         plt.show()
 
-def get_xlim2(best, dataset, n_emcee):
+def get_xlim2(best, data, n_emcee):
 
     # only works for PSPL case... (A' should be considered for 1L2S)
     # Amax = (best['u_0']**2 + 2) / (best['u_0']*np.sqrt(best['u_0']**2 + 4))
 
     # Radek: using get_data_magnification from MulensModel
     bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    fixed = {dataset: 0.} if n_emcee['blend_flux_zero'] else None
-    event = mm.Event(model=mm.Model(bst), datasets=[dataset], fix_blend_flux=fixed)
+    fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
+    event = mm.Event(data, model=mm.Model(bst), fix_blend_flux=fix)
     event.get_flux_for_dataset(0)
     Amax = max(event.fits[0].get_data_magnification())
     dividend = best['source_flux']*Amax + best['blending_flux']
@@ -432,15 +432,15 @@ def get_xlim2(best, dataset, n_emcee):
     deltaI = 2.5*np.log10(dividend/divisor)  # deltaI ~ 3 for PAR-46 :: OK!
 
     # Get the magnitude at the model peak (mag_peak ~ comp? ok)
-    idx_peak = np.argmin(abs(dataset.time-best['t_0']))
+    idx_peak = np.argmin(abs(data.time-best['t_0']))
     model_mag = event.fits[0].get_model_magnitudes()
-    mag_peak, comp = model_mag[idx_peak], dataset.mag[idx_peak]
+    mag_peak, comp = model_mag[idx_peak], data.mag[idx_peak]
 
     # Summing 0.85*deltaI to the mag_peak, then obtain t_range (+2%)
     mag_baseline = mag_peak + 0.85*deltaI
     idx1 = np.argmin(abs(mag_baseline - model_mag[:idx_peak]))
     idx2 = idx_peak + np.argmin(abs(mag_baseline - model_mag[idx_peak:]))
-    t_range = np.array([0.97*dataset.time[idx1], 1.03*dataset.time[idx2]])
+    t_range = np.array([0.97*data.time[idx1], 1.03*data.time[idx2]])
     max_diff_t_0 = max(abs(t_range - best['t_0'])) + 100
     xlim = [best['t_0']-max_diff_t_0, best['t_0']+max_diff_t_0]
 
@@ -449,13 +449,13 @@ def get_xlim2(best, dataset, n_emcee):
     
     return xlim
 
-def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
+def plot_fit(best, data, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     """
     Plot the best-fitting model(s) over the light curve in mag or flux.
 
     Args:
         best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
-        dataset (mm.MulensData instance): object containing all the data.
+        data (mm.MulensData instance): object containing all the data.
         n_emcee (dict): parameters relevant to emcee fitting.
         xlim (list): time interval to be plotted.
         orig_data (list, optional): Plot with subtracted data. Defaults to [].
@@ -469,13 +469,11 @@ def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     fig = plt.figure(figsize=(7.5,5.5))
     gs = GridSpec(3, 1, figure=fig)
     ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
+    # fix_source = {data: [best[key] for key in best if 'source' in key]}
+    fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
     best = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    if len(best) == 5:  # if best == 5:
-        event = mm.Event(model=mm.Model(best), datasets=[dataset])
-    else:
-        fixed = {dataset: 0.} if n_emcee['blend_flux_zero'] else None
-        event = mm.Event(model=mm.Model(best), datasets=[dataset],
-                         fix_blend_flux=fixed)
+    event = mm.Event(data, model=mm.Model(best)) if len(best) == 5 else \
+            mm.Event(data, model=mm.Model(best), fix_blend_flux=fix)
     data_label = "Original data" if not orig_data else "Subtracted data"
     event.plot_data(subtract_2450000=False, label=data_label)
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
@@ -511,7 +509,7 @@ def plot_fit(best, dataset, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
             model_x = mm.Model({'t_0_1': best_50[0], 'u_0_1': best_50[1],
                                 't_0_2': best_50[2], 'u_0_2': best_50[3],
                                 't_E': best_50[4]})
-        event_x = mm.Event(model=model_x, datasets=[dataset])
+        event_x = mm.Event(model=model_x, datasets=[data])
         plot_params['color'] = 'orange'
         event_x.plot_model(label='50th_perc', **plot_params)
 
