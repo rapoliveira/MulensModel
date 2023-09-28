@@ -581,6 +581,30 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
     # To-Do: negative alpha (ASK RADEK!)
     # ALSO: Generalize ''methods: 2459900. point_source 2460300.''
 
+def write_chains_and_results(path, settings, name, result):
+    """_summary_
+
+    Args:
+        event_id (_type_): _description_
+        result (_type_): _description_
+    """
+
+    best, samples, event = result
+    path = os.path.dirname(os.path.realpath(__file__))
+    chains_file = f"{path}/W16_output/chains/{event_id[:-4]}_chains.txt"
+    results_file = f"{path}/results-1L2S.txt"
+
+    # saving the states to file
+    chains = Table(samples, names=list(best.keys())+['ln_prob'])
+    chains.write(chains_file, format='ascii', overwrite=True)
+    
+    # saving the results to general table
+    res_tab = Table.read(results_file, format='ascii')
+    best = dict(item for item in list(best.items()) if 'flux' not in item[0])
+    lst = list(best.values())+[0.,0.] if len(best)==3 else list(best.values())
+    res_tab[int(event_id[4:6])-1] = [event_id[:-4]] + lst + [event.get_chi2()]
+    res_tab.write(results_file, format='ascii', overwrite=True)
+
 if __name__ == '__main__':
 
     np.random.seed(12343)
@@ -597,7 +621,7 @@ if __name__ == '__main__':
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
         result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
         pdf.close()
-        # Call write_tables from old.../exploring_W16_phot.py ???
+        # write_chains_and_results(path, settings, name, result)
 
         pdf_dir = settings['plots']['triangle']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
