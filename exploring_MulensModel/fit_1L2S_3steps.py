@@ -581,29 +581,35 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
     # To-Do: negative alpha (ASK RADEK!)
     # ALSO: Generalize ''methods: 2459900. point_source 2460300.''
 
-def write_chains_and_results(path, settings, name, result):
+def save_chains_and_results(path, settings_outputs, name, result):
     """_summary_
 
     Args:
-        event_id (_type_): _description_
-        result (_type_): _description_
+        path (str): directory of the Python script and catalogues
+        settings_outputs (dict): contains the information for the outputs
+        name (str): name of the photometry file
+        result (tuple): contains the best parameters, samples and event
     """
 
-    best, samples, event = result
-    path = os.path.dirname(os.path.realpath(__file__))
-    chains_file = f"{path}/W16_output/chains/{event_id[:-4]}_chains.txt"
-    results_file = f"{path}/results-1L2S.txt"
-
     # saving the states to file
-    chains = Table(samples, names=list(best.keys())+['ln_prob'])
-    chains.write(chains_file, format='ascii', overwrite=True)
+    best, samples, event = result
+    bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
+    if 'models' in settings_outputs.keys():
+        chains_file = settings_outputs['models']['file_dir']
+        diff = len(best) - len(bst) + 1
+        chi2 = samples[:,-1].reshape(len(samples), 1)
+        chains = np.hstack(samples[:,:-diff], chi2)
+        chains = Table(samples, names=list(best.keys())+['ln_prob'])
+        chains.write(chains_file.format(name), format='ascii', overwrite=True)
+        # still check if directory exists...
     
     # saving the results to general table
-    res_tab = Table.read(results_file, format='ascii')
-    best = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    lst = list(best.values())+[0.,0.] if len(best)==3 else list(best.values())
-    res_tab[int(event_id[4:6])-1] = [event_id[:-4]] + lst + [event.get_chi2()]
-    res_tab.write(results_file, format='ascii', overwrite=True)
+    # results_file = f"{path}/results-1L2S.txt"
+    # res_tab = Table.read(results_file, format='ascii')
+    # best = dict(item for item in list(best.items()) if 'flux' not in item[0])
+    # lst = list(best.values())+[0.,0.] if len(best)==3 else list(best.values())
+    # res_tab[int(event_id[4:6])-1] = [event_id[:-4]] + lst + [event.get_chi2()]
+    # res_tab.write(results_file, format='ascii', overwrite=True)
 
 if __name__ == '__main__':
 
@@ -621,7 +627,7 @@ if __name__ == '__main__':
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
         result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
         pdf.close()
-        # write_chains_and_results(path, settings, name, result)
+        save_chains_and_results(path, settings['other_output'], name, result)
 
         pdf_dir = settings['plots']['triangle']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
