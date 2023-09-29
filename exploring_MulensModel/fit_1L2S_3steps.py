@@ -16,7 +16,7 @@ except ImportError as err:
     print("and re-run the script")
     sys.exit(1)
 
-from astropy.table import Table
+from astropy.table import Table, Column
 from itertools import chain
 import MulensModel as mm
 from matplotlib.backends.backend_pdf import PdfPages
@@ -26,6 +26,7 @@ from matplotlib.gridspec import GridSpec
 import numpy as np
 import os
 import yaml
+import warnings
 
 def read_data(path, phot_settings, plot=False):
     """Read a catalogue or list of catalogues and creates MulensData instance
@@ -107,7 +108,7 @@ def make_all_fittings(data, name, settings, pdf=""):
         generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
     if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
     # if output_1[0]['u_0'] > 5:
-        return (output[0], output[2], event), cplot, xlim
+        return output + (event,), cplot, xlim
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
@@ -120,9 +121,9 @@ def make_all_fittings(data, name, settings, pdf=""):
     # if max(output_2[0][1], output_2[0][3]) > 2.9:     ### or after cleaning chains...
     # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
     if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
-        return (output[0], output[2], event), cplot, xlim
+        return output + (event,), cplot, xlim
     
-    return (output_2[0], output_2[2], event_2), cplot_2, xlim
+    return output_2 + (event_2,), cplot_2, xlim
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -530,7 +531,7 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
         pspl_1 (dict): results from the first PSPL fit (t_0, u_0, t_E) 
         pspl_2 (dict): results from the second PSPL fit (t_0, u_0, t_E)
         name (str): name of the photometry file
-        settings (dict): settings from yaml file
+        settings (dict): all settings from yaml file
     """
 
     yaml_dir = settings['other_output']['yaml_files_2L1S']['yaml_dir_name']
@@ -581,35 +582,75 @@ def generate_2L1S_yaml_files(path, pspl_1, pspl_2, name, settings):
     # To-Do: negative alpha (ASK RADEK!)
     # ALSO: Generalize ''methods: 2459900. point_source 2460300.''
 
-def save_chains_and_results(path, settings_outputs, name, result):
-    """_summary_
+def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
+    """
+    Save the chains, yaml results and table with results, according with the
+    paths and other informations provided in the settings file.
 
     Args:
         path (str): directory of the Python script and catalogues
-        settings_outputs (dict): contains the information for the outputs
+        settings (dict): all settings from yaml file
         name (str): name of the photometry file
-        result (tuple): contains the best parameters, samples and event
+        result (tuple): contains the EMCEE outputs and mm.Event instance
+        fmt (str, optional): format of the ascii tables.
     """
 
     # saving the states to file
-    best, samples, event = result
+    best, name = result[0], name.split('.')[0]
+    outputs, n_emcee = settings['other_output'], settings['fitting_parameters']
     bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    if 'models' in settings_outputs.keys():
-        chains_file = settings_outputs['models']['file_dir']
-        diff = len(best) - len(bst) + 1
-        chi2 = samples[:,-1].reshape(len(samples), 1)
-        chains = np.hstack(samples[:,:-diff], chi2)
-        chains = Table(samples, names=list(best.keys())+['ln_prob'])
-        chains.write(chains_file.format(name), format='ascii', overwrite=True)
-        # still check if directory exists...
+    if 'models' in outputs.keys():
+        fname = f'{path}/' + outputs['models']['file_dir'].format(name)
+        idxs_remove = list(np.arange(len(bst), len(best)))
+        chains = np.delete(result[2], idxs_remove, axis=1)
+        chains = Table(chains, names=list(bst.keys())+['ln_prob'])
+        chains.write(fname, format=fmt, overwrite=True)
     
-    # saving the results to general table
-    # results_file = f"{path}/results-1L2S.txt"
-    # res_tab = Table.read(results_file, format='ascii')
-    # best = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    # lst = list(best.values())+[0.,0.] if len(best)==3 else list(best.values())
-    # res_tab[int(event_id[4:6])-1] = [event_id[:-4]] + lst + [event.get_chi2()]
-    # res_tab.write(results_file, format='ascii', overwrite=True)
+    # organizing results to be saved in yaml file (as in example16)
+    fluxes = dict(item for item in list(best.items()) if 'flux' in item[0])
+    perc = dict(item for item in result[3].items() if 'flux' not in item[0])
+    perc_fluxes = dict(item for item in result[3].items() if 'flux' in item[0])
+    dict_perc, dict_best = {2: perc, 3: perc_fluxes}, {5: bst, 6: fluxes}
+    print()
+    acor = result[1].get_autocorr_time(quiet=True, discard=n_emcee['nburn'])
+    lst = [np.mean(result[1].acceptance_fraction), np.mean(acor), '', '',
+           result[-1].chi2, '', '']
+    dict_perc_best = {2: perc, 3: perc_fluxes, 5: bst, 6: fluxes}
+
+    # filling and writing the template
+    for idx, dict_obj in dict_perc_best.items():
+        for key, val in dict_obj.items():
+            if idx in [2, 3]:
+                uncerts = f'+{val[2]-val[1]:.5f}, -{val[1]-val[0]:.5f}'
+                lst[idx] += f'    {key}: [{val[1]:.5f}, {uncerts}]\n'
+            else:
+                lst[idx] += f'    {key}: {val:.5f}\n'
+        lst[idx] = lst[idx][:-1]
+    with open(f'{path}/../1L2S-result_template.yaml') as file_:
+        template_result = file_.read()
+    if 'yaml output' in outputs.keys():
+        yaml_fname =  outputs['yaml output']['file name'].format(name)
+        with open(f'{path}/{yaml_fname}', 'w') as yaml_results:
+            yaml_results.write(template_result.format(*lst))
+    
+    # saving results to table with all the events (e.g. W16)
+    if 'table output' in outputs.keys():
+        fname, columns, dtypes = outputs['table output'].values()
+        if not os.path.isfile(f'{path}/{fname}'):
+            result_tab = Table()
+            for col, dtype in zip(columns, dtypes):
+                result_tab[col] = Column(name=col, dtype=dtype)
+        else:
+            result_tab = Table.read(f'{path}/{fname}', format='ascii')
+        bst_values = [round(val, 5) for val in bst.values()]
+        lst = bst.values+[0.,0.] if len(bst)==3 else bst_values
+        lst = [name] + lst + [round(result[-1].chi2, 4)]
+        if name in result_tab['event']:
+            result_tab[np.where(result_tab['event'] == name)] = lst
+        else:
+            result_tab.add_row(lst)
+        result_tab.sort('event')
+        result_tab.write(f'{path}/{fname}', format=fmt, overwrite=True)
 
 if __name__ == '__main__':
 
@@ -627,7 +668,7 @@ if __name__ == '__main__':
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
         result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
         pdf.close()
-        save_chains_and_results(path, settings['other_output'], name, result)
+        write_tables(path, settings, name, result)
 
         pdf_dir = settings['plots']['triangle']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")

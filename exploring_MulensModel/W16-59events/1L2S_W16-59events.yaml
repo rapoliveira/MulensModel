@@ -1,5 +1,5 @@
 phot_settings:
-    name: ./phot/
+    name: phot/
     subtract_2450000: True
     phot_fmt: mag
 # starting_parameters:  # Does not apply...?
@@ -11,8 +11,8 @@ min_values:
     u_0: 0.
 fitting_parameters:
     nwlk: 20
-    nstep: 10000 # 3000 or 10000
-    nburn: 5000
+    nstep: 3000 # 3000 or 10000
+    nburn: 1500
     clean_cplot: False
     ans: max_prob
     progress: True
@@ -20,21 +20,22 @@ fitting_parameters:
     sigmas: [[1., 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
 plots:
     all_plots:
-        file_dir: ./TEMP_results/all_plots/     # add name later...
+        file_dir: TEMP_results/all_plots/     # add name later...
     best model:
-        file_dir: ./TEMP_results/
+        file_dir: TEMP_results/
         # time range: 2452700 2454640
     triangle:
-        file_dir: ./TEMP_results/
+        file_dir: TEMP_results/
         # shift t_0: False
-other_output:               ### To-Do other outputs!!!
+other_output:
     models:
-        file_dir: ./TEMP_results/chains/
-    # yaml output:
-    #     file_dir: ./W16-59events/TEMP_results/txt/ # change to yaml_results
+        file_dir: TEMP_results/chains/{}_all_chains.txt
+    yaml output:
+        file name: TEMP_results/yaml_results/{}_results.yaml
     table output:
-        file name: test.txt
-        columns: [event_id, param1, param2, param3, param4, param5, ln_prob]
+        file name: results-1L2S-withoutprior.txt
+        columns: [event, param1, param2, param3, param4, param5, ln_prob]
+        dtypes: ['<U6', '<f8', '<f8', '<f8', '<f8', '<f8', '<f8']
     yaml_files_2L1S:
         t_or_f: False
         yaml_template: ../1L2S-to-2L1S_template.yaml
