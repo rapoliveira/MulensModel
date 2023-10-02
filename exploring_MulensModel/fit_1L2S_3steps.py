@@ -48,15 +48,16 @@ def read_data(path, phot_settings, plot=False):
         data_list = []
         for fname in sorted(os.listdir(f'{path}/{filenames}')):
             tab = Table.read(f'{path}/{filenames}/{fname}', format='ascii')
-            my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
-            data_list.append(mm.MulensData(my_dataset, phot_fmt=phot_fmt))
+            dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
+            dataset[0] = dataset[0]-2450000 if subtract else dataset[0]
+            data_list.append(mm.MulensData(dataset, phot_fmt=phot_fmt))
         filenames = sorted(os.listdir(f'{path}/{filenames}'))
 
     elif os.path.isfile(f"{path}/{filenames}"):
         tab = Table.read(f"{path}/{filenames}", format='ascii')
-        my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
-        my_dataset[0] = my_dataset[0]-2450000 if subtract else my_dataset[0]
-        data_list = [mm.MulensData(my_dataset, phot_fmt=phot_fmt)]
+        dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
+        dataset[0] = dataset[0]-2450000 if subtract else dataset[0]
+        data_list = [mm.MulensData(dataset, phot_fmt=phot_fmt)]
         filenames = [filenames.split('/')[1]]
 
     else:

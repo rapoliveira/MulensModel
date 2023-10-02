@@ -23,9 +23,9 @@ It is possible to compute JHKs magnitudes of the stellar spectra using the trans
 <!-- - *old: I will also review the code one last time and improve the derivation of JHKs mags.* -->
 <!-- - URGENT: Deal with more than one spectrum for the same star (weighted average) ->> Only duplicated spectra working so far. -->
 - [X] Improve fixed value of blending_flux in the yaml input
-- [ ] Transfer the function write_tables() from old codes to write the results in a table, as well as the chains
+- [X] Function write_tables() to write the chains, a yaml with the results, and a table with all results
 - [ ] Implement priors, minimum values and starting parameters from the yaml file
-- [...]
+- [ ] [...]
 - [ ] Make the code more general for other databases...
 
-Last updated: 27 Sep 2023
+Last updated: 02 Oct 2023
