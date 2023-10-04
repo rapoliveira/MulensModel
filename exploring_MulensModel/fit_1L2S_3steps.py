@@ -612,7 +612,6 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
     fluxes = dict(item for item in list(best.items()) if 'flux' in item[0])
     perc = dict(item for item in result[3].items() if 'flux' not in item[0])
     perc_fluxes = dict(item for item in result[3].items() if 'flux' in item[0])
-    dict_perc, dict_best = {2: perc, 3: perc_fluxes}, {5: bst, 6: fluxes}
     print()
     acor = result[1].get_autocorr_time(quiet=True, discard=n_emcee['nburn'])
     lst = [np.mean(result[1].acceptance_fraction), np.mean(acor), '', '',
@@ -626,7 +625,7 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
                 uncerts = f'+{val[2]-val[1]:.5f}, -{val[1]-val[0]:.5f}'
                 lst[idx] += f'    {key}: [{val[1]:.5f}, {uncerts}]\n'
             else:
-                lst[idx] += f'    {key}: {val:.5f}\n'
+                lst[idx] += f'    {key}: {val}\n'
         lst[idx] = lst[idx][:-1]
     with open(f'{path}/../1L2S-result_template.yaml') as file_:
         template_result = file_.read()
