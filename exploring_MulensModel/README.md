@@ -25,7 +25,7 @@ It is possible to compute JHKs magnitudes of the stellar spectra using the trans
 - [X] Improve fixed value of blending_flux in the yaml input
 - [X] Function write_tables() to write the chains, a yaml with the results, and a table with all results
 - [X] Correct major bug related to source/blending fluxes retrieved from emcee.blobs
-- [ ] Best model with all digits in results.yaml and get back fixing the fluxes in fit figure
+- [X] Best model with all digits in results.yaml and get back fixing the fluxes in fit figure
 - [ ] Implement priors, minimum values and starting parameters from the yaml file
 - [ ] [...]
 - [ ] Make the code more general for other databases...

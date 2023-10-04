@@ -82,11 +82,11 @@ def make_all_fittings(data, name, settings, pdf=""):
     start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 25}
     n_emcee = settings['fitting_parameters']
     fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
-    event = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
+    ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
     print("\n\033[1m -- 1st fit: PSPL to original data...\033[0m")
-    output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event, n_emcee)
+    output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, n_emcee)
     xlim = get_xlim2(output[0], data, n_emcee)  # checking with Radek... OK
-    cplot = make_plots(output[:-1], n_emcee, data, xlim, pdf=pdf)[1]
+    event, cplot = make_plots(output[:-1], n_emcee, data, xlim, pdf=pdf)
 
     # Subtracting light curve from first fit
     model = mm.Model(dict(list(output[0].items())[:3]))
@@ -100,9 +100,9 @@ def make_all_fittings(data, name, settings, pdf=""):
     t_brightest = np.mean(subt_data.time[np.argsort(subt_data.mag)][:10])
     start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': output[0]['t_E']}
     fix = None if n_emcee['fix_blend'] is False else {subt_data: n_emcee['fix_blend']}
-    event_1 = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
+    ev_st = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
     print("\n\033[1m -- 2nd fit: PSPL to subtracted data...\033[0m")
-    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, event_1, n_emcee,
+    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, n_emcee,
                          spec="u_0")
     make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
     if settings['other_output']['yaml_files_2L1S']['t_or_f']:
@@ -114,12 +114,12 @@ def make_all_fittings(data, name, settings, pdf=""):
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
              output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
-    event = mm.Event(data, model=mm.Model(start))
+    ev_st = mm.Event(data, model=mm.Model(start))
     print("\n\033[1m -- 3rd fit: 1L2S to original data...\033[0m")
-    output_2 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, event, n_emcee)
+    output_2 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, ev_st, n_emcee)
     event_2, cplot_2 = make_plots(output_2[:-1], n_emcee, data, xlim, pdf=pdf)
     
-    # if max(output_2[0][1], output_2[0][3]) > 2.9:     ### or after cleaning chains...
+    # if max(output_2[0][1], output_2[0][3]) > 2.9:
     # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
     if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
         return output + (event,), cplot, xlim
@@ -472,11 +472,10 @@ def plot_fit(best, data, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     fig = plt.figure(figsize=(7.5,5.5))
     gs = GridSpec(3, 1, figure=fig)
     ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
-    # fix_source = {data: [best[key] for key in best if 'source' in key]}
-    fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
-    best = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    event = mm.Event(data, model=mm.Model(best)) if len(best) == 5 else \
-            mm.Event(data, model=mm.Model(best), fix_blend_flux=fix)
+    bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
+    fix_source = {data: [best[key] for key in best if 'source' in key]}
+    event = mm.Event(data, model=mm.Model(bst), fix_source_flux=fix_source,
+                     fix_blend_flux={data: best['blending_flux']})
     data_label = "Original data" if not orig_data else "Subtracted data"
     event.plot_data(subtract_2450000=False, label=data_label)
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
@@ -487,8 +486,8 @@ def plot_fit(best, data, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
 
     label = 'PSPL' if event.model.n_sources==1 else '1L2S'
     label += f" ({n_emcee['ans']}):\n"
-    for item in best:
-        label += f'{item} = {best[item]:.2f}\n'
+    for item in bst:
+        label += f'{item} = {bst[item]:.2f}\n'
     event.plot_model(label=r"%s"%label[:-1], **plot_params)
     plt.tick_params(axis='both', direction='in')
     ax1.xaxis.set_ticks_position('both')
