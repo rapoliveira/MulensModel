@@ -136,8 +136,9 @@ def ln_like(theta, event, params_to_fit):
             event.fix_source_flux_ratio = {event.datasets[0]: theta_}
         else:
             setattr(event.model.parameters, param, theta_)
+    event.get_chi2()
 
-    return -0.5 * event.get_chi2()
+    return -0.5 * event.chi2, event.fluxes[0]
 
 def ln_prior(theta, event, params_to_fit, spec=""):
     """priors - we only reject obviously wrong models"""
@@ -192,14 +193,14 @@ def ln_prob(theta, event, params_to_fit, spec=""):
     ln_prior_ = ln_prior(theta, event, params_to_fit, spec)
     if not np.isfinite(ln_prior_):
         return -np.inf, np.array([-np.inf,-np.inf]), -np.inf
-    ln_like_ = ln_like(theta, event, params_to_fit)
+    ln_like_, fluxes = ln_like(theta, event, params_to_fit)
 
     # In the cases that source fluxes are negative we want to return
     # these as if they were not in priors.
     if np.isnan(ln_like_):
         return -np.inf, np.array([-np.inf,-np.inf]), -np.inf
 
-    return ln_prior_ + ln_like_, event.source_fluxes[0], event.blend_fluxes[0]
+    return ln_prior_ + ln_like_, fluxes[0], fluxes[1]
 
 def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
     """
@@ -255,7 +256,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
 
     # Remove burn-in samples and reshape:
     samples = sampler.chain[:, nburn:, :].reshape((-1, n_dim))
-    blobs = sampler.get_blobs()[nburn:].reshape(-1) # [:10]
+    blobs = sampler.get_blobs()[nburn:].T.flatten() # [:10]
     source_fluxes = np.array(list(chain.from_iterable(blobs))[::2])
     blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
     prob = sampler.lnprobability[:, nburn:].reshape((-1))
