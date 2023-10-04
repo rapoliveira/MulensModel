@@ -34,7 +34,7 @@ other_output:
         file name: TEMP_results/yaml_results/{}_results.yaml
     table output:
         file name: results-1L2S-withoutprior.txt
-        columns: [event, param1, param2, param3, param4, param5, ln_prob]
+        columns: [event, param1, param2, param3, param4, param5, chi2]
         dtypes: ['<U6', '<f8', '<f8', '<f8', '<f8', '<f8', '<f8']
     yaml_files_2L1S:
         t_or_f: False

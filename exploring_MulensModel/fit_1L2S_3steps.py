@@ -107,8 +107,9 @@ def make_all_fittings(data, name, settings, pdf=""):
     make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
     if settings['other_output']['yaml_files_2L1S']['t_or_f']:
         generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
-    if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
+    # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
     # if output_1[0]['u_0'] > 5:
+    if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
         return output + (event,), cplot, xlim
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
@@ -292,7 +293,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
             event.fix_source_flux_ratio = {event.datasets[0]: value}
         else:
             setattr(event.model.parameters, key, value)
-    print("\nSmallest chi2 model (except fluxes):")
+    print("\nSmallest chi2 model:")
     print(*[repr(b) if isinstance(b, float) else b.value for b in best.values()])
     print("chi2 =", event.get_chi2())
 
@@ -604,7 +605,7 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
         fname = f'{path}/' + outputs['models']['file_dir'].format(name)
         idxs_remove = list(np.arange(len(bst), len(best)))
         chains = np.delete(result[2], idxs_remove, axis=1)
-        chains = Table(chains, names=list(bst.keys())+['ln_prob'])
+        chains = Table(chains, names=list(bst.keys())+['chi2'])
         chains.write(fname, format=fmt, overwrite=True)
     
     # organizing results to be saved in yaml file (as in example16)
@@ -643,10 +644,12 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
         else:
             result_tab = Table.read(f'{path}/{fname}', format='ascii')
         bst_values = [round(val, 5) for val in bst.values()]
-        lst = bst.values+[0.,0.] if len(bst)==3 else bst_values
+        lst = bst_values+[0.,0.] if len(bst)==3 else bst_values
         lst = [name] + lst + [round(result[-1].chi2, 4)]
         if name in result_tab['event']:
-            result_tab[np.where(result_tab['event'] == name)] = lst
+            idx_event = np.where(result_tab['event'] == name)[0]
+            if result_tab[idx_event]['chi2'] > lst[-1]:
+                result_tab[idx_event] = lst
         else:
             result_tab.add_row(lst)
         result_tab.sort('event')
@@ -663,7 +666,7 @@ if __name__ == '__main__':
     for data, name in zip(data_list, filenames):
         
         print(f'\n\033[1m * Running fit for {name}\033[0m')
-        breakpoint()
+        # breakpoint()
         pdf_dir = settings['plots']['all_plots']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
         result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
