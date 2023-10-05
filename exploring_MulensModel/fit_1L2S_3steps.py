@@ -295,7 +295,8 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
             setattr(event.model.parameters, key, value)
     print("\nSmallest chi2 model:")
     print(*[repr(b) if isinstance(b, float) else b.value for b in best.values()])
-    print("chi2 =", event.get_chi2())
+    deg_of_freedom = event.datasets[0].n_epochs - n_dim
+    print(f"chi2 = {event.chi2:.8f}, dof = {deg_of_freedom}")
 
     # Cleaning posterior and cplot if required by the user
     if n_emcee['clean_cplot']:
@@ -614,9 +615,10 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
     perc_fluxes = dict(item for item in result[3].items() if 'flux' in item[0])
     print()
     acor = result[1].get_autocorr_time(quiet=True, discard=n_emcee['nburn'])
+    deg_of_freedom = result[-1].datasets[0].n_epochs - len(bst)
     lst = [np.mean(result[1].acceptance_fraction), np.mean(acor), '', '',
-           result[-1].chi2, '', '']
-    dict_perc_best = {2: perc, 3: perc_fluxes, 5: bst, 6: fluxes}
+           result[-1].chi2, deg_of_freedom, '', '']
+    dict_perc_best = {2: perc, 3: perc_fluxes, 6: bst, 7: fluxes}
 
     # filling and writing the template
     for idx, dict_obj in dict_perc_best.items():
@@ -645,14 +647,14 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
             result_tab = Table.read(f'{path}/{fname}', format='ascii')
         bst_values = [round(val, 5) for val in bst.values()]
         lst = bst_values+[0.,0.] if len(bst)==3 else bst_values
-        lst = [name] + lst + [round(result[-1].chi2, 4)]
-        if name in result_tab['event']:
-            idx_event = np.where(result_tab['event'] == name)[0]
-            if result_tab[idx_event]['chi2'] > lst[-1]:
+        lst = [name] + lst + [round(result[-1].chi2, 4), deg_of_freedom]
+        if name in result_tab['id']:
+            idx_event = np.where(result_tab['id'] == name)[0]
+            if result_tab[idx_event]['chi2'] > lst[-2]:
                 result_tab[idx_event] = lst
         else:
             result_tab.add_row(lst)
-        result_tab.sort('event')
+        result_tab.sort('id')
         result_tab.write(f'{path}/{fname}', format=fmt, overwrite=True)
 
 if __name__ == '__main__':

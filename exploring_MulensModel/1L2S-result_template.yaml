@@ -8,7 +8,8 @@ Fitted fluxes: # (source and blending)
 {3:}
 Best model:
   chi2: {4:.4f}
+  dof: {5:}
   Parameters:
-{5:}
-  Fluxes:
 {6:}
+  Fluxes:
+{7:}
