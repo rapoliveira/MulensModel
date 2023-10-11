@@ -151,8 +151,8 @@ def ln_prior(theta, event, params_to_fit, spec=""):
     # Additional priors distributions:
     t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
     if spec:    # 15, 100, 1000 or nothing?
-        # if theta[params_to_fit.index('u_0')] > 15. or \
-        if theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
+        if theta[params_to_fit.index('u_0')] > 100. or \
+            theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
             theta[params_to_fit.index('t_0')] > t_range[1]+100:
             return -np.inf
     t_E = theta[params_to_fit.index('t_E')]
