@@ -84,7 +84,7 @@ def make_all_fittings(data, name, settings, pdf=""):
     fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
     ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
     print("\n\033[1m -- 1st fit: PSPL to original data...\033[0m")
-    output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, n_emcee)
+    output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     xlim = get_xlim2(output[0], data, n_emcee)  # checking with Radek... OK
     event, cplot = make_plots(output[:-1], n_emcee, data, xlim, pdf=pdf)
 
@@ -102,7 +102,7 @@ def make_all_fittings(data, name, settings, pdf=""):
     fix = None if n_emcee['fix_blend'] is False else {subt_data: n_emcee['fix_blend']}
     ev_st = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
     print("\n\033[1m -- 2nd fit: PSPL to subtracted data...\033[0m")
-    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, n_emcee,
+    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings,
                          spec="u_0")
     make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
     if settings['other_output']['yaml_files_2L1S']['t_or_f']:
@@ -117,7 +117,7 @@ def make_all_fittings(data, name, settings, pdf=""):
              output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
     ev_st = mm.Event(data, model=mm.Model(start))
     print("\n\033[1m -- 3rd fit: 1L2S to original data...\033[0m")
-    output_2 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, ev_st, n_emcee)
+    output_2 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
     event_2, cplot_2 = make_plots(output_2[:-1], n_emcee, data, xlim, pdf=pdf)
     
     # if max(output_2[0][1], output_2[0][3]) > 2.9:
@@ -141,12 +141,15 @@ def ln_like(theta, event, params_to_fit):
 
     return -0.5 * event.chi2, event.fluxes[0]
 
-def ln_prior(theta, event, params_to_fit, spec=""):
+def ln_prior(theta, event, params_to_fit, stg_priors, spec=""):
     """priors - we only reject obviously wrong models"""
     for param in ['t_E', 'u_0', 'u_0_1', 'u_0_2']:
         if param in params_to_fit:
             if theta[params_to_fit.index(param)] < 0.:
                 return -np.inf
+    
+    breakpoint()
+    # MISSING: to implement min_values (0.) and max_values (t_0, u_0 < 100)
 
     # Additional priors distributions:
     t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
@@ -155,10 +158,13 @@ def ln_prior(theta, event, params_to_fit, spec=""):
             theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
             theta[params_to_fit.index('t_0')] > t_range[1]+100:
             return -np.inf
-    t_E = theta[params_to_fit.index('t_E')]
-    sigma = 2 if len(params_to_fit) == 3 else 5
-    ln_prior_t_E = - (np.log(t_E) - np.log(25))**2 / (2*np.log(sigma)**2)
-    ln_prior_t_E += np.log(1/(np.sqrt(2*np.pi)*np.log(sigma)))
+    
+    ln_prior_t_E = 0
+    if 't_E' in stg_priors['prior'].keys():
+        t_E = theta[params_to_fit.index('t_E')]
+        sigma_ = 2 if len(params_to_fit) == 3 else 5
+        ln_prior_t_E = - (np.log(t_E) - np.log(25))**2 / (2*np.log(sigma_)**2)
+        ln_prior_t_E += np.log(1/(np.sqrt(2*np.pi)*np.log(sigma_)))
 
     # Trying to limit negative source/blending fluxes:
     _ = event.get_chi2()
@@ -169,10 +175,15 @@ def ln_prior(theta, event, params_to_fit, spec=""):
     
     # Radek's prior in fluxes
     ln_prior_fluxes = 0
-    # for flux in [*event.source_fluxes[0], event.blend_fluxes[0]]:
-    #    if flux < 0.:
-    #     #    ln_prior_fluxes += - 1/2 * (flux/1000)**2
-    #        ln_prior_fluxes += -1/2 * (flux/10)**2 # 1000* or 100 or less...
+    if 'negative_blending_flux_sigma_mag' in stg_priors.keys():
+        sigma_ = stg_priors['negative_blending_flux_sigma_mag']
+        for flux in [*event.source_fluxes[0], event.blend_fluxes[0]]:
+            if flux < 0.:
+                ln_prior_fluxes += -1/2 * (flux/sigma_)**2 # 1000* or 100 or less...
+    
+    elif 'no_negative_blending_flux' in stg_priors.keys():
+        if event.blend_fluxes[0] < 0:
+            return -np.inf
     
     # Raphael's prior in min_flux
     # min_flux = min([min(event.source_fluxes[0]), event.blend_fluxes[0]])
@@ -189,9 +200,9 @@ def ln_prior(theta, event, params_to_fit, spec=""):
 
     return 0.0 + ln_prior_t_E + ln_prior_fluxes
 
-def ln_prob(theta, event, params_to_fit, spec=""):
+def ln_prob(theta, event, params_to_fit, stg_priors, spec=""):
     """ combines likelihood and priors"""
-    ln_prior_ = ln_prior(theta, event, params_to_fit, spec)
+    ln_prior_ = ln_prior(theta, event, params_to_fit, stg_priors, spec)
     if not np.isfinite(ln_prior_):
         return -np.inf, np.array([-np.inf,-np.inf]), -np.inf
     ln_like_, fluxes = ln_like(theta, event, params_to_fit)
@@ -203,7 +214,7 @@ def ln_prob(theta, event, params_to_fit, spec=""):
 
     return ln_prior_ + ln_like_, fluxes[0], fluxes[1]
 
-def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
+def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings, spec=""):
     """
     Fit model using EMCEE and print results.
     Arguments:
@@ -219,14 +230,15 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
     """
     params_to_fit, mean = list(dict_start.keys()), list(dict_start.values())
     n_dim, sigmas = len(params_to_fit), np.array(sigmas)
+    n_emcee = settings['fitting_parameters']
     nwlk, nstep, nburn = n_emcee['nwlk'], n_emcee['nstep'], n_emcee['nburn']
+    emcee_args = (event, params_to_fit, settings['fit_constraints'], spec)
 
     # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
     if not spec: # n_dim == 5:
         start = [mean + np.random.randn(n_dim)*10*sigmas for i in range(nwlk)]
         start = abs(np.array(start))
-        sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob,
-                                        args=(event, params_to_fit, spec))
+        sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, args=emcee_args)
         sampler.run_mcmc(start, int(nstep/2), progress=n_emcee['progress'])
         samples = sampler.chain[:, int(nburn/2):, :].reshape((-1, n_dim))
         mean = np.percentile(samples, 50, axis=0)
@@ -238,8 +250,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, n_emcee, spec=""):
     # Run emcee (this can take some time):
     blobs = [('source_fluxes', list), ('blend_fluxes', float)]
     sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, blobs_dtype=blobs,
-                                    args=(event, params_to_fit, spec))
-                                    # backend=backend)
+                                    args=emcee_args)  # backend=backend)
     # sampler = emcee.EnsembleSampler(
     #     nwlk, n_dim, ln_prob,
     #     moves=[(emcee.moves.DEMove(),0.8),(emcee.moves.DESnookerMove(),0.2)],

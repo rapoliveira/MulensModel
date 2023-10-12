@@ -6,9 +6,19 @@ phot_settings:
 #     t_0: gauss 2453815.7 0.01
 #     u_0: gauss -1.6 0.01
 #     t_E: gauss 118.7 1.
+fit_constraints:
+    negative_blending_flux_sigma_mag: 20.
+    # no_negative_blending_flux: True  # sharp alternative
+    prior:
+        t_E: lognormal 25  # Mroz et al. 2017  # Mroz et al. 2020
+        u_0: 100
+        t_0_range: 100
 min_values:
     t_E: 0.
     u_0: 0.
+max_values:
+    u_0: 100.
+    t_0: 100.  # above and below the time_range of the data
 fitting_parameters:
     nwlk: 20
     nstep: 3000 # 3000 or 10000
