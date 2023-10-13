@@ -141,51 +141,72 @@ def ln_like(theta, event, params_to_fit):
 
     return -0.5 * event.chi2, event.fluxes[0]
 
-def ln_prior(theta, event, params_to_fit, stg_priors, spec=""):
-    """priors - we only reject obviously wrong models"""
-    for param in ['t_E', 'u_0', 'u_0_1', 'u_0_2']:
-        if param in params_to_fit:
-            if theta[params_to_fit.index(param)] < 0.:
-                return -np.inf
-    
-    breakpoint()
-    # MISSING: to implement min_values (0.) and max_values (t_0, u_0 < 100)
+def ln_prior(theta, event, params_to_fit, settings, spec=""):
+    """
+    priors - we only reject obviously wrong models (TO EDIT)
 
-    # Additional priors distributions:
-    t_range = [min(event.datasets[0].time), max(event.datasets[0].time)]
-    if spec:    # 15, 100, 1000 or nothing?
-        if theta[params_to_fit.index('u_0')] > 100. or \
-            theta[params_to_fit.index('t_0')] < t_range[0]-100 or \
-            theta[params_to_fit.index('t_0')] > t_range[1]+100:
+    Args:
+        theta (np.array): chain parameters to sample the likelihood/prior.
+        event (mm.Event): Event instance containing the model and datasets.
+        params_to_fit (list): name of the parameters to be fitted.
+        settings (dict): all settings from yaml file.
+        spec (str, optional): _description_. Defaults to "". (TO EDIT...)
+
+    Raises:
+        ValueError: if input prior is not implemented
+
+    Returns:
+        float: -np.inf or prior value to be added on the likelihood
+    """
+
+    stg_priors = settings['fit_constraints']
+    stg_min_max = [settings['min_values'], settings['max_values']]
+    if not isinstance(stg_min_max[1]['t_0'], list):
+        raise ValueError('t_0 max_values should be of list type.')
+    ln_prior_t_E, ln_prior_fluxes = 0., 0.
+
+    # Limiting minimum values (u_0, t_E and then t_0)
+    for param in params_to_fit:
+        if param in stg_min_max[0].keys():
+            if theta[params_to_fit.index(param)] < stg_min_max[0][param]:
+                return -np.inf
+        if 't_0' not in param:
+            continue
+        elif 't_0' in stg_min_max[1].keys():
+            t_range = event.datasets[0].time[::len(event.datasets[0].time)-1]
+            t_range = t_range + np.array(stg_min_max[1]['t_0'])
+            if t_range[0] > theta[params_to_fit.index(param)] > t_range[1]:
+                return -np.inf
+
+    # Prior in u_0 > 10. only in the 2nd fit (or 15, 100*, 1000)
+    if spec and 'u_0' in stg_min_max[1].keys():
+        if theta[params_to_fit.index('u_0')] > stg_min_max[1]['u_0']:
             return -np.inf
     
-    ln_prior_t_E = 0
+    # Prior in t_E (only lognormal so far, tbd: Mroz17/20)
     if 't_E' in stg_priors['prior'].keys():
         t_E = theta[params_to_fit.index('t_E')]
-        sigma_ = 2 if len(params_to_fit) == 3 else 5
-        ln_prior_t_E = - (np.log(t_E) - np.log(25))**2 / (2*np.log(sigma_)**2)
-        ln_prior_t_E += np.log(1/(np.sqrt(2*np.pi)*np.log(sigma_)))
+        if 'lognormal' in stg_priors['prior']['t_E']:
+            prior = [float(x) for x in stg_priors['prior']['t_E'].split()[1:]]
+            ln_prior_t_E = -(np.log(t_E)-prior[0])**2 / (2*prior[1]**2)
+            ln_prior_t_E += np.log(1/(np.sqrt(2*np.pi)*prior[1]))
+        elif 'Mroz et al.' in stg_priors['prior']['t_E']:
+            raise ValueError('Still implementing Mroz et al. (2017, 2020) prior.')
+        else:
+            raise ValueError('t_E prior type not allowed.')
 
-    # Trying to limit negative source/blending fluxes:
+    # Avoiding negative source/blending fluxes (Radek)
     _ = event.get_chi2()
-    # if min(event.source_fluxes[0]) < -50000 or event.blend_fluxes[0] < -50000:
-    #     return -np.inf
-    # if max(event.source_fluxes[0]) > 10000:
-    #     return -np.inf
-    
-    # Radek's prior in fluxes
-    ln_prior_fluxes = 0
     if 'negative_blending_flux_sigma_mag' in stg_priors.keys():
-        sigma_ = stg_priors['negative_blending_flux_sigma_mag']
+        sig_ = stg_priors['negative_blending_flux_sigma_mag']
         for flux in [*event.source_fluxes[0], event.blend_fluxes[0]]:
             if flux < 0.:
-                ln_prior_fluxes += -1/2 * (flux/sigma_)**2 # 1000* or 100 or less...
-    
+                ln_prior_fluxes += -1/2 * (flux/sig_)**2  # 1000, 100 or less?
     elif 'no_negative_blending_flux' in stg_priors.keys():
         if event.blend_fluxes[0] < 0:
             return -np.inf
     
-    # Raphael's prior in min_flux
+    # # Raphael's prior in min_flux (OLD CODE)
     # min_flux = min([min(event.source_fluxes[0]), event.blend_fluxes[0]])
     # # # min_flux = min(event.source_fluxes[0])
     # if min_flux < 0:
@@ -200,9 +221,9 @@ def ln_prior(theta, event, params_to_fit, stg_priors, spec=""):
 
     return 0.0 + ln_prior_t_E + ln_prior_fluxes
 
-def ln_prob(theta, event, params_to_fit, stg_priors, spec=""):
+def ln_prob(theta, event, params_to_fit, settings, spec=""):
     """ combines likelihood and priors"""
-    ln_prior_ = ln_prior(theta, event, params_to_fit, stg_priors, spec)
+    ln_prior_ = ln_prior(theta, event, params_to_fit, settings, spec)
     if not np.isfinite(ln_prior_):
         return -np.inf, np.array([-np.inf,-np.inf]), -np.inf
     ln_like_, fluxes = ln_like(theta, event, params_to_fit)
@@ -232,7 +253,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings, spec=""):
     n_dim, sigmas = len(params_to_fit), np.array(sigmas)
     n_emcee = settings['fitting_parameters']
     nwlk, nstep, nburn = n_emcee['nwlk'], n_emcee['nstep'], n_emcee['nburn']
-    emcee_args = (event, params_to_fit, settings['fit_constraints'], spec)
+    emcee_args = (event, params_to_fit, settings, spec)
 
     # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
     if not spec: # n_dim == 5:
