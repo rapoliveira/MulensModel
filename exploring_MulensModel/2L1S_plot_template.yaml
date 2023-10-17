@@ -1,0 +1,23 @@
+photometry_files:
+    - {{file_name: ./W16-59events/phot/{0:}.dat, add_2450000: True}}
+# Define model to be plotted:
+model:
+    parameters: t_0 u_0 t_E s q alpha
+    values: {1:} {2:} {3:} {4:} {5:} {6:}
+# Three sections below will be ignored by the plotting script:
+# starting_parameters:
+#     t_0: gauss 2455380. 0.1
+#     u_0: uniform 0.001 1.
+#     t_E: gauss 20. 5.
+# min_values:
+#     u_0: 0.
+#     t_E: 0.
+# fitting_parameters:
+#     n_walkers: 10
+#     n_steps: 1000
+#     n_burn:  500
+# Now set the file where you want the light curve to be plotted:
+plots:
+    best model:
+        file: ./W16-59events/yaml_files_2L1S/plots/{0:}-2L1S-plot-{7:}.png
+        time range: {8:}. {9:}.
