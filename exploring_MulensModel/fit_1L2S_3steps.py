@@ -83,7 +83,7 @@ def make_all_fittings(data, name, settings, pdf=""):
     n_emcee = settings['fitting_parameters']
     fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
     ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
-    print("\n\033[1m -- 1st fit: PSPL to original data...\033[0m")
+    settings['123_fits'] = '1st fit'
     output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     xlim = get_xlim2(output[0], data, n_emcee)  # checking with Radek... OK
     event, cplot = make_plots(output[:-1], n_emcee, data, xlim, pdf=pdf)
@@ -101,9 +101,8 @@ def make_all_fittings(data, name, settings, pdf=""):
     start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': output[0]['t_E']}
     fix = None if n_emcee['fix_blend'] is False else {subt_data: n_emcee['fix_blend']}
     ev_st = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
-    print("\n\033[1m -- 2nd fit: PSPL to subtracted data...\033[0m")
-    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings,
-                         spec="u_0")
+    settings['123_fits'] = '2nd fit'
+    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
     if settings['other_output']['yaml_files_2L1S']['t_or_f']:
         generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
@@ -116,7 +115,7 @@ def make_all_fittings(data, name, settings, pdf=""):
     start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
              output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
     ev_st = mm.Event(data, model=mm.Model(start))
-    print("\n\033[1m -- 3rd fit: 1L2S to original data...\033[0m")
+    settings['123_fits'] = '3rd fit'
     output_2 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
     event_2, cplot_2 = make_plots(output_2[:-1], n_emcee, data, xlim, pdf=pdf)
     
@@ -141,9 +140,9 @@ def ln_like(theta, event, params_to_fit):
 
     return -0.5 * event.chi2, event.fluxes[0]
 
-def ln_prior(theta, event, params_to_fit, settings, spec=""):
+def ln_prior(theta, event, params_to_fit, settings):
     """
-    priors - we only reject obviously wrong models (TO EDIT)
+    Apply all the priors (minimum, maximum and distributions)
 
     Args:
         theta (np.array): chain parameters to sample the likelihood/prior.
@@ -165,32 +164,31 @@ def ln_prior(theta, event, params_to_fit, settings, spec=""):
         raise ValueError('t_0 max_values should be of list type.')
     ln_prior_t_E, ln_prior_fluxes = 0., 0.
 
-    # Limiting minimum values (u_0, t_E and then t_0)
+    # Limiting min and max values (all minimum, then t_0 and u_0 maximum)
     for param in params_to_fit:
-        if param in stg_min_max[0].keys():
-            if theta[params_to_fit.index(param)] < stg_min_max[0][param]:
+        if param[:3] in stg_min_max[0].keys():
+            if theta[params_to_fit.index(param)] < stg_min_max[0][param[:3]]:
                 return -np.inf
-        if 't_0' not in param:
-            continue
-        elif 't_0' in stg_min_max[1].keys():
+        if 't_0' in param and 't_0' in stg_min_max[1].keys():
             t_range = event.datasets[0].time[::len(event.datasets[0].time)-1]
             t_range = t_range + np.array(stg_min_max[1]['t_0'])
             if t_range[0] > theta[params_to_fit.index(param)] > t_range[1]:
                 return -np.inf
-
-    # Prior in u_0 > 10. only in the 2nd fit (or 15, 100*, 1000)
-    if spec and 'u_0' in stg_min_max[1].keys():
-        if theta[params_to_fit.index('u_0')] > stg_min_max[1]['u_0']:
-            return -np.inf
+        if 'u_0' in param and 'u_0' in stg_min_max[1].keys():
+            if theta[params_to_fit.index(param)] > stg_min_max[1]['u_0']:
+                return -np.inf
     
     # Prior in t_E (only lognormal so far, tbd: Mroz17/20)
-    if 't_E' in stg_priors['prior'].keys():
+    # OBS: Still need to remove the ignore warnings line (related to log?)
+    if 't_E' in stg_priors['ln_prior'].keys():
         t_E = theta[params_to_fit.index('t_E')]
-        if 'lognormal' in stg_priors['prior']['t_E']:
-            prior = [float(x) for x in stg_priors['prior']['t_E'].split()[1:]]
-            ln_prior_t_E = -(np.log(t_E)-prior[0])**2 / (2*prior[1]**2)
-            ln_prior_t_E += np.log(1/(np.sqrt(2*np.pi)*prior[1]))
-        elif 'Mroz et al.' in stg_priors['prior']['t_E']:
+        if 'lognormal' in stg_priors['ln_prior']['t_E']:
+            # if t_E >= 1.:
+            warnings.filterwarnings("ignore", category=RuntimeWarning)  # bad!
+            prior = [float(x) for x in stg_priors['ln_prior']['t_E'].split()[1:]]
+            ln_prior_t_E = - (np.log(t_E) - prior[0])**2 / (2*prior[1]**2)
+            ln_prior_t_E -= np.log(t_E * np.sqrt(2*np.pi)*prior[1])
+        elif 'Mroz et al.' in stg_priors['ln_prior']['t_E']:
             raise ValueError('Still implementing Mroz et al. (2017, 2020) prior.')
         else:
             raise ValueError('t_E prior type not allowed.')
@@ -221,9 +219,9 @@ def ln_prior(theta, event, params_to_fit, settings, spec=""):
 
     return 0.0 + ln_prior_t_E + ln_prior_fluxes
 
-def ln_prob(theta, event, params_to_fit, settings, spec=""):
+def ln_prob(theta, event, params_to_fit, settings):
     """ combines likelihood and priors"""
-    ln_prior_ = ln_prior(theta, event, params_to_fit, settings, spec)
+    ln_prior_ = ln_prior(theta, event, params_to_fit, settings)
     if not np.isfinite(ln_prior_):
         return -np.inf, np.array([-np.inf,-np.inf]), -np.inf
     ln_like_, fluxes = ln_like(theta, event, params_to_fit)
@@ -235,7 +233,7 @@ def ln_prob(theta, event, params_to_fit, settings, spec=""):
 
     return ln_prior_ + ln_like_, fluxes[0], fluxes[1]
 
-def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings, spec=""):
+def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings):
     """
     Fit model using EMCEE and print results.
     Arguments:
@@ -253,10 +251,13 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings, spec=""):
     n_dim, sigmas = len(params_to_fit), np.array(sigmas)
     n_emcee = settings['fitting_parameters']
     nwlk, nstep, nburn = n_emcee['nwlk'], n_emcee['nstep'], n_emcee['nburn']
-    emcee_args = (event, params_to_fit, settings, spec)
+    emcee_args = (event, params_to_fit, settings)
+    x_fit = settings['123_fits'] if '123_fits' in settings.keys() else '3rd fit'
+    term = ['PSPL to original', 'PSPL to subtracted', '1L2S to original']
+    print(f'\n\033[1m -- {x_fit}: {term[int(x_fit[0])-1]} data...\033[0m')
 
     # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
-    if not spec: # n_dim == 5:
+    if x_fit != '2nd fit': # n_dim == 5:
         start = [mean + np.random.randn(n_dim)*10*sigmas for i in range(nwlk)]
         start = abs(np.array(start))
         sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, args=emcee_args)

@@ -9,13 +9,13 @@ phot_settings:
 fit_constraints:
     # negative_blending_flux_sigma_mag: 20.
     # no_negative_blending_flux: True # sharp alternative
-    prior:
-        t_E: lognormal 1.172 0.5    # TBD: Mroz et al. 2017 (free-floating), Mroz et al. 2020***
+    ln_prior:
+        t_E: lognormal 2.70 2.00 # 0.99-1.20  # 1.172 0.5 (wrong log10)  # TBD: Mroz et al. 2017 (free-floating), Mroz et al. 2020***
 min_values:
     t_E: 0.
     u_0: 0.
 max_values:
-    u_0: 100.   # Radek, prev: 100   # only for 2nd fitting (to subtracted data)
+    u_0: 5. # or 6.   # Radek: 10, prev: 100   # only for 2nd fitting. Now it's for all
     t_0: [-100., 100.]              # above and below the time range of the data
 fitting_parameters:
     nwlk: 20
