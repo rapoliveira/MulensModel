@@ -20,4 +20,4 @@ model:
 plots:
     best model:
         file: ./W16-59events/yaml_files_2L1S/plots/{0:}-2L1S-plot-{7:}.png
-        time range: {8:}. {9:}.
+        time range: {8:} {9:}

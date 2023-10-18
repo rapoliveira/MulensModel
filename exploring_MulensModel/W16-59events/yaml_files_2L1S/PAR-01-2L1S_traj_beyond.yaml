@@ -1,12 +1,12 @@
 photometry_files:
     - {file_name: ./W16-59events/phot/PAR-01.dat, add_2450000: True}
 starting_parameters:
-    t_0: gauss -1.249 0.01
-    u_0: gauss -1.214 0.001
-    t_E: gauss 1.799 0.01
-    s: gauss 3.492 0.001
-    q: gauss -24.263 0.001
-    alpha: gauss 290.708 0.001
+    t_0: gauss 2453746.51 0.01
+    u_0: gauss -1.249 0.001
+    t_E: gauss 251.34 0.01
+    s: gauss 1.799 0.001
+    q: gauss 0.01 0.001
+    alpha: gauss 155.737 0.001
 model:
     # methods: 2452800. point_source 2452833. VBBL 2452845. point_source 2452860. # (example16)
     methods: 2452962. point_source 2454535.
@@ -29,21 +29,21 @@ fitting_parameters:
     progress: True
 plots:
     best model:
-        file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_model.png
+        file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_model_beyond.png
         time range: 2452962. 2454535.
         second Y scale:
             magnifications: [1, 1.5, 2] #, 2.5, 3, 3.5, 4]  # make it general...
     trajectory:
-        file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_trajectory.png
+        file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_trajectory_beyond.png
         time range: 2452962. 2454535.
     triangle:
-        file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_triangle.png
+        file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_triangle_beyond.png
         shift t_0: False
     trace:
-        file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_trace.png
+        file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_trace_beyond.png
         shift t_0: False
 other_output:
     models:
-        file name: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_all_models.txt
+        file name: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_all_models_beyond.txt
     yaml output:
-        file name: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_all_results.txt
+        file name: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_all_results_beyond.txt

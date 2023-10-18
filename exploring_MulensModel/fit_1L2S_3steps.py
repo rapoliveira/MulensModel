@@ -104,12 +104,15 @@ def make_all_fittings(data, name, settings, pdf=""):
     ev_st = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
     settings['123_fits'], settings['xlim'] = '2nd fit', xlim
     output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
-    make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
-    if settings['other_output']['yaml_files_2L1S']['t_or_f']:
-        generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
-    # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
-    # if output_1[0]['u_0'] > 5:
-    if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
+    try:
+        make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
+        if settings['other_output']['yaml_files_2L1S']['t_or_f']:
+            generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
+        # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
+        # if output_1[0]['u_0'] > 5:
+        if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
+            return output + (event,), cplot, xlim
+    except ValueError:
         return output + (event,), cplot, xlim
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
@@ -576,7 +579,7 @@ def generate_2L1S_yaml_files(path, params_1, params_2, name, settings):
     yaml_file_1 = yaml_dir.replace('.yaml', '_traj_between.yaml')
     yaml_file_2 = yaml_dir.replace('.yaml', '_traj_beyond.yaml')
     pspl_1, pspl_2 = params_1.copy(), params_2.copy()
-    xlim_str = [str(2450000 + int(item)) for item in settings['xlim']]
+    xlim_str = [str(2450000 + int(item))+'.' for item in settings['xlim']]
 
     # equations for trajectory between the lenses
     pspl_1['t_0'] += 2450000  # temporary line (convert code to 2450000)
@@ -589,7 +592,7 @@ def generate_2L1S_yaml_files(path, params_1, params_2, name, settings):
     t_E_2L1S = np.sqrt(pspl_1['t_E']**2 + pspl_2['t_E']**2)
     t_a = (pspl_1['u_0']+pspl_2['u_0'])*t_E_2L1S / (pspl_2['t_0']-pspl_1['t_0'])
     alpha_2L1S = np.degrees(np.arctan(t_a))
-    alpha_2L1S = 360. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
+    alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
     s_prime = np.sqrt(((pspl_2['t_0']-pspl_1['t_0'])/t_E_2L1S)**2 +
                       (pspl_1['u_0']+pspl_2['u_0'])**2)
     factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
@@ -610,7 +613,7 @@ def generate_2L1S_yaml_files(path, params_1, params_2, name, settings):
     diff_path = path.replace(os.getcwd(), '.')
     init_2L1S.insert(0, diff_path)
     init_2L1S.insert(1, name.split('.')[0])
-    init_2L1S += xlim_str
+    init_2L1S += xlim_str + ['between']
     f_template = settings['other_output']['yaml_files_2L1S']['yaml_template']
     with open(f'{path}/{f_template}') as template_file_:
         template = template_file_.read()
@@ -619,15 +622,15 @@ def generate_2L1S_yaml_files(path, params_1, params_2, name, settings):
     
     # equations for trajectory beyond the lenses
     u_0_2L1S = -(pspl_1['u_0'] + q_2L1S*pspl_2['u_0']) / (1 + q_2L1S) # negative!!!
-    init_2L1S[2] = round(u_0_2L1S, 3)
     t_a = abs(pspl_1['u_0']-pspl_2['u_0'])*t_E_2L1S / (pspl_2['t_0']-pspl_1['t_0'])
     alpha_2L1S = np.degrees(np.arctan(t_a))
-    alpha_2L1S = 360. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
+    alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
     s_prime = np.sqrt(((pspl_2['t_0']-pspl_1['t_0'])/t_E_2L1S)**2 +
                       (pspl_1['u_0']-pspl_2['u_0'])**2)
     factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
     s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
-    init_2L1S[4], init_2L1S[6] = round(s_2L1S, 3), round(alpha_2L1S, 3)
+    init_2L1S[-1], init_2L1S[3] = 'beyond', round(u_0_2L1S, 3)
+    init_2L1S[5], init_2L1S[7] = round(s_2L1S, 3), round(alpha_2L1S, 3)
     with open(f'{path}/{yaml_file_2}', 'w') as out_file_2:
         out_file_2.write(template.format(*init_2L1S))
 
