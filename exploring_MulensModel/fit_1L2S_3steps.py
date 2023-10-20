@@ -27,7 +27,7 @@ import numpy as np
 import os
 import yaml
 import warnings
-from ulens_model_fit import UlensModelFit
+import split_data_for_binary_lens as split
 
 def read_data(path, phot_settings, plot=False):
     """Read a catalogue or list of catalogues and creates MulensData instance
@@ -73,7 +73,7 @@ def read_data(path, phot_settings, plot=False):
 
     return data_list, filenames
 
-def make_all_fittings(data, name, settings, pdf=""):
+def make_all_fittings(data, settings, pdf=""):
     '''
     Missing description for this function...
     '''
@@ -106,8 +106,8 @@ def make_all_fittings(data, name, settings, pdf=""):
     output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     try:
         make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
-        if settings['other_output']['yaml_files_2L1S']['t_or_f']:
-            generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
+        # if settings['other_output']['yaml_files_2L1S']['t_or_f']:  # old
+        #     generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
         # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
         # if output_1[0]['u_0'] > 5:
         if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
@@ -261,7 +261,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings):
     print(f'\n\033[1m -- {x_fit}: {term[int(x_fit[0])-1]} data...\033[0m')
 
     # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
-    if x_fit != '2nd fit': # n_dim == 5:
+    if x_fit in ['1st fit', '3rd fit']:
         start = [mean + np.random.randn(n_dim)*10*sigmas for i in range(nwlk)]
         start = abs(np.array(start))
         sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, args=emcee_args)
@@ -562,85 +562,6 @@ def plot_fit(best, data, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
         plt.show()
     return event
 
-def generate_2L1S_yaml_files(path, params_1, params_2, name, settings):
-    """
-    Generate two yaml files with initial parameters for the 2L1S fitting.
-
-    Args:
-        path (str): directory of the Python script and catalogues
-        pspl_1 (dict): results from the first PSPL fit (t_0, u_0, t_E) 
-        pspl_2 (dict): results from the second PSPL fit (t_0, u_0, t_E)
-        name (str): name of the photometry file
-        settings (dict): all settings from yaml file
-    """
-
-    yaml_dir = settings['other_output']['yaml_files_2L1S']['yaml_dir_name']
-    yaml_dir = yaml_dir.format(name.split('.')[0])
-    yaml_file_1 = yaml_dir.replace('.yaml', '_traj_between.yaml')
-    yaml_file_2 = yaml_dir.replace('.yaml', '_traj_beyond.yaml')
-    pspl_1, pspl_2 = params_1.copy(), params_2.copy()
-    xlim_str = [str(2450000 + int(item))+'.' for item in settings['xlim']]
-
-    # equations for trajectory between the lenses
-    pspl_1['t_0'] += 2450000  # temporary line (convert code to 2450000)
-    pspl_2['t_0'] += 2450000  # temporary line (convert code to 2450000)
-    if (pspl_2['t_E'] / pspl_1['t_E']) ** 2 > 1.:
-        pspl_1, pspl_2 = pspl_2, pspl_1
-    q_2L1S = (pspl_2['t_E'] / pspl_1['t_E']) ** 2
-    t_0_2L1S = (q_2L1S*pspl_2['t_0'] + pspl_1['t_0']) / (1 + q_2L1S)
-    u_0_2L1S = (q_2L1S*pspl_2['u_0'] - pspl_1['u_0']) / (1 + q_2L1S) # negative!!!
-    t_E_2L1S = np.sqrt(pspl_1['t_E']**2 + pspl_2['t_E']**2)
-    t_a = (pspl_1['u_0']+pspl_2['u_0'])*t_E_2L1S / (pspl_2['t_0']-pspl_1['t_0'])
-    alpha_2L1S = np.degrees(np.arctan(t_a))
-    alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
-    s_prime = np.sqrt(((pspl_2['t_0']-pspl_1['t_0'])/t_E_2L1S)**2 +
-                      (pspl_1['u_0']+pspl_2['u_0'])**2)
-    factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
-    s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
-
-    # plot best 2L1S model (between)
-    with open('2L1S_plot_template.yaml', 'r') as data:
-        template_plot_2L1S = data.read()
-    init_2L1S = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
-    plot_list = [name.split('.')[0]] + init_2L1S + ['between'] + xlim_str
-    plot_2L1S = yaml.safe_load(template_plot_2L1S.format(*plot_list))
-    ulens_model_fit = UlensModelFit(**plot_2L1S)
-    ulens_model_fit.plot_best_model()
-
-    # writing traj_between yaml file
-    init_2L1S = [round(param, 3) for param in init_2L1S]
-    init_2L1S[0], init_2L1S[2] = round(init_2L1S[0], 2), round(init_2L1S[2], 2)
-    diff_path = path.replace(os.getcwd(), '.')
-    init_2L1S.insert(0, diff_path)
-    init_2L1S.insert(1, name.split('.')[0])
-    init_2L1S += xlim_str + ['between']
-    f_template = settings['other_output']['yaml_files_2L1S']['yaml_template']
-    with open(f'{path}/{f_template}') as template_file_:
-        template = template_file_.read()
-    with open(f'{path}/{yaml_file_1}', 'w') as out_file_1:
-        out_file_1.write(template.format(*init_2L1S))
-    
-    # equations for trajectory beyond the lenses
-    u_0_2L1S = -(pspl_1['u_0'] + q_2L1S*pspl_2['u_0']) / (1 + q_2L1S) # negative!!!
-    t_a = abs(pspl_1['u_0']-pspl_2['u_0'])*t_E_2L1S / (pspl_2['t_0']-pspl_1['t_0'])
-    alpha_2L1S = np.degrees(np.arctan(t_a))
-    alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
-    s_prime = np.sqrt(((pspl_2['t_0']-pspl_1['t_0'])/t_E_2L1S)**2 +
-                      (pspl_1['u_0']-pspl_2['u_0'])**2)
-    factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
-    s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
-    init_2L1S[-1], init_2L1S[3] = 'beyond', round(u_0_2L1S, 3)
-    init_2L1S[5], init_2L1S[7] = round(s_2L1S, 3), round(alpha_2L1S, 3)
-    with open(f'{path}/{yaml_file_2}', 'w') as out_file_2:
-        out_file_2.write(template.format(*init_2L1S))
-
-    # plot best 2L1S model (beyond)
-    init_2L1S = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
-    plot_list = [name.split('.')[0]] + init_2L1S + ['beyond'] + xlim_str
-    plot_2L1S = yaml.safe_load(template_plot_2L1S.format(*plot_list))
-    ulens_model_fit = UlensModelFit(**plot_2L1S)
-    ulens_model_fit.plot_best_model()
-
 def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
     """
     Save the chains, yaml results and table with results, according with the
@@ -727,7 +648,7 @@ if __name__ == '__main__':
         # breakpoint()
         pdf_dir = settings['plots']['all_plots']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
-        result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
+        result, cplot, xlim = make_all_fittings(data, settings, pdf=pdf)
         pdf.close()
         write_tables(path, settings, name, result)
 
@@ -740,5 +661,13 @@ if __name__ == '__main__':
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_fit.pdf")
         plot_fit(result[0], data, settings['fitting_parameters'], xlim, pdf=pdf)
         pdf.close()
+
+        # Split data into two and fit PSPL to get 2L1S initial params
+        make_2L1S = settings['other_output']['yaml_files_2L1S']['t_or_f']
+        if make_2L1S and result[4].model.n_sources == 2:
+            data_left_right = split.find_minimum_and_split(result[4], result)
+            two_pspl = split.fit_PSPL_twice(result, data_left_right, settings)
+            split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
+        breakpoint()
         print("\n--------------------------------------------------")
     # breakpoint()
