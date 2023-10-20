@@ -13,8 +13,8 @@ model:
     default method: point_source_point_lens
 min_values:
     # u_0: 0.
-    t_E: 1.
-    s: 0. # 1.
+    t_E: {10:} # 3. # 1.
+    s: 0.05 # 0. # 1.
     q: 1.e-5 # 0.
     alpha: 0.
 max_values:
@@ -29,21 +29,21 @@ fitting_parameters:
     progress: True
 plots:
     best model:
-        file: {0:}/TEMP_results_2L1S/{1:}_2L1S_model_{10:}.png
+        file: {0:}/TEMP_results_2L1S/{1:}_2L1S_model_{11:}.png
         time range: {8:} {9:}
         second Y scale:
             magnifications: [1, 1.5, 2] #, 2.5, 3, 3.5, 4]  # make it general...
     trajectory:
-        file: {0:}/TEMP_results_2L1S/{1:}_2L1S_trajectory_{10:}.png
+        file: {0:}/TEMP_results_2L1S/{1:}_2L1S_trajectory_{11:}.png
         time range: {8:} {9:}
     triangle:
-        file: {0:}/TEMP_results_2L1S/{1:}_2L1S_triangle_{10:}.png
+        file: {0:}/TEMP_results_2L1S/{1:}_2L1S_triangle_{11:}.png
         shift t_0: False
     trace:
-        file: {0:}/TEMP_results_2L1S/{1:}_2L1S_trace_{10:}.png
+        file: {0:}/TEMP_results_2L1S/{1:}_2L1S_trace_{11:}.png
         shift t_0: False
 other_output:
     models:
-        file name: {0:}/TEMP_results_2L1S/{1:}_2L1S_all_models_{10:}.txt
+        file name: {0:}/TEMP_results_2L1S/{1:}_2L1S_all_models_{11:}.txt
     yaml output:
-        file name: {0:}/TEMP_results_2L1S/{1:}_2L1S_all_results_{10:}.txt
+        file name: {0:}/TEMP_results_2L1S/{1:}_2L1S_all_results_{11:}.txt

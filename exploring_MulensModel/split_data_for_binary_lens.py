@@ -45,7 +45,9 @@ def find_minimum_and_split(event_1L2S, result):
     mm_data = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
     data_left = mm.MulensData(mm_data[flag].T, phot_fmt='mag')
     data_right = mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
-    return (data_left, data_right)
+    if min(data_left.mag) < min(data_right.mag):
+        return (data_left, data_right)
+    return (data_right, data_left)
     # if min(mm_data[flag][:,0]) < min(mm_data[~flag][:,0]):
     #     return mm.MulensData(mm_data[flag].T, phot_fmt='mag')
     # return mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
@@ -63,27 +65,27 @@ def fit_PSPL_twice(result, data_left_right, settings):
         tuple: two PSPL dictionaries with the result parameters
     """
 
-    # 1st PSPL (data_left)
-    data_left, data_right = data_left_right
+    # 1st PSPL (data_left or brighter)
+    data_1, data_2 = data_left_right
     t_0_left, t_0_right = sorted([result[0]['t_0_1'], result[0]['t_0_2']])
     settings['123_fits'] = '1st fit after result'
     start = {'t_0': round(t_0_left, 2), 'u_0': 0.1, 't_E': 25}
     n_emcee = settings['fitting_parameters']
-    fix_left = {data_left: n_emcee['fix_blend']}
-    ev_st = mm.Event(data_left, model=mm.Model(start), fix_blend_flux=fix_left)
+    fix_left = {data_1: n_emcee['fix_blend']}
+    ev_st = mm.Event(data_1, model=mm.Model(start), fix_blend_flux=fix_left)
     n_emcee['sigmas'][0] = [0.01, 0.05, 1.0]
     output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     model = mm.Model(dict(list(output[0].items())[:3]))
 
-    # Subtract the data_right from first fit
-    aux_event = mm.Event(data_right, model=model,
-                         fix_blend_flux={data_right: n_emcee['fix_blend']})
+    # Subtract the data_2 from first fit
+    aux_event = mm.Event(data_2, model=model,
+                         fix_blend_flux={data_2: n_emcee['fix_blend']})
     (flux, blend) = aux_event.get_flux_for_dataset(0)
-    fsub = data_right.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
-    subt_right = np.c_[data_right.time, fsub, data_right.err_flux][fsub > 0]
+    fsub = data_2.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
+    subt_right = np.c_[data_2.time, fsub, data_2.err_flux][fsub > 0]
     subt_right = mm.MulensData(subt_right.T, phot_fmt='flux')
 
-    # 2nd PSPL (not to original data_right, but to subt_right)
+    # 2nd PSPL (not to original data_2, but to subt_right)
     settings['123_fits'] = '2nd fit after result'
     start = {'t_0': round(t_0_right, 2), 'u_0': 0.1, 't_E': 25}
     fix_right = {subt_right: n_emcee['fix_blend']}
@@ -91,25 +93,25 @@ def fit_PSPL_twice(result, data_left_right, settings):
     output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
 
     # Quick plot to check fits
-    plt.figure(figsize=(7.5,4.8))
-    subt_right.plot(phot_fmt='mag', label='right_subt')
-    orig_data = result[4].datasets[0]
-    plt.scatter(orig_data.time, orig_data.mag, color="#CECECE", label='orig')
-    plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
-                   'color': 'black', 't_start': settings['xlim'][0],
-                   't_stop': settings['xlim'][1], 'zorder': 10}
-    event_left = mm.Event(data_left, model=model, fix_blend_flux=fix_left)
-    event_left.plot_model(label='model_left', **plot_params)
-    model_1 = mm.Model(dict(list(output_1[0].items())[:3]))
-    event_right = mm.Event(subt_right, model=model_1, fix_blend_flux=fix_right)
-    event_right.plot_model(label='model_right', **plot_params)
-    model_1L2S = mm.Model(dict(list(result[0].items())[:5]))
-    event_1L2S = mm.Event(orig_data, model=model_1L2S)
-    event_1L2S.plot_model(label='model_1L2S', ls='--', **plot_params)
-    plt.xlim(settings['xlim'])
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    # plt.figure(figsize=(7.5,4.8))
+    # subt_right.plot(phot_fmt='mag', label='right_subt')
+    # orig_data = result[4].datasets[0]
+    # plt.scatter(orig_data.time, orig_data.mag, color="#CECECE", label='orig')
+    # plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
+    #                'color': 'black', 't_start': settings['xlim'][0],
+    #                't_stop': settings['xlim'][1], 'zorder': 10}
+    # event_left = mm.Event(data_1, model=model, fix_blend_flux=fix_left)
+    # event_left.plot_model(label='model_left', **plot_params)
+    # model_1 = mm.Model(dict(list(output_1[0].items())[:3]))
+    # event_right = mm.Event(subt_right, model=model_1, fix_blend_flux=fix_right)
+    # event_right.plot_model(label='model_right', **plot_params)
+    # model_1L2S = mm.Model(dict(list(result[0].items())[:5]))
+    # event_1L2S = mm.Event(orig_data, model=model_1L2S)
+    # event_1L2S.plot_model(label='model_1L2S', ls='--', **plot_params)
+    # plt.xlim(settings['xlim'])
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.show()
 
     return output[0], output_1[0]
 
@@ -163,7 +165,7 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     diff_path = path.replace(os.getcwd(), '.')
     init_2L1S.insert(0, diff_path)
     init_2L1S.insert(1, name.split('.')[0])
-    init_2L1S += xlim_str + ['between']
+    init_2L1S += xlim_str + [round(max(3, t_E_2L1S/5.), 3), 'between']
     f_template = settings['other_output']['yaml_files_2L1S']['yaml_template']
     with open(f'{path}/{f_template}') as template_file_:
         template = template_file_.read()

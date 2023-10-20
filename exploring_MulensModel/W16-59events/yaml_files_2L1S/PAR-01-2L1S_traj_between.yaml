@@ -1,20 +1,20 @@
 photometry_files:
     - {file_name: ./W16-59events/phot/PAR-01.dat, add_2450000: True}
 starting_parameters:
-    t_0: gauss 2453746.51 0.01
-    u_0: gauss -1.214 0.001
-    t_E: gauss 251.34 0.01
-    s: gauss 3.492 0.001
-    q: gauss 0.01 0.001
-    alpha: gauss 110.708 0.001
+    t_0: gauss 2453749.36 0.01
+    u_0: gauss -0.862 0.001
+    t_E: gauss 165.59 0.01
+    s: gauss 3.681 0.001
+    q: gauss 0.156 0.001
+    alpha: gauss 125.853 0.001
 model:
     # methods: 2452800. point_source 2452833. VBBL 2452845. point_source 2452860. # (example16)
     methods: 2452962. point_source 2454535.
     default method: point_source_point_lens
 min_values:
     # u_0: 0.
-    t_E: 1.
-    s: 0. # 1.
+    t_E: 33.119 # 3. # 1.
+    s: 0.05 # 0. # 1.
     q: 1.e-5 # 0.
     alpha: 0.
 max_values:

@@ -19,5 +19,8 @@ model:
 # Now set the file where you want the light curve to be plotted:
 plots:
     best model:
-        file: ./W16-59events/yaml_files_2L1S/plots/{0:}-2L1S-plot-{7:}.png
+        file: ./W16-59events/yaml_files_2L1S/plots/{0:}_2L1S_init_plot_{7:}.png
+        time range: {8:} {9:}
+    trajectory:
+        file: ./W16-59events/yaml_files_2L1S/plots/{0:}_2L1S_init_traj_{7:}.png
         time range: {8:} {9:}
