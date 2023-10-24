@@ -73,7 +73,7 @@ def read_data(path, phot_settings, plot=False):
 
     return data_list, filenames
 
-def make_all_fittings(data, settings, pdf=""):
+def make_all_fittings(data, name, settings, pdf=""):
     '''
     Missing description for this function...
     '''
@@ -106,8 +106,6 @@ def make_all_fittings(data, settings, pdf=""):
     output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     try:
         make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
-        # if settings['other_output']['yaml_files_2L1S']['t_or_f']:  # old
-        #     generate_2L1S_yaml_files(path, output[0], output_1[0], name, settings)
         # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
         # if output_1[0]['u_0'] > 5:
         if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
@@ -128,6 +126,9 @@ def make_all_fittings(data, settings, pdf=""):
     if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
         return output + (event,), cplot, xlim
     
+    if settings['other_output']['yaml_files_2L1S']['t_or_f']:  # old
+        two_pspl = (output[0], output_1[0])
+        split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
     return output_2 + (event_2,), cplot_2, xlim
 
 def ln_like(theta, event, params_to_fit):
@@ -648,7 +649,7 @@ if __name__ == '__main__':
         # breakpoint()
         pdf_dir = settings['plots']['all_plots']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
-        result, cplot, xlim = make_all_fittings(data, settings, pdf=pdf)
+        result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
         pdf.close()
         write_tables(path, settings, name, result)
 
@@ -666,8 +667,9 @@ if __name__ == '__main__':
         make_2L1S = settings['other_output']['yaml_files_2L1S']['t_or_f']
         if make_2L1S and result[4].model.n_sources == 2:
             data_left_right = split.find_minimum_and_split(result[4], result)
+            if len(data_left_right[0]) == 0:
+                continue
             two_pspl = split.fit_PSPL_twice(result, data_left_right, settings)
             split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
-        breakpoint()
         print("\n--------------------------------------------------")
     # breakpoint()

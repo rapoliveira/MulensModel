@@ -32,7 +32,8 @@ plots:
         file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_model_between.png
         time range: 2452962. 2454535.
         second Y scale:
-            magnifications: [1, 1.5, 2] #, 2.5, 3, 3.5, 4]  # make it general...
+            magnifications: [1, 1.5, 2, 2.5, 3]
+            recalculate magnification ticks: True
     trajectory:
         file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_trajectory_between.png
         time range: 2452962. 2454535.

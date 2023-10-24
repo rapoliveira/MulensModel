@@ -34,14 +34,23 @@ def find_minimum_and_split(event_1L2S, result):
     mm_data = event_1L2S.datasets[0]
     flux_model = event_1L2S.fits[0].get_model_fluxes()
     model_data = np.c_[mm_data.time, flux_model, mm_data.err_flux]
-    between_peaks = (t_0_left < mm_data.time) & (mm_data.time < t_0_right)
+    between_peaks = (t_0_left <= mm_data.time) & (mm_data.time <= t_0_right)
     model_data_between_peaks = model_data[between_peaks]
 
+    # Exclude cases where there is no data between peaks or no minimum
+    if len(model_data_between_peaks) == 0:
+        return [], []
+    
     # Detect the minimum flux in model_data_between_peaks
     idx_min_flux = np.argmin(model_data_between_peaks[:,1])
     time_min_flux = model_data_between_peaks[:,0][idx_min_flux]
-    flag = mm_data.time <= time_min_flux
+    if time_min_flux - 0.1 < t_0_left or time_min_flux + 0.1 > t_0_right:
+        return [], []
+    # elif model_data_between_peaks[:,1].min() in [t_0_left, t_0_right] or \
+    # [...] Still to think about it... Cases where the minimum flux is 
+    # breakpoint()    
     
+    flag = mm_data.time <= time_min_flux
     mm_data = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
     data_left = mm.MulensData(mm_data[flag].T, phot_fmt='mag')
     data_right = mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
