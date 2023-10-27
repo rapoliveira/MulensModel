@@ -73,7 +73,7 @@ def read_data(path, phot_settings, plot=False):
 
     return data_list, filenames
 
-def make_all_fittings(data, name, settings, pdf=""):
+def make_all_fittings(data, settings, pdf=""):
     '''
     Missing description for this function...
     '''
@@ -104,14 +104,15 @@ def make_all_fittings(data, name, settings, pdf=""):
     ev_st = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
     settings['123_fits'], settings['xlim'] = '2nd fit', xlim
     output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
+    two_pspl = (output[0], output_1[0])
     try:
         make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
         # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
         # if output_1[0]['u_0'] > 5:
         if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
-            return output + (event,), cplot, xlim
+            return output + (event, two_pspl), cplot, xlim
     except ValueError:
-        return output + (event,), cplot, xlim
+        return output + (event, two_pspl), cplot, xlim
 
     # Third fit: 1L2S, source flux ratio not set yet (regression)
     start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
@@ -124,12 +125,8 @@ def make_all_fittings(data, name, settings, pdf=""):
     # if max(output_2[0][1], output_2[0][3]) > 2.9:
     # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
     if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
-        return output + (event,), cplot, xlim
-    
-    if settings['other_output']['yaml_files_2L1S']['t_or_f']:  # old
-        two_pspl = (output[0], output_1[0])
-        split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
-    return output_2 + (event_2,), cplot_2, xlim
+        return output + (event, two_pspl), cplot, xlim        
+    return output_2 + (event_2, two_pspl), cplot_2, xlim
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -593,9 +590,9 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
     perc_fluxes = dict(item for item in result[3].items() if 'flux' in item[0])
     print()
     acor = result[1].get_autocorr_time(quiet=True, discard=n_emcee['nburn'])
-    deg_of_freedom = result[-1].datasets[0].n_epochs - len(bst)
+    deg_of_freedom = result[4].datasets[0].n_epochs - len(bst)
     lst = [np.mean(result[1].acceptance_fraction), np.mean(acor), '', '',
-           result[-1].chi2, deg_of_freedom, '', '']
+           result[4].chi2, deg_of_freedom, '', '']
     dict_perc_best = {2: perc, 3: perc_fluxes, 6: bst, 7: fluxes}
 
     # filling and writing the template
@@ -625,7 +622,7 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
             result_tab = Table.read(f'{path}/{fname}', format='ascii')
         bst_values = [round(val, 5) for val in bst.values()]
         lst = bst_values+[0.,0.] if len(bst)==3 else bst_values
-        lst = [name] + lst + [round(result[-1].chi2, 4), deg_of_freedom]
+        lst = [name] + lst + [round(result[4].chi2, 4), deg_of_freedom]
         if name in result_tab['id']:
             idx_event = np.where(result_tab['id'] == name)[0]
             if result_tab[idx_event]['chi2'] > lst[-2]:
@@ -649,7 +646,8 @@ if __name__ == '__main__':
         # breakpoint()
         pdf_dir = settings['plots']['all_plots']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
-        result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
+        result, cplot, xlim = make_all_fittings(data, settings, pdf=pdf)
+        res_event, two_pspl = result[4], result[5]
         pdf.close()
         write_tables(path, settings, name, result)
 
@@ -665,11 +663,11 @@ if __name__ == '__main__':
 
         # Split data into two and fit PSPL to get 2L1S initial params
         make_2L1S = settings['other_output']['yaml_files_2L1S']['t_or_f']
-        if make_2L1S and result[4].model.n_sources == 2:
-            data_left_right = split.find_minimum_and_split(result[4], result)
-            if len(data_left_right[0]) == 0:
+        if make_2L1S and res_event.model.n_sources == 2:
+            data_left_right = split.find_minimum_and_split(res_event, result)
+            if len(data_left_right[0].mag) == 0:
                 continue
             two_pspl = split.fit_PSPL_twice(result, data_left_right, settings)
-            split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
+        split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
         print("\n--------------------------------------------------")
     # breakpoint()

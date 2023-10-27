@@ -1,19 +1,19 @@
 photometry_files:
     - {file_name: ./W16-59events/phot/PAR-01.dat, add_2450000: True}
 starting_parameters:
-    t_0: gauss 2453749.36 0.01
-    u_0: gauss -0.862 0.001
-    t_E: gauss 165.59 0.01
-    s: gauss 3.681 0.001
-    q: gauss 0.156 0.001
-    alpha: gauss 125.853 0.001
+    t_0: gauss 2453750.84 0.01
+    u_0: gauss -0.834 0.001
+    t_E: gauss 158.23 0.01
+    s: gauss 3.765 0.001
+    q: gauss 0.174 0.001
+    alpha: gauss 127.574 0.001
 model:
     # methods: 2452800. point_source 2452833. VBBL 2452845. point_source 2452860. # (example16)
     methods: 2452962. point_source 2454535.
     default method: point_source_point_lens
 min_values:
     # u_0: 0.
-    t_E: 33.119 # 3. # 1.
+    t_E: 31.647 # 3. # 1.
     s: 0.05 # 0. # 1.
     q: 1.e-5 # 0.
     alpha: 0.
@@ -42,9 +42,8 @@ plots:
         shift t_0: False
     trace:
         file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_trace_between.png
-        shift t_0: False
 other_output:
     models:
         file name: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_all_models_between.txt
     yaml output:
-        file name: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_all_results_between.txt
+        file name: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_all_results_between.yaml

@@ -17,6 +17,7 @@ import MulensModel as mm
 from ulens_model_fit import UlensModelFit
 from fit_1L2S_3steps import read_data, fit_EMCEE, ln_prob
 
+
 def find_minimum_and_split(event_1L2S, result):
     """
     Find the minimum between t_0_1 and t_0_2 (1L2S) and split data into two.
@@ -40,16 +41,16 @@ def find_minimum_and_split(event_1L2S, result):
     # Exclude cases where there is no data between peaks or no minimum
     if len(model_data_between_peaks) == 0:
         return [], []
-    
+
     # Detect the minimum flux in model_data_between_peaks
     idx_min_flux = np.argmin(model_data_between_peaks[:,1])
     time_min_flux = model_data_between_peaks[:,0][idx_min_flux]
     if time_min_flux - 0.1 < t_0_left or time_min_flux + 0.1 > t_0_right:
         return [], []
     # elif model_data_between_peaks[:,1].min() in [t_0_left, t_0_right] or \
-    # [...] Still to think about it... Cases where the minimum flux is 
-    # breakpoint()    
-    
+    # [...] Still to think about it... Cases where the minimum flux is
+    # breakpoint()
+
     flag = mm_data.time <= time_min_flux
     mm_data = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
     data_left = mm.MulensData(mm_data[flag].T, phot_fmt='mag')
@@ -60,6 +61,7 @@ def find_minimum_and_split(event_1L2S, result):
     # if min(mm_data[flag][:,0]) < min(mm_data[~flag][:,0]):
     #     return mm.MulensData(mm_data[flag].T, phot_fmt='mag')
     # return mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
+
 
 def fit_PSPL_twice(result, data_left_right, settings):
     """
@@ -76,43 +78,59 @@ def fit_PSPL_twice(result, data_left_right, settings):
 
     # 1st PSPL (data_left or brighter)
     data_1, data_2 = data_left_right
-    t_0_left, t_0_right = sorted([result[0]['t_0_1'], result[0]['t_0_2']])
     settings['123_fits'] = '1st fit after result'
-    start = {'t_0': round(t_0_left, 2), 'u_0': 0.1, 't_E': 25}
+    start = {'t_0': round(result[0]['t_0_1'], 2), 'u_0': 0.1, 't_E': 25}
     n_emcee = settings['fitting_parameters']
-    fix_left = {data_1: n_emcee['fix_blend']}
-    ev_st = mm.Event(data_1, model=mm.Model(start), fix_blend_flux=fix_left)
+    fix_1 = {data_1: n_emcee['fix_blend']}
+    ev_st = mm.Event(data_1, model=mm.Model(start), fix_blend_flux=fix_1)
     n_emcee['sigmas'][0] = [0.01, 0.05, 1.0]
-    output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
-    model = mm.Model(dict(list(output[0].items())[:3]))
+    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
+    model_1 = mm.Model(dict(list(output_1[0].items())[:3]))
 
-    # Subtract the data_2 from first fit
-    aux_event = mm.Event(data_2, model=model,
+    # Subtract data_2 from the first fit
+    aux_event = mm.Event(data_2, model=model_1,
                          fix_blend_flux={data_2: n_emcee['fix_blend']})
     (flux, blend) = aux_event.get_flux_for_dataset(0)
     fsub = data_2.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
-    subt_right = np.c_[data_2.time, fsub, data_2.err_flux][fsub > 0]
-    subt_right = mm.MulensData(subt_right.T, phot_fmt='flux')
+    data_2_subt = np.c_[data_2.time, fsub, data_2.err_flux][fsub > 0]
+    data_2_subt = mm.MulensData(data_2_subt.T, phot_fmt='flux')
 
-    # 2nd PSPL (not to original data_2, but to subt_right)
+    # 2nd PSPL (not to original data_2, but to data_2_subt)
     settings['123_fits'] = '2nd fit after result'
-    start = {'t_0': round(t_0_right, 2), 'u_0': 0.1, 't_E': 25}
-    fix_right = {subt_right: n_emcee['fix_blend']}
-    ev_st = mm.Event(subt_right, model=mm.Model(start), fix_blend_flux=fix_right)
-    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
+    start = {'t_0': round(result[0]['t_0_2'], 2), 'u_0': 0.1, 't_E': 25}
+    fix_2 = {data_2_subt: n_emcee['fix_blend']}
+    ev_st = mm.Event(data_2_subt, model=mm.Model(start), fix_blend_flux=fix_2)
+    output_2 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
+    model_2 = mm.Model(dict(list(output_2[0].items())[:3]))
+
+    # Subtract data_1 from the second fit
+    aux_event = mm.Event(data_1, model=model_2,
+                         fix_blend_flux={data_1: n_emcee['fix_blend']})
+    (flux, blend) = aux_event.get_flux_for_dataset(0)
+    fsub = data_1.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
+    data_1_subt = np.c_[data_1.time, fsub, data_1.err_flux][fsub > 0]
+    data_1_subt = mm.MulensData(data_1_subt.T, phot_fmt='flux')
+
+    # 3rd PSPL (to data_1_subt)
+    settings['123_fits'] = '3rd fit after result'
+    fix_1 = {data_1_subt: n_emcee['fix_blend']}
+    ev_st = mm.Event(data_1_subt, model=model_1, fix_blend_flux=fix_1)
+    output_1 = fit_EMCEE(dict(list(output_1[0].items())[:3]),
+                         n_emcee['sigmas'][0], ln_prob, ev_st, settings)
+    model_1 = mm.Model(dict(list(output_1[0].items())[:3]))
 
     # Quick plot to check fits
     # plt.figure(figsize=(7.5,4.8))
-    # subt_right.plot(phot_fmt='mag', label='right_subt')
+    # data_1_subt.plot(phot_fmt='mag', label='data_1_subt')
+    # data_2_subt.plot(phot_fmt='mag', label='data_2_subt')
     # orig_data = result[4].datasets[0]
     # plt.scatter(orig_data.time, orig_data.mag, color="#CECECE", label='orig')
     # plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
     #                'color': 'black', 't_start': settings['xlim'][0],
     #                't_stop': settings['xlim'][1], 'zorder': 10}
-    # event_left = mm.Event(data_1, model=model, fix_blend_flux=fix_left)
+    # event_left = mm.Event(data_1_subt, model=model_1, fix_blend_flux=fix_1)
     # event_left.plot_model(label='model_left', **plot_params)
-    # model_1 = mm.Model(dict(list(output_1[0].items())[:3]))
-    # event_right = mm.Event(subt_right, model=model_1, fix_blend_flux=fix_right)
+    # event_right = mm.Event(data_2_subt, model=model_2, fix_blend_flux=fix_2)
     # event_right.plot_model(label='model_right', **plot_params)
     # model_1L2S = mm.Model(dict(list(result[0].items())[:5]))
     # event_1L2S = mm.Event(orig_data, model=model_1L2S)
@@ -122,7 +140,8 @@ def fit_PSPL_twice(result, data_left_right, settings):
     # plt.tight_layout()
     # plt.show()
 
-    return output[0], output_1[0]
+    return (output_1[0], output_2[0])
+
 
 def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     """
@@ -201,6 +220,7 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     plot_2L1S = yaml.safe_load(template_plot_2L1S.format(*plot_list))
     ulens_model_fit = UlensModelFit(**plot_2L1S)
     ulens_model_fit.plot_best_model()
+
 
 if __name__ == '__main__':
 

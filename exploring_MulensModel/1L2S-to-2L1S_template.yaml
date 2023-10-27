@@ -42,9 +42,8 @@ plots:
         shift t_0: False
     trace:
         file: {0:}/TEMP_results_2L1S/{1:}_2L1S_trace_{11:}.png
-        shift t_0: False
 other_output:
     models:
         file name: {0:}/TEMP_results_2L1S/{1:}_2L1S_all_models_{11:}.txt
     yaml output:
-        file name: {0:}/TEMP_results_2L1S/{1:}_2L1S_all_results_{11:}.txt
+        file name: {0:}/TEMP_results_2L1S/{1:}_2L1S_all_results_{11:}.yaml
