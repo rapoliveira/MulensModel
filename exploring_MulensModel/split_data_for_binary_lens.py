@@ -12,13 +12,38 @@ import yaml
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.signal import argrelextrema
 
 import MulensModel as mm
 from ulens_model_fit import UlensModelFit
 from fit_1L2S_3steps import read_data, fit_EMCEE, ln_prob
 
 
-def find_minimum_and_split(event_1L2S, result):
+def split_before_result(mm_data, f_base, f_base_sigma):
+
+    # Testing gradient stuff to check for ...
+    flag_3sigma = mm_data.flux >= (f_base + 3*f_base_sigma)
+    flux_above, time_above = mm_data.flux[flag_3sigma], mm_data.time[flag_3sigma]
+    min_ids = argrelextrema(flux_above, np.less_equal, order=20)[0]
+    max_ids = argrelextrema(flux_above, np.greater_equal, order=20)[0]
+    if len(max_ids) > 2:
+        diff = time_above[max_ids] - t_brightest
+        max_ids = np.sort([x for _, x in sorted(zip(abs(diff), max_ids))])[:2]
+    time_mins = time_above[min_ids]
+    time_maxs = time_above[max_ids]
+    flag_between = (time_mins > time_maxs[0]) & (time_mins < time_maxs[1])
+    time_min_flux = time_mins[flag_between]
+
+    flag = mm_data.time <= time_min_flux
+    mm_data = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
+    data_left = mm.MulensData(mm_data[flag].T, phot_fmt='mag')
+    data_right = mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
+    if min(data_left.mag) < min(data_right.mag):
+        return (data_left, data_right)
+    return (data_right, data_left)
+
+
+def split_after_result(event_1L2S, result):
     """
     Find the minimum between t_0_1 and t_0_2 (1L2S) and split data into two.
 
@@ -49,7 +74,7 @@ def find_minimum_and_split(event_1L2S, result):
         return [], []
     # elif model_data_between_peaks[:,1].min() in [t_0_left, t_0_right] or \
     # [...] Still to think about it... Cases where the minimum flux is
-    # breakpoint()
+    # breakpoint()        
 
     flag = mm_data.time <= time_min_flux
     mm_data = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]

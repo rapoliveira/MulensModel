@@ -32,8 +32,7 @@ plots:
         file: {0:}/TEMP_results_2L1S/{1:}_2L1S_model_{11:}.png
         time range: {8:} {9:}
         second Y scale:
-            magnifications: [1, 1.5, 2, 2.5, 3]
-            recalculate magnification ticks: True
+            magnifications: optimal # [1, 1.5, 2, 2.5, 3]
     trajectory:
         file: {0:}/TEMP_results_2L1S/{1:}_2L1S_trajectory_{11:}.png
         time range: {8:} {9:}

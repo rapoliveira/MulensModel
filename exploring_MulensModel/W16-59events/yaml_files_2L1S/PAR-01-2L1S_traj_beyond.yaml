@@ -32,8 +32,7 @@ plots:
         file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_model_beyond.png
         time range: 2452962. 2454535.
         second Y scale:
-            magnifications: [1, 1.5, 2, 2.5, 3]
-            recalculate magnification ticks: True
+            magnifications: optimal # [1, 1.5, 2, 2.5, 3]
     trajectory:
         file: ./W16-59events/TEMP_results_2L1S/PAR-01_2L1S_trajectory_beyond.png
         time range: 2452962. 2454535.

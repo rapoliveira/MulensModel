@@ -73,14 +73,59 @@ def read_data(path, phot_settings, plot=False):
 
     return data_list, filenames
 
+def get_initial_t0_u0(data, settings, t_brightest=0.):
+    """
+    _summary_
+
+    Args:
+        data (_type_): _description_
+        t_brightest (_type_, optional): _description_. Defaults to 0..
+
+    Returns:
+        _type_: _description_
+    """
+
+    if t_brightest == 0.:
+        t_brightest = np.mean(data.time[np.argsort(data.mag)][:10])
+    if 't_E' in settings['fit_constraints']['ln_prior'].keys():
+        t_E_prior = settings['fit_constraints']['ln_prior']['t_E']
+        t_E_init = round(np.exp(float(t_E_prior.split()[1])), 1)
+    else:
+        t_E_init = 25.
+
+    # Starting the baseline (360d or half-data window?)
+    # t_window = [t_brightest - 180, t_brightest + 180] # 360d window
+    t_diff = data.time - t_brightest
+    t_window = [t_brightest + min(t_diff)/2., t_brightest + max(t_diff)/2.]
+    t_mask = (data.time < t_window[0]) | (data.time > t_window[1])
+    flux_base_median = np.median(data.flux[t_mask])
+    flux_base_sigma = np.std(data.flux[t_mask])
+    mag_base_median = np.median(data.mag[t_mask]) # 14.715 -> 14.721 (ok)
+
+    # Get the brightest flux around t_brightest (to avoid outliers)
+    idx_min = np.argmin(abs(t_diff))
+    mag_peak = min(data.mag[idx_min-5:idx_min+6])
+    flux_peak = max(data.flux[idx_min-5:idx_min+6])
+
+    # Compute magnification and corresponding u_0(A)
+    magnif_A = flux_peak / flux_base_median
+    u_init = round(np.sqrt(2*magnif_A / np.sqrt(magnif_A**2 - 1) - 2), 3)
+    start = {'t_0': round(t_brightest, 1), 'u_0': u_init, 't_E': t_E_init}
+
+    # Trying to run split_data from here...
+    data_left_right = split.split_before_result(data, flux_base_median, flux_base_sigma)
+
+    return start, magnif_A, data_left_right
+
 def make_all_fittings(data, settings, pdf=""):
     '''
     Missing description for this function...
     '''
     # 1st fit: Fitting a PSPL/1L1S without parallax...
-    t_brightest = np.mean(data.time[np.argsort(data.mag)][:10])
-    # still missing u(A) from baseline to get an initial u_0 !!!
-    start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 25}
+    # t_brightest = np.mean(data.time[np.argsort(data.mag)][:10])
+    # start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 25}
+    start, magnification, data_left_right = get_initial_t0_u0(data, settings)
+    breakpoint()
     n_emcee = settings['fitting_parameters']
     fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
     ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
@@ -122,9 +167,9 @@ def make_all_fittings(data, settings, pdf=""):
     output_2 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
     event_2, cplot_2 = make_plots(output_2[:-1], n_emcee, data, xlim, pdf=pdf)
     
-    # if max(output_2[0][1], output_2[0][3]) > 2.9:
+    if max(output_2[0]['u_0_1'], output_2[0]['u_0_2']) > 3.:
     # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
-    if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
+    # if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
         return output + (event, two_pspl), cplot, xlim        
     return output_2 + (event_2, two_pspl), cplot_2, xlim
 
@@ -640,7 +685,7 @@ if __name__ == '__main__':
         settings = yaml.safe_load(in_data)
 
     data_list, filenames = read_data(path, settings['phot_settings'])
-    for data, name in zip(data_list, filenames):
+    for data, name in zip(data_list[5:6], filenames[5:6]):
         
         print(f'\n\033[1m * Running fit for {name}\033[0m')
         # breakpoint()
@@ -664,10 +709,10 @@ if __name__ == '__main__':
         # Split data into two and fit PSPL to get 2L1S initial params
         make_2L1S = settings['other_output']['yaml_files_2L1S']['t_or_f']
         if make_2L1S and res_event.model.n_sources == 2:
-            data_left_right = split.find_minimum_and_split(res_event, result)
-            if len(data_left_right[0].mag) == 0:
+            data_left_right = split.split_after_result(res_event, result)
+            if isinstance(data_left_right[0], list):
                 continue
             two_pspl = split.fit_PSPL_twice(result, data_left_right, settings)
-        split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
+            split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
         print("\n--------------------------------------------------")
     # breakpoint()
