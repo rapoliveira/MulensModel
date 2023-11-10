@@ -25,6 +25,7 @@ from matplotlib.gridspec import GridSpec
 # import multiprocessing
 import numpy as np
 import os
+import scipy.optimize as op
 import yaml
 import warnings
 import split_data_for_binary_lens as split
@@ -98,34 +99,29 @@ def get_initial_t0_u0(data, settings, t_brightest=0.):
     t_diff = data.time - t_brightest
     t_window = [t_brightest + min(t_diff)/2., t_brightest + max(t_diff)/2.]
     t_mask = (data.time < t_window[0]) | (data.time > t_window[1])
-    flux_base_median = np.median(data.flux[t_mask])
-    flux_base_sigma = np.std(data.flux[t_mask])
-    mag_base_median = np.median(data.mag[t_mask]) # 14.715 -> 14.721 (ok)
+    flux_base = np.median(data.flux[t_mask])
+    flux_mag_base = (flux_base, np.std(data.flux[t_mask]),
+                     np.median(data.mag[t_mask]), np.std(data.mag[t_mask]))
 
     # Get the brightest flux around t_brightest (to avoid outliers)
     idx_min = np.argmin(abs(t_diff))
-    mag_peak = min(data.mag[idx_min-5:idx_min+6])
-    flux_peak = max(data.flux[idx_min-5:idx_min+6])
+    min_, max_ = max(idx_min-5, 0), min(idx_min+6, len(data.mag))
+    # mag_peak = min(data.mag[min_:max_]) # [idx_min-5:idx_min+6]
+    flux_peak = max(data.flux[min_:max_])
 
     # Compute magnification and corresponding u_0(A)
-    magnif_A = flux_peak / flux_base_median
+    magnif_A = flux_peak / flux_base
     u_init = round(np.sqrt(2*magnif_A / np.sqrt(magnif_A**2 - 1) - 2), 3)
     start = {'t_0': round(t_brightest, 1), 'u_0': u_init, 't_E': t_E_init}
 
-    # Trying to run split_data from here...
-    data_left_right = split.split_before_result(data, flux_base_median, flux_base_sigma)
-
-    return start, magnif_A, data_left_right
+    return start, flux_mag_base
 
 def make_all_fittings(data, settings, pdf=""):
     '''
     Missing description for this function...
     '''
     # 1st fit: Fitting a PSPL/1L1S without parallax...
-    # t_brightest = np.mean(data.time[np.argsort(data.mag)][:10])
-    # start = {'t_0': round(t_brightest, 1), 'u_0':0.1, 't_E': 25}
-    start, magnification, data_left_right = get_initial_t0_u0(data, settings)
-    breakpoint()
+    start, f_base = get_initial_t0_u0(data, settings)
     n_emcee = settings['fitting_parameters']
     fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
     ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
@@ -152,9 +148,12 @@ def make_all_fittings(data, settings, pdf=""):
     two_pspl = (output[0], output_1[0])
     try:
         make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
+        t_range = [min(data.time) - 500, max(data.time) + 500]
         # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
         # if output_1[0]['u_0'] > 5:
         if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
+            return output + (event, two_pspl), cplot, xlim
+        elif output_1[0]['t_0'] < t_range[0] or output_1[0]['t_0'] > t_range[1]:
             return output + (event, two_pspl), cplot, xlim
     except ValueError:
         return output + (event, two_pspl), cplot, xlim
@@ -172,6 +171,110 @@ def make_all_fittings(data, settings, pdf=""):
     # if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
         return output + (event, two_pspl), cplot, xlim        
     return output_2 + (event_2, two_pspl), cplot_2, xlim
+
+def fit_utils(method, data, settings, model=''):
+
+    n_emcee = settings['fitting_parameters']
+    fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
+
+    if method == 'scipy_minimize':
+        fix = {data: 0.}
+        start = get_initial_t0_u0(data, settings)[0]
+        ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
+        x0, arg = list(start.values()), (list(start.keys()), ev_st)
+        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='Nelder-Mead')
+        model = {'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}
+
+        return model
+
+    elif method == 'get_t_E_1L2S':
+        aux_event = mm.Event(data, model=mm.Model(model))
+        x0, arg = [model['t_E']], (['t_E'], aux_event)
+        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='Nelder-Mead')
+        model['t_E'] = r_.x[0]
+        return list(model.values())
+
+    elif method == 'subt_data':
+        aux_event = mm.Event(data, model=mm.Model(model), fix_blend_flux=fix)
+        (flux, blend) = aux_event.get_flux_for_dataset(0)
+        fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
+        subt_data = np.c_[data.time, fsub, data.err_flux][fsub > 0]
+        subt_data = mm.MulensData(subt_data.T, phot_fmt='flux')
+
+        return subt_data
+
+    else:
+        raise Exception('Invalid method sent to function fit_utils().')
+
+def prefit_split_and_fit(data, settings, pdf=""):
+    """
+    Raphael: I started doing the split before the result. Radek thinks the
+    scipy argrelextrema is not general for all cases.
+
+    Radek suggestion (06 Nov): Do PSPL quickly with scipy.optimize or
+    chi2_gradient (exs 02, 09) on the original data, then do quick 1L2S(?),
+    then get the minimum between peaks and split to start the process...
+    In this case, I will test my code and try the fits, then apply his method
+    just to check both results. In Radek's case, I would need to...
+
+    Args:
+        data (_type_): _description_
+        settings (_type_): _description_
+        pdf (str, optional): _description_. Defaults to "".
+    """
+
+    ### My method ::: 02-06/nov
+    # start, fm_base = get_initial_t0_u0(data, settings)
+    # data_left_right = split.split_before_result(data, fm_base[0], fm_base[1])
+    # two_pspl = split.fit_PSPL_twice(data_left_right, settings, start=start)
+
+    ### Radek's method ::: 06/nov on...
+    model_1 = fit_utils('scipy_minimize', data, settings)
+    data_2_subt = fit_utils('subt_data', data, settings, model_1)
+    fm_base = get_initial_t0_u0(data_2_subt, settings)[1]  # above 3sigma?
+    model_2 = fit_utils('scipy_minimize', data_2_subt, settings)
+    #
+    n_emcee = settings['fitting_parameters']
+    start = {'t_0_1': model_1['t_0'], 'u_0_1': model_1['u_0'], 't_0_2':
+             model_2['t_0'], 'u_0_2': model_2['u_0'], 't_E': 25}
+    # start = {'t_0_1': model_2['t_0'], 'u_0_1': model_2['u_0'], 't_0_2':
+    #          model_1['t_0'], 'u_0_2': model_1['u_0'], 't_E': 25} # inverted!!!
+    ev_st = mm.Event(data, model=mm.Model(start))
+    # result = op.minimize(split.chi2_fun, x0=list(start.values()),
+    #                      args=(list(start.keys()), ev_st), method='Nelder-Mead')
+    output = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
+    bst = dict(b_ for b_ in list(output[0].items()) if 'flux' not in b_[0])
+    fix_source = {data: [output[0][key] for key in output[0] if 'source' in key]}
+    event_1L2S = mm.Event(data, model=mm.Model(bst),
+                          fix_source_flux=fix_source,
+                          fix_blend_flux={data: output[0]['blending_flux']})
+    event_1L2S.get_chi2()
+    data_left_right = split.split_after_result(event_1L2S, output)
+
+    # Fits 2xPSPL if data is good (u_0 < 3.)...
+    start = get_initial_t0_u0(data, settings)[0]
+    two_pspl, subt_data = split.fit_PSPL_twice(data_left_right, settings, start=start)
+
+    # Plotting 2 PSPL
+    output_1, output_2 = two_pspl
+    # output_1, output_2, output_3 = two_pspl
+    data_1_subt, data_2_subt = subt_data
+    xlim = get_xlim2(output_1[0], data, n_emcee)
+    make_plots(output[:-1], n_emcee, data, xlim)  # TESTING HERE...
+    settings['xlim'] = xlim
+    event_1, cplot_1 = make_plots(output_1[:-1], n_emcee, data_1_subt, xlim,
+                                  data, pdf=pdf)
+    # event_1, cplot_1 = make_plots(output_1[:-1], n_emcee, data_left_right[0],
+    #                               xlim, data, pdf=pdf)
+    make_plots(output_2[:-1], n_emcee, data_2_subt, xlim, data, pdf=pdf)
+    # make_plots(output_3[:-1], n_emcee, data_1_subt, xlim, data, pdf=pdf)
+    pdf.close()
+
+    # Stopped here: 07.nov @ 15h42
+    # [...]
+    breakpoint()
+
+    pass
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -210,6 +313,8 @@ def ln_prior(theta, event, params_to_fit, settings):
     if not isinstance(stg_min_max[1]['t_0'], list):
         raise ValueError('t_0 max_values should be of list type.')
     ln_prior_t_E, ln_prior_fluxes = 0., 0.
+
+    # breakpoint()    # settings['init_params_1L2S'] to check t01 > t02 initially
 
     # Limiting min and max values (all minimum, then t_0 and u_0 maximum)
     for param in params_to_fit:
@@ -304,7 +409,10 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings):
     print(f'\n\033[1m -- {x_fit}: {term[int(x_fit[0])-1]} data...\033[0m')
 
     # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
-    if x_fit in ['1st fit', '3rd fit']:
+    # if x_fit in ['1st fit', '3rd fit']:
+    if x_fit in ['3rd fit']:
+        mean = fit_utils('get_t_E_1L2S', data, settings, model=dict_start)  ## NEW LINE!!!
+        settings['init_params_1L2S'] = mean
         start = [mean + np.random.randn(n_dim)*10*sigmas for i in range(nwlk)]
         start = abs(np.array(start))
         sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, args=emcee_args)
@@ -461,18 +569,11 @@ def make_plots(results_states, n_emcee, dataset, xlim, orig_data=[], pdf=""):
     plot results
     """
     best, sampler, states = results_states
-    condition = (n_emcee['fix_blend'] is not False and len(best) != 8)
+    condition = (n_emcee['fix_blend'] is not False) and (len(best) != 8)
     c_states = states[:,:-2] if condition else states[:,:-1]
     params = list(best.keys())[:-1] if condition else list(best.keys())
     values = list(best.values())[:-1] if condition else list(best.values())
-    # params, values = list(best.keys()), list(best.values())
     tracer_plot(params, sampler, n_emcee['nburn'], pdf=pdf)
-    # if len(best) == 8:
-    #     cplot = corner.corner(states[:,:-1], labels=params, truths=values,
-    #                           quantiles=[0.16,0.50,0.84], show_titles=True)
-    # else:
-    #     cplot = corner.corner(states[:,:-2], labels=params[:-1], truths=values[:-1],
-    #                           quantiles=[0.16,0.50,0.84], show_titles=True)
     cplot = corner.corner(c_states, quantiles=[0.16,0.50,0.84], labels=params,
                           truths=values, show_titles=True)
     if pdf:
@@ -691,6 +792,7 @@ if __name__ == '__main__':
         # breakpoint()
         pdf_dir = settings['plots']['all_plots']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
+        # prefit_split_and_fit(data, settings, pdf=pdf)
         result, cplot, xlim = make_all_fittings(data, settings, pdf=pdf)
         res_event, two_pspl = result[4], result[5]
         pdf.close()
@@ -712,7 +814,7 @@ if __name__ == '__main__':
             data_left_right = split.split_after_result(res_event, result)
             if isinstance(data_left_right[0], list):
                 continue
-            two_pspl = split.fit_PSPL_twice(result, data_left_right, settings)
+            two_pspl = split.fit_PSPL_twice(data_left_right, settings, result)
             split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
         print("\n--------------------------------------------------")
     # breakpoint()

@@ -16,7 +16,8 @@ from scipy.signal import argrelextrema
 
 import MulensModel as mm
 from ulens_model_fit import UlensModelFit
-from fit_1L2S_3steps import read_data, fit_EMCEE, ln_prob
+from fit_1L2S_3steps import fit_EMCEE, ln_prob, get_initial_t0_u0
+import fit_1L2S_3steps as fit
 
 
 def split_before_result(mm_data, f_base, f_base_sigma):
@@ -27,6 +28,7 @@ def split_before_result(mm_data, f_base, f_base_sigma):
     min_ids = argrelextrema(flux_above, np.less_equal, order=20)[0]
     max_ids = argrelextrema(flux_above, np.greater_equal, order=20)[0]
     if len(max_ids) > 2:
+        t_brightest = np.mean(mm_data.time[np.argsort(mm_data.mag)][:10])
         diff = time_above[max_ids] - t_brightest
         max_ids = np.sort([x for _, x in sorted(zip(abs(diff), max_ids))])[:2]
     time_mins = time_above[min_ids]
@@ -88,7 +90,7 @@ def split_after_result(event_1L2S, result):
     # return mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
 
 
-def fit_PSPL_twice(result, data_left_right, settings):
+def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
     """
     Fit PSPL to data_left and another PSPL to the right subtracted data.
 
@@ -103,10 +105,14 @@ def fit_PSPL_twice(result, data_left_right, settings):
 
     # 1st PSPL (data_left or brighter)
     data_1, data_2 = data_left_right
-    settings['123_fits'] = '1st fit after result'
-    start = {'t_0': round(result[0]['t_0_1'], 2), 'u_0': 0.1, 't_E': 25}
     n_emcee = settings['fitting_parameters']
-    fix_1 = {data_1: n_emcee['fix_blend']}
+    settings['123_fits'] = '1st fit'
+    if not isinstance(result, list):
+    # if start == {}:
+        settings['123_fits'] += ' after 1L2S result'
+        t_brightest = round(result[0]['t_0_1'], 2)
+        start = get_initial_t0_u0(data_1, settings, t_brightest=t_brightest)[0]
+    fix_1 = None if n_emcee['fix_blend'] is False else {data_1: n_emcee['fix_blend']}
     ev_st = mm.Event(data_1, model=mm.Model(start), fix_blend_flux=fix_1)
     n_emcee['sigmas'][0] = [0.01, 0.05, 1.0]
     output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
@@ -120,10 +126,17 @@ def fit_PSPL_twice(result, data_left_right, settings):
     data_2_subt = np.c_[data_2.time, fsub, data_2.err_flux][fsub > 0]
     data_2_subt = mm.MulensData(data_2_subt.T, phot_fmt='flux')
 
+    ### HERE ::: ADD STEP OF CHECKING IF THERE IS DATA > 3sigma above f_base...
+
     # 2nd PSPL (not to original data_2, but to data_2_subt)
-    settings['123_fits'] = '2nd fit after result'
-    start = {'t_0': round(result[0]['t_0_2'], 2), 'u_0': 0.1, 't_E': 25}
-    fix_2 = {data_2_subt: n_emcee['fix_blend']}
+    settings['123_fits'] = settings['123_fits'].replace('1st', '2nd')
+    if not isinstance(result, list):
+        t_brightest = round(result[0]['t_0_2'], 2)
+        start, f_base = get_initial_t0_u0(data_2_subt, settings,
+                                          t_brightest=t_brightest)
+    else:
+        start, f_base = get_initial_t0_u0(data_2_subt, settings)
+    fix_2 = None if n_emcee['fix_blend'] is False else {data_2_subt: n_emcee['fix_blend']}
     ev_st = mm.Event(data_2_subt, model=mm.Model(start), fix_blend_flux=fix_2)
     output_2 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     model_2 = mm.Model(dict(list(output_2[0].items())[:3]))
@@ -137,22 +150,23 @@ def fit_PSPL_twice(result, data_left_right, settings):
     data_1_subt = mm.MulensData(data_1_subt.T, phot_fmt='flux')
 
     # 3rd PSPL (to data_1_subt)
-    settings['123_fits'] = '3rd fit after result'
-    fix_1 = {data_1_subt: n_emcee['fix_blend']}
+    settings['123_fits'] = settings['123_fits'].replace('2nd', '1st') + ' again'
+    fix_1 = None if n_emcee['fix_blend'] is False else {data_1_subt: n_emcee['fix_blend']}
     ev_st = mm.Event(data_1_subt, model=model_1, fix_blend_flux=fix_1)
-    output_1 = fit_EMCEE(dict(list(output_1[0].items())[:3]),
+    output_3 = fit_EMCEE(dict(list(output_1[0].items())[:3]),
                          n_emcee['sigmas'][0], ln_prob, ev_st, settings)
-    model_1 = mm.Model(dict(list(output_1[0].items())[:3]))
+    model_3 = mm.Model(dict(list(output_3[0].items())[:3]))
 
     # Quick plot to check fits
     # plt.figure(figsize=(7.5,4.8))
     # data_1_subt.plot(phot_fmt='mag', label='data_1_subt')
     # data_2_subt.plot(phot_fmt='mag', label='data_2_subt')
     # orig_data = result[4].datasets[0]
+    # xlim = fit.get_xlim2(output_1[0], orig_data, n_emcee)
     # plt.scatter(orig_data.time, orig_data.mag, color="#CECECE", label='orig')
     # plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
-    #                'color': 'black', 't_start': settings['xlim'][0],
-    #                't_stop': settings['xlim'][1], 'zorder': 10}
+    #                'color': 'black', 't_start': xlim[0], 't_stop': xlim[1],
+    #                'zorder': 10}
     # event_left = mm.Event(data_1_subt, model=model_1, fix_blend_flux=fix_1)
     # event_left.plot_model(label='model_left', **plot_params)
     # event_right = mm.Event(data_2_subt, model=model_2, fix_blend_flux=fix_2)
@@ -160,13 +174,59 @@ def fit_PSPL_twice(result, data_left_right, settings):
     # model_1L2S = mm.Model(dict(list(result[0].items())[:5]))
     # event_1L2S = mm.Event(orig_data, model=model_1L2S)
     # event_1L2S.plot_model(label='model_1L2S', ls='--', **plot_params)
-    # plt.xlim(settings['xlim'])
+    # plt.xlim(xlim)
     # plt.legend()
     # plt.tight_layout()
     # plt.show()
+    
+    if not isinstance(result, list):
+        return (output_1[0], output_2[0])
+    return (output_3, output_2), (data_1_subt, data_2_subt)
+    # return (output_1, output_2, output_3), (data_1_subt, data_2_subt)
 
-    return (output_1[0], output_2[0])
 
+def chi2_fun(theta, parameters_to_fit, event):
+    """
+    Calculate chi2 for given values of parameters
+
+    Keywords :
+        theta: *np.ndarray*
+            Vector of parameter values, e.g.,
+            `np.array([5380., 0.5, 20.])`.
+
+        parameters_to_fit: *list* of *str*
+            List of names of parameters corresponding to theta, e.g.,
+            `['t_0', 'u_0', 't_E']`.
+
+        event: *MulensModel.Event*
+            Event which has datasets for which chi2 will be calculated.
+
+    Returns :
+        chi2: *float*
+            Chi2 value for given model parameters.
+    """
+    # First we have to change the values of parameters in
+    # event.model.parameters to values given by theta.
+    for (parameter, value) in zip(parameters_to_fit, theta):
+        setattr(event.model.parameters, parameter, value)
+
+    # After that, calculating chi2 is trivial:
+    return event.get_chi2()
+
+def jacobian(theta, event, parameters_to_fit):
+    """
+    - Set values of microlensing parameters AND
+    - Calculate chi^2 gradient (also called Jacobian).
+
+    Note: this implementation is robust but possibly inefficient. If
+    chi2_fun() is ALWAYS called before jacobian with the same parameters,
+    there is no need to set the parameters in event.model; also,
+    event.calculate_chi2_gradient() can be used instead (which avoids fitting
+    for the fluxes twice).
+    """
+    for (key, value) in zip(parameters_to_fit, theta):
+        setattr(event.model.parameters, key, value)
+    return event.get_chi2_gradient(parameters_to_fit)
 
 def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     """
@@ -213,7 +273,7 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     ulens_model_fit.plot_best_model()
 
     # writing traj_between yaml file
-    init_2L1S = [round(param, 3) for param in init_2L1S]
+    init_2L1S = [round(param, 5) for param in init_2L1S]
     init_2L1S[0], init_2L1S[2] = round(init_2L1S[0], 2), round(init_2L1S[2], 2)
     diff_path = path.replace(os.getcwd(), '.')
     init_2L1S.insert(0, diff_path)
@@ -234,8 +294,8 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
                       (pspl_1['u_0']-pspl_2['u_0'])**2)
     factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
     s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
-    init_2L1S[-1], init_2L1S[3] = 'beyond', round(u_0_2L1S, 3)
-    init_2L1S[5], init_2L1S[7] = round(s_2L1S, 3), round(alpha_2L1S, 3)
+    init_2L1S[-1], init_2L1S[3] = 'beyond', round(u_0_2L1S, 5)
+    init_2L1S[5], init_2L1S[7] = round(s_2L1S, 5), round(alpha_2L1S, 5)
     with open(f'{path}/{yaml_file_2}', 'w') as out_file_2:
         out_file_2.write(template.format(*init_2L1S))
 
@@ -255,7 +315,7 @@ if __name__ == '__main__':
         settings = yaml.safe_load(in_data)
 
     # Do it later: calling code as main will require a yaml file with 1L2S
-    data_list, filenames = read_data(path, settings['phot_settings'])
+    data_list, filenames = fit.read_data(path, settings['phot_settings'])
     print('Still working on it...')
     # for data, name in zip(data_list, filenames):
     # [...]
