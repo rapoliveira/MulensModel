@@ -10,31 +10,41 @@ import os
 import sys
 import yaml
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import argrelextrema
 
 import MulensModel as mm
 from ulens_model_fit import UlensModelFit
-from fit_1L2S_3steps import fit_EMCEE, ln_prob, get_initial_t0_u0
+from fit_1L2S_3steps import fit_emcee, ln_prob, get_initial_t0_u0
 import fit_1L2S_3steps as fit
 
 
 def split_before_result(mm_data, f_base, f_base_sigma):
+    """
+    WRITE LATER...
+
+    Args:
+        mm_data (_type_): _description_
+        f_base (_type_): _description_
+        f_base_sigma (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
 
     # Testing gradient stuff to check for ...
     flag_3sigma = mm_data.flux >= (f_base + 3*f_base_sigma)
-    flux_above, time_above = mm_data.flux[flag_3sigma], mm_data.time[flag_3sigma]
+    flux_above, t_above = mm_data.flux[flag_3sigma], mm_data.time[flag_3sigma]
     min_ids = argrelextrema(flux_above, np.less_equal, order=20)[0]
     max_ids = argrelextrema(flux_above, np.greater_equal, order=20)[0]
     if len(max_ids) > 2:
         t_brightest = np.mean(mm_data.time[np.argsort(mm_data.mag)][:10])
-        diff = time_above[max_ids] - t_brightest
+        diff = t_above[max_ids] - t_brightest
         max_ids = np.sort([x for _, x in sorted(zip(abs(diff), max_ids))])[:2]
-    time_mins = time_above[min_ids]
-    time_maxs = time_above[max_ids]
-    flag_between = (time_mins > time_maxs[0]) & (time_mins < time_maxs[1])
-    time_min_flux = time_mins[flag_between]
+    t_mins, t_maxs = t_above[min_ids], t_above[max_ids]
+    flag_between = (t_mins > t_maxs[0]) & (t_mins < t_maxs[1])
+    time_min_flux = t_mins[flag_between]
 
     flag = mm_data.time <= time_min_flux
     mm_data = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
@@ -70,21 +80,21 @@ def split_after_result(event_1L2S, result):
         return [], []
 
     # Detect the minimum flux in model_data_between_peaks
-    idx_min_flux = np.argmin(model_data_between_peaks[:,1])
-    time_min_flux = model_data_between_peaks[:,0][idx_min_flux]
+    idx_min_flux = np.argmin(model_data_between_peaks[:, 1])
+    time_min_flux = model_data_between_peaks[:, 0][idx_min_flux]
     if time_min_flux - 0.1 < t_0_left or time_min_flux + 0.1 > t_0_right:
         return [], []
     # elif model_data_between_peaks[:,1].min() in [t_0_left, t_0_right] or \
     # [...] Still to think about it... Cases where the minimum flux is
-    # breakpoint()        
+    # breakpoint()
 
     flag = mm_data.time <= time_min_flux
     mm_data = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
     data_left = mm.MulensData(mm_data[flag].T, phot_fmt='mag')
     data_right = mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
     if min(data_left.mag) < min(data_right.mag):
-        return (data_left, data_right)
-    return (data_right, data_left)
+        return (data_left, data_right), time_min_flux
+    return (data_right, data_left), time_min_flux
     # if min(mm_data[flag][:,0]) < min(mm_data[~flag][:,0]):
     #     return mm.MulensData(mm_data[flag].T, phot_fmt='mag')
     # return mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
@@ -107,15 +117,15 @@ def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
     data_1, data_2 = data_left_right
     n_emcee = settings['fitting_parameters']
     settings['123_fits'] = '1st fit'
-    if not isinstance(result, list):
     # if start == {}:
+    if not isinstance(result, list):
         settings['123_fits'] += ' after 1L2S result'
         t_brightest = round(result[0]['t_0_1'], 2)
         start = get_initial_t0_u0(data_1, settings, t_brightest=t_brightest)[0]
     fix_1 = None if n_emcee['fix_blend'] is False else {data_1: n_emcee['fix_blend']}
     ev_st = mm.Event(data_1, model=mm.Model(start), fix_blend_flux=fix_1)
     n_emcee['sigmas'][0] = [0.01, 0.05, 1.0]
-    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
+    output_1 = fit_emcee(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     model_1 = mm.Model(dict(list(output_1[0].items())[:3]))
 
     # Subtract data_2 from the first fit
@@ -126,7 +136,7 @@ def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
     data_2_subt = np.c_[data_2.time, fsub, data_2.err_flux][fsub > 0]
     data_2_subt = mm.MulensData(data_2_subt.T, phot_fmt='flux')
 
-    ### HERE ::: ADD STEP OF CHECKING IF THERE IS DATA > 3sigma above f_base...
+    # HERE ::: ADD STEP OF CHECKING IF THERE IS DATA > 3sigma above f_base...
 
     # 2nd PSPL (not to original data_2, but to data_2_subt)
     settings['123_fits'] = settings['123_fits'].replace('1st', '2nd')
@@ -138,7 +148,7 @@ def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
         start, f_base = get_initial_t0_u0(data_2_subt, settings)
     fix_2 = None if n_emcee['fix_blend'] is False else {data_2_subt: n_emcee['fix_blend']}
     ev_st = mm.Event(data_2_subt, model=mm.Model(start), fix_blend_flux=fix_2)
-    output_2 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
+    output_2 = fit_emcee(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     model_2 = mm.Model(dict(list(output_2[0].items())[:3]))
 
     # Subtract data_1 from the second fit
@@ -153,9 +163,8 @@ def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
     settings['123_fits'] = settings['123_fits'].replace('2nd', '1st') + ' again'
     fix_1 = None if n_emcee['fix_blend'] is False else {data_1_subt: n_emcee['fix_blend']}
     ev_st = mm.Event(data_1_subt, model=model_1, fix_blend_flux=fix_1)
-    output_3 = fit_EMCEE(dict(list(output_1[0].items())[:3]),
+    output_3 = fit_emcee(dict(list(output_1[0].items())[:3]),
                          n_emcee['sigmas'][0], ln_prob, ev_st, settings)
-    model_3 = mm.Model(dict(list(output_3[0].items())[:3]))
 
     # Quick plot to check fits
     # plt.figure(figsize=(7.5,4.8))
@@ -178,7 +187,7 @@ def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
     # plt.legend()
     # plt.tight_layout()
     # plt.show()
-    
+
     if not isinstance(result, list):
         return (output_1[0], output_2[0])
     return (output_3, output_2), (data_1_subt, data_2_subt)
@@ -213,6 +222,7 @@ def chi2_fun(theta, parameters_to_fit, event):
     # After that, calculating chi2 is trivial:
     return event.get_chi2()
 
+
 def jacobian(theta, event, parameters_to_fit):
     """
     - Set values of microlensing parameters AND
@@ -228,13 +238,14 @@ def jacobian(theta, event, parameters_to_fit):
         setattr(event.model.parameters, key, value)
     return event.get_chi2_gradient(parameters_to_fit)
 
+
 def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     """
     Generate two yaml files with initial parameters for the 2L1S fitting.
 
     Args:
         path (str): directory of the Python script and catalogues
-        two_pspl (tuple of dict): results from the two PSPL fits 
+        two_pspl (tuple of dict): results from the two PSPL fits
         name (str): name of the photometry file
         settings (dict): all settings from yaml file
     """
@@ -253,7 +264,7 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
         pspl_1, pspl_2 = pspl_2, pspl_1
     q_2L1S = (pspl_2['t_E'] / pspl_1['t_E']) ** 2
     t_0_2L1S = (q_2L1S*pspl_2['t_0'] + pspl_1['t_0']) / (1 + q_2L1S)
-    u_0_2L1S = (q_2L1S*pspl_2['u_0'] - pspl_1['u_0']) / (1 + q_2L1S) # negative!!!
+    u_0_2L1S = (q_2L1S*pspl_2['u_0'] - pspl_1['u_0']) / (1 + q_2L1S)  # negative!!!
     t_E_2L1S = np.sqrt(pspl_1['t_E']**2 + pspl_2['t_E']**2)
     t_a = (pspl_1['u_0']+pspl_2['u_0'])*t_E_2L1S / (pspl_2['t_0']-pspl_1['t_0'])
     alpha_2L1S = np.degrees(np.arctan(t_a))
@@ -264,7 +275,7 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
 
     # plot best 2L1S model (between)
-    with open('2L1S_plot_template.yaml', 'r') as data:
+    with open('2L1S_plot_template.yaml', 'r', encoding='utf-8') as data:
         template_plot_2L1S = data.read()
     init_2L1S = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
     plot_list = [name.split('.')[0]] + init_2L1S + ['between'] + xlim_str
@@ -280,13 +291,13 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     init_2L1S.insert(1, name.split('.')[0])
     init_2L1S += xlim_str + [round(max(3, t_E_2L1S/5.), 3), 'between']
     f_template = settings['other_output']['yaml_files_2L1S']['yaml_template']
-    with open(f'{path}/{f_template}') as template_file_:
+    with open(f'{path}/{f_template}', 'r', encoding='utf-8') as template_file_:
         template = template_file_.read()
-    with open(f'{path}/{yaml_file_1}', 'w') as out_file_1:
+    with open(f'{path}/{yaml_file_1}', 'w', encoding='utf-8') as out_file_1:
         out_file_1.write(template.format(*init_2L1S))
-    
+
     # equations for trajectory beyond the lenses
-    u_0_2L1S = -(pspl_1['u_0'] + q_2L1S*pspl_2['u_0']) / (1 + q_2L1S) # negative!!!
+    u_0_2L1S = -(pspl_1['u_0'] + q_2L1S*pspl_2['u_0']) / (1 + q_2L1S)  # negative!!!
     t_a = abs(pspl_1['u_0']-pspl_2['u_0'])*t_E_2L1S / (pspl_2['t_0']-pspl_1['t_0'])
     alpha_2L1S = np.degrees(np.arctan(t_a))
     alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
@@ -296,7 +307,7 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
     init_2L1S[-1], init_2L1S[3] = 'beyond', round(u_0_2L1S, 5)
     init_2L1S[5], init_2L1S[7] = round(s_2L1S, 5), round(alpha_2L1S, 5)
-    with open(f'{path}/{yaml_file_2}', 'w') as out_file_2:
+    with open(f'{path}/{yaml_file_2}', 'w', encoding='utf-8') as out_file_2:
         out_file_2.write(template.format(*init_2L1S))
 
     # plot best 2L1S model (beyond)
@@ -311,7 +322,7 @@ if __name__ == '__main__':
 
     np.random.seed(12343)
     path = os.path.dirname(os.path.realpath(sys.argv[1]))
-    with open(sys.argv[1], 'r') as in_data:
+    with open(sys.argv[1], 'r', encoding='utf-8') as in_data:
         settings = yaml.safe_load(in_data)
 
     # Do it later: calling code as main will require a yaml file with 1L2S
@@ -323,19 +334,20 @@ if __name__ == '__main__':
     # for data, name in zip(data_list, filenames):
     #     print(f'\n\033[1m * Running fit for {name}\033[0m')
     #     # breakpoint()
+    #     path_base = f"{path}/{pdf_dir}/{name.split('.')[0]}"
     #     pdf_dir = settings['plots']['all_plots']['file_dir']
-    #     pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
+    #     pdf = PdfPages(f"{path_base}_result.pdf")
     #     result, cplot, xlim = make_all_fittings(data, name, settings, pdf=pdf)
     #     pdf.close()
     #     write_tables(path, settings, name, result)
 
     #     pdf_dir = settings['plots']['triangle']['file_dir']
-    #     pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
+    #     pdf = PdfPages(f"{path_base}_cplot.pdf")
     #     pdf.savefig(cplot)
     #     pdf.close()
 
     #     pdf_dir = settings['plots']['best model']['file_dir']
-    #     pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_fit.pdf")
+    #     pdf = PdfPages(f"{path_base}_fit.pdf")
     #     plot_fit(result[0], data, settings['fitting_parameters'], xlim, pdf=pdf)
     #     pdf.close()
     #     print("\n--------------------------------------------------")

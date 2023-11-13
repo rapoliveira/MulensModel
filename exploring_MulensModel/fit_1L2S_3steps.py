@@ -5,33 +5,36 @@ The code simulates binary source light curve and fits the model twice:
 with source flux ratio found via linear regression and
 with source flux ratio as a chain parameter.
 """
+from itertools import chain
+import os
 import sys
+import warnings
+
+from astropy.table import Table, Column
 try:
-    import emcee
     import corner
+    import emcee
 except ImportError as err:
     print(err)
     print("\nEMCEE or corner could not be imported.")
     print("Get it from: http://dfm.io/emcee/current/user/install/")
     print("and re-run the script")
     sys.exit(1)
-
-from astropy.table import Table, Column
-from itertools import chain
-import MulensModel as mm
 from matplotlib.backends.backend_pdf import PdfPages
-import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+import matplotlib.pyplot as plt
 # import multiprocessing
 import numpy as np
-import os
 import scipy.optimize as op
 import yaml
-import warnings
+
+import MulensModel as mm
 import split_data_for_binary_lens as split
 
+
 def read_data(path, phot_settings, plot=False):
-    """Read a catalogue or list of catalogues and creates MulensData instance
+    """
+    Read a catalogue or list of catalogues and creates MulensData instance
 
     Args:
         path (str): directory of the Python script and catalogues
@@ -47,19 +50,19 @@ def read_data(path, phot_settings, plot=False):
 
     filenames, subtract, phot_fmt = phot_settings.values()
     if os.path.isdir(f"{path}/{filenames}"):
-        data_list = []
+        all_data = []
         for fname in sorted(os.listdir(f'{path}/{filenames}')):
             tab = Table.read(f'{path}/{filenames}/{fname}', format='ascii')
             dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
             dataset[0] = dataset[0]-2450000 if subtract else dataset[0]
-            data_list.append(mm.MulensData(dataset, phot_fmt=phot_fmt))
+            all_data.append(mm.MulensData(dataset, phot_fmt=phot_fmt))
         filenames = sorted(os.listdir(f'{path}/{filenames}'))
 
     elif os.path.isfile(f"{path}/{filenames}"):
         tab = Table.read(f"{path}/{filenames}", format='ascii')
         dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
         dataset[0] = dataset[0]-2450000 if subtract else dataset[0]
-        data_list = [mm.MulensData(dataset, phot_fmt=phot_fmt)]
+        all_data = [mm.MulensData(dataset, phot_fmt=phot_fmt)]
         filenames = [filenames.split('/')[1]]
 
     else:
@@ -67,12 +70,13 @@ def read_data(path, phot_settings, plot=False):
 
     if plot:
         plt.figure(tight_layout=True)
-        for dataset in data_list:
+        for dataset in all_data:
             dataset.plot(phot_fmt=phot_fmt, alpha=0.5)
         plt.gca().set(**{'xlabel': 'Time', 'ylabel': phot_fmt})
         plt.show()
 
-    return data_list, filenames
+    return all_data, filenames
+
 
 def get_initial_t0_u0(data, settings, t_brightest=0.):
     """
@@ -116,75 +120,35 @@ def get_initial_t0_u0(data, settings, t_brightest=0.):
 
     return start, flux_mag_base
 
-def make_all_fittings(data, settings, pdf=""):
-    '''
-    Missing description for this function...
-    '''
-    # 1st fit: Fitting a PSPL/1L1S without parallax...
-    start, f_base = get_initial_t0_u0(data, settings)
-    n_emcee = settings['fitting_parameters']
-    fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
-    ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
-    settings['123_fits'] = '1st fit'
-    output = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
-    xlim = get_xlim2(output[0], data, n_emcee)
-    event, cplot = make_plots(output[:-1], n_emcee, data, xlim, pdf=pdf)
 
-    # Subtracting light curve from first fit
-    model = mm.Model(dict(list(output[0].items())[:3]))
-    aux_event = mm.Event(data, model=model, fix_blend_flux=fix)
-    (flux, blend) = aux_event.get_flux_for_dataset(0)
-    fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
-    subt_data = [data.time[fsub > 0], fsub[fsub > 0], data.err_flux[fsub > 0]]
-    subt_data = mm.MulensData(subt_data, phot_fmt='flux')
+def fit_utils(method, data, settings, model="", best=None):
+    """
+    Useful short functions to be applied in mm.Data
 
-    # 2nd fit: PSPL to the subtracted data
-    t_brightest = np.mean(subt_data.time[np.argsort(subt_data.mag)][:10])
-    start = {'t_0': round(t_brightest,1), 'u_0':0.1, 't_E': output[0]['t_E']}
-    fix = None if n_emcee['fix_blend'] is False else {subt_data: n_emcee['fix_blend']}
-    ev_st = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
-    settings['123_fits'], settings['xlim'] = '2nd fit', xlim
-    output_1 = fit_EMCEE(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
-    two_pspl = (output[0], output_1[0])
-    try:
-        make_plots(output_1[:-1], n_emcee, subt_data, xlim, data, pdf=pdf)
-        t_range = [min(data.time) - 500, max(data.time) + 500]
-        # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
-        # if output_1[0]['u_0'] > 5:
-        if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
-            return output + (event, two_pspl), cplot, xlim
-        elif output_1[0]['t_0'] < t_range[0] or output_1[0]['t_0'] > t_range[1]:
-            return output + (event, two_pspl), cplot, xlim
-    except ValueError:
-        return output + (event, two_pspl), cplot, xlim
+    Args:
+        method (_type_): _description_
+        data (_type_): _description_
+        settings (_type_): _description_
+        model (str, optional): _description_. Defaults to "".
 
-    # Third fit: 1L2S, source flux ratio not set yet (regression)
-    start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
-             output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
-    ev_st = mm.Event(data, model=mm.Model(start))
-    settings['123_fits'] = '3rd fit'
-    output_2 = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
-    event_2, cplot_2 = make_plots(output_2[:-1], n_emcee, data, xlim, pdf=pdf)
-    
-    if max(output_2[0]['u_0_1'], output_2[0]['u_0_2']) > 3.:
-    # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
-    # if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
-        return output + (event, two_pspl), cplot, xlim        
-    return output_2 + (event_2, two_pspl), cplot_2, xlim
+    Raises:
+        Exception: _description_
 
-def fit_utils(method, data, settings, model=''):
+    Returns:
+        _type_: _description_
+    """
 
     n_emcee = settings['fitting_parameters']
-    fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
+    fix = None if n_emcee['fix_blend'] is False else {data:
+                                                      n_emcee['fix_blend']}
 
     if method == 'scipy_minimize':
-        fix = {data: 0.}
+        # fix = {data: 0.}
         start = get_initial_t0_u0(data, settings)[0]
         ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
         x0, arg = list(start.values()), (list(start.keys()), ev_st)
         r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='Nelder-Mead')
         model = {'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}
-
         return model
 
     elif method == 'get_t_E_1L2S':
@@ -200,22 +164,83 @@ def fit_utils(method, data, settings, model=''):
         fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
         subt_data = np.c_[data.time, fsub, data.err_flux][fsub > 0]
         subt_data = mm.MulensData(subt_data.T, phot_fmt='flux')
-
         return subt_data
 
+    elif method == 'get_1L2S_event':
+        bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
+        fix_source = {data: [best[p] for p in best if 'source' in p]}
+        event_1L2S = mm.Event(data, model=mm.Model(bst),
+                            fix_source_flux=fix_source,
+                            fix_blend_flux={data: best['blending_flux']})
+        event_1L2S.get_chi2()
+        return event_1L2S
+
     else:
-        raise Exception('Invalid method sent to function fit_utils().')
+        raise ValueError('Invalid method sent to function fit_utils().')
+
+
+def make_all_fittings(data, settings, pdf=""):
+    '''
+    Missing description for this function...
+    '''
+    # 1st fit: Fitting a PSPL/1L1S without parallax...
+    start = get_initial_t0_u0(data, settings)[0]  # , fm_base
+    n_emcee = settings['fitting_parameters']
+    fix = None if n_emcee['fix_blend'] is False else {data:
+                                                      n_emcee['fix_blend']}
+    ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
+    settings['123_fits'] = '1st fit'
+    output = fit_emcee(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
+    settings['xlim'] = get_xlim2(output[0], data, n_emcee)
+    event, cplot = make_plots(output[:-1], data, settings, pdf=pdf)
+
+    # Subtracting light curve from first fit
+    model = mm.Model(dict(list(output[0].items())[:3]))
+    aux_event = mm.Event(data, model=model, fix_blend_flux=fix)
+    (flux, blend) = aux_event.get_flux_for_dataset(0)
+    fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
+    subt_data = [data.time[fsub > 0], fsub[fsub > 0], data.err_flux[fsub > 0]]
+    subt_data = mm.MulensData(subt_data, phot_fmt='flux')
+
+    # 2nd fit: PSPL to the subtracted data
+    t_brightest = np.mean(subt_data.time[np.argsort(subt_data.mag)][:10])
+    start = {'t_0': round(t_brightest, 1), 'u_0': 0.1, 't_E': output[0]['t_E']}
+    fix = None if n_emcee['fix_blend'] is False else {subt_data:
+                                                      n_emcee['fix_blend']}
+    ev_st = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
+    settings['123_fits'] = '2nd fit'
+    output_1 = fit_emcee(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
+    two_pspl = (output[0], output_1[0])
+    try:
+        make_plots(output_1[:-1], subt_data, settings, data, pdf=pdf)
+        t_lims = [min(data.time) - 500, max(data.time) + 500]
+        # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
+        # if output_1[0]['u_0'] > 5:
+        if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
+            return output + (event, two_pspl), cplot
+        elif output_1[0]['t_0'] < t_lims[0] or output_1[0]['t_0'] > t_lims[1]:
+            return output + (event, two_pspl), cplot
+    except ValueError:
+        return output + (event, two_pspl), cplot
+
+    # Third fit: 1L2S, source flux ratio not set yet (regression)
+    start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
+             output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
+    ev_st = mm.Event(data, model=mm.Model(start))
+    settings['123_fits'] = '3rd fit'
+    output_2 = fit_emcee(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
+    event_2, cplot_2 = make_plots(output_2[:-1], data, settings, pdf=pdf)
+
+    # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
+    # if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
+    if max(output_2[0]['u_0_1'], output_2[0]['u_0_2']) > 3.:
+        return output + (event, two_pspl), cplot
+    return output_2 + (event_2, two_pspl), cplot_2
+
 
 def prefit_split_and_fit(data, settings, pdf=""):
     """
-    Raphael: I started doing the split before the result. Radek thinks the
-    scipy argrelextrema is not general for all cases.
-
-    Radek suggestion (06 Nov): Do PSPL quickly with scipy.optimize or
-    chi2_gradient (exs 02, 09) on the original data, then do quick 1L2S(?),
-    then get the minimum between peaks and split to start the process...
-    In this case, I will test my code and try the fits, then apply his method
-    just to check both results. In Radek's case, I would need to...
+    General function for fitting PSPL and then 1L2S if there is second peak.
 
     Args:
         data (_type_): _description_
@@ -223,58 +248,48 @@ def prefit_split_and_fit(data, settings, pdf=""):
         pdf (str, optional): _description_. Defaults to "".
     """
 
-    ### My method ::: 02-06/nov
+    # Split data before 1L2S fit, too specific (02-06/nov)
     # start, fm_base = get_initial_t0_u0(data, settings)
     # data_left_right = split.split_before_result(data, fm_base[0], fm_base[1])
     # two_pspl = split.fit_PSPL_twice(data_left_right, settings, start=start)
 
-    ### Radek's method ::: 06/nov on...
+    # Radek's suggestion: scipy_minimize (06/nov-[...])
     model_1 = fit_utils('scipy_minimize', data, settings)
     data_2_subt = fit_utils('subt_data', data, settings, model_1)
-    fm_base = get_initial_t0_u0(data_2_subt, settings)[1]  # above 3sigma?
+    # fm_base = get_initial_t0_u0(data_2_subt, settings)[1]  # above 3sigma?
+    # if no data above 3sigma:
+    #   - run MCMC and return...
+    # else:
     model_2 = fit_utils('scipy_minimize', data_2_subt, settings)
     #
     n_emcee = settings['fitting_parameters']
     start = {'t_0_1': model_1['t_0'], 'u_0_1': model_1['u_0'], 't_0_2':
              model_2['t_0'], 'u_0_2': model_2['u_0'], 't_E': 25}
-    # start = {'t_0_1': model_2['t_0'], 'u_0_1': model_2['u_0'], 't_0_2':
-    #          model_1['t_0'], 'u_0_2': model_1['u_0'], 't_E': 25} # inverted!!!
     ev_st = mm.Event(data, model=mm.Model(start))
-    # result = op.minimize(split.chi2_fun, x0=list(start.values()),
-    #                      args=(list(start.keys()), ev_st), method='Nelder-Mead')
-    output = fit_EMCEE(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
-    bst = dict(b_ for b_ in list(output[0].items()) if 'flux' not in b_[0])
-    fix_source = {data: [output[0][key] for key in output[0] if 'source' in key]}
-    event_1L2S = mm.Event(data, model=mm.Model(bst),
-                          fix_source_flux=fix_source,
-                          fix_blend_flux={data: output[0]['blending_flux']})
-    event_1L2S.get_chi2()
-    data_left_right = split.split_after_result(event_1L2S, output)
+    output = fit_emcee(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
+    event_1L2S = fit_utils('get_1L2S_event', data, settings, best=output[0])
+    data_left_right, t_min = split.split_after_result(event_1L2S, output)
 
     # Fits 2xPSPL if data is good (u_0 < 3.)...
     start = get_initial_t0_u0(data, settings)[0]
-    two_pspl, subt_data = split.fit_PSPL_twice(data_left_right, settings, start=start)
+    two_pspl, subt_data = split.fit_PSPL_twice(data_left_right, settings,
+                                               start=start)
+    output_1, output_2 = two_pspl  # , output_3, data_left_right[0]
+    settings['xlim'] = get_xlim2(output_1[0], data, n_emcee, t_min)
+    make_plots(output_1[:-1], subt_data[0], settings, data, pdf=pdf)
+    make_plots(output_2[:-1], subt_data[1], settings, data, pdf=pdf)
+    # make_plots(output_3[:-1], subt_data[0], settings, data, pdf=pdf)
 
-    # Plotting 2 PSPL
-    output_1, output_2 = two_pspl
-    # output_1, output_2, output_3 = two_pspl
-    data_1_subt, data_2_subt = subt_data
-    xlim = get_xlim2(output_1[0], data, n_emcee)
-    make_plots(output[:-1], n_emcee, data, xlim)  # TESTING HERE...
-    settings['xlim'] = xlim
-    event_1, cplot_1 = make_plots(output_1[:-1], n_emcee, data_1_subt, xlim,
-                                  data, pdf=pdf)
-    # event_1, cplot_1 = make_plots(output_1[:-1], n_emcee, data_left_right[0],
-    #                               xlim, data, pdf=pdf)
-    make_plots(output_2[:-1], n_emcee, data_2_subt, xlim, data, pdf=pdf)
-    # make_plots(output_3[:-1], n_emcee, data_1_subt, xlim, data, pdf=pdf)
-    pdf.close()
+    # Make 1L2S final fit and plot
+    settings['123_fits'] = '3rd fit'
+    start = {'t_0_1': output_1[0]['t_0'], 'u_0_1': output_1[0]['u_0'], 't_0_2':
+             output_2[0]['t_0'], 'u_0_2': output_2[0]['u_0'], 't_E': 25}
+    ev_st = mm.Event(data, model=mm.Model(start))
+    output = fit_emcee(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
+    event_1L2S, cplot_1L2S = make_plots(output[:-1], data, settings, pdf=pdf)
 
-    # Stopped here: 07.nov @ 15h42
-    # [...]
-    breakpoint()
+    return output + (event_1L2S, (output_1[0], output_2[0])), cplot_1L2S
 
-    pass
 
 def ln_like(theta, event, params_to_fit):
     """ likelihood function """
@@ -282,13 +297,14 @@ def ln_like(theta, event, params_to_fit):
         # Here we handle fixing source flux ratio:
         if param == 'flux_ratio':
             # implemented for a single dataset
-            # event.fix_source_flux_ratio = {my_dataset: theta_} # original: wrong?
+            # event.fix_source_flux_ratio = {my_dataset: theta_} # original(?)
             event.fix_source_flux_ratio = {event.datasets[0]: theta_}
         else:
             setattr(event.model.parameters, param, theta_)
     event.get_chi2()
 
     return -0.5 * event.chi2, event.fluxes[0]
+
 
 def ln_prior(theta, event, params_to_fit, settings):
     """
@@ -314,7 +330,13 @@ def ln_prior(theta, event, params_to_fit, settings):
         raise ValueError('t_0 max_values should be of list type.')
     ln_prior_t_E, ln_prior_fluxes = 0., 0.
 
-    # breakpoint()    # settings['init_params_1L2S'] to check t01 > t02 initially
+    # Ensuring that t_0_1 < t_0_2 or t_0_1 > t_0_2
+    if event.model.n_sources == 2:
+        init_params = settings['init_params_1L2S']
+        if (init_params[0] > init_params[2]) and (theta[0] < theta[2]):
+            return -np.inf
+        elif (init_params[2] > init_params[0]) and (theta[2] < theta[0]):
+            return -np.inf
 
     # Limiting min and max values (all minimum, then t_0 and u_0 maximum)
     for param in params_to_fit:
@@ -329,19 +351,20 @@ def ln_prior(theta, event, params_to_fit, settings):
         if 'u_0' in param and 'u_0' in stg_min_max[1].keys():
             if theta[params_to_fit.index(param)] > stg_min_max[1]['u_0']:
                 return -np.inf
-    
+
     # Prior in t_E (only lognormal so far, tbd: Mroz17/20)
     # OBS: Still need to remove the ignore warnings line (related to log?)
     if 't_E' in stg_priors['ln_prior'].keys():
-        t_E = theta[params_to_fit.index('t_E')]
-        if 'lognormal' in stg_priors['ln_prior']['t_E']:
+        t_E_prior = stg_priors['ln_prior']['t_E']
+        t_E_val = theta[params_to_fit.index('t_E')]
+        if 'lognormal' in t_E_prior:
             # if t_E >= 1.:
             warnings.filterwarnings("ignore", category=RuntimeWarning)  # bad!
-            prior = [float(x) for x in stg_priors['ln_prior']['t_E'].split()[1:]]
-            ln_prior_t_E = - (np.log(t_E) - prior[0])**2 / (2*prior[1]**2)
-            ln_prior_t_E -= np.log(t_E * np.sqrt(2*np.pi)*prior[1])
+            prior = [float(x) for x in t_E_prior.split()[1:]]
+            ln_prior_t_E = - (np.log(t_E_val) - prior[0])**2 / (2*prior[1]**2)
+            ln_prior_t_E -= np.log(t_E_val * np.sqrt(2*np.pi)*prior[1])
         elif 'Mroz et al.' in stg_priors['ln_prior']['t_E']:
-            raise ValueError('Still implementing Mroz et al. (2017, 2020) prior.')
+            raise ValueError('Still implementing Mroz et al. priors.')
         else:
             raise ValueError('t_E prior type not allowed.')
 
@@ -355,7 +378,7 @@ def ln_prior(theta, event, params_to_fit, settings):
     elif 'no_negative_blending_flux' in stg_priors.keys():
         if event.blend_fluxes[0] < 0:
             return -np.inf
-    
+
     # # Raphael's prior in min_flux (OLD CODE)
     # min_flux = min([min(event.source_fluxes[0]), event.blend_fluxes[0]])
     # # # min_flux = min(event.source_fluxes[0])
@@ -371,47 +394,54 @@ def ln_prior(theta, event, params_to_fit, settings):
 
     return 0.0 + ln_prior_t_E + ln_prior_fluxes
 
+
 def ln_prob(theta, event, params_to_fit, settings):
     """ combines likelihood and priors"""
     ln_prior_ = ln_prior(theta, event, params_to_fit, settings)
     if not np.isfinite(ln_prior_):
-        return -np.inf, np.array([-np.inf,-np.inf]), -np.inf
+        return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
     ln_like_, fluxes = ln_like(theta, event, params_to_fit)
 
     # In the cases that source fluxes are negative we want to return
     # these as if they were not in priors.
     if np.isnan(ln_like_):
-        return -np.inf, np.array([-np.inf,-np.inf]), -np.inf
+        return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
 
     return ln_prior_ + ln_like_, fluxes[0], fluxes[1]
 
-def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings):
+
+def fit_emcee(dict_start, sigmas, ln_prob, event, settings):
     """
     Fit model using EMCEE and print results.
-    Arguments:
-        params_to_fit - list of parameters (REMOVED?)
-        dict_start - dict that specifies values of these parameters
-        sigmas - list of sigma values used to find starting values
-        ln_prob - function returning logarithm of probability
-        event - MulensModel.Event instance
-        n_emcee - Dictionary with number of walkers, steps, burn-in
-        n_walkers - number of walkers in EMCEE -> inactive
-        n_steps - number of steps per walker   -> inactive
-        n_burn - number of steps considered as burn-in ( < n_steps)  -> inactive
+
+    Args:
+        dict_start (dict): dict that specifies values of these parameters
+        sigmas (list): sigma values used to find starting values
+        ln_prob (func): function returning logarithm of probability
+        event (mm.Event): MulensModel.Event instance
+        settings (dict): all settings from yaml file
+
+    Raises:
+        RuntimeError: if number of dimensions different than 3 or 5 is given
+
+    Returns:
+        tuple: with EMCEE results (best, sampler, samples, percentiles)
     """
+
     params_to_fit, mean = list(dict_start.keys()), list(dict_start.values())
     n_dim, sigmas = len(params_to_fit), np.array(sigmas)
     n_emcee = settings['fitting_parameters']
     nwlk, nstep, nburn = n_emcee['nwlk'], n_emcee['nstep'], n_emcee['nburn']
     emcee_args = (event, params_to_fit, settings)
-    x_fit = settings['123_fits'] if '123_fits' in settings.keys() else '3rd fit'
+    nfit = settings['123_fits'] if '123_fits' in settings.keys() else '3rd fit'
     term = ['PSPL to original', 'PSPL to subtracted', '1L2S to original']
-    print(f'\n\033[1m -- {x_fit}: {term[int(x_fit[0])-1]} data...\033[0m')
+    print(f'\n\033[1m -- {nfit}: {term[int(nfit[0])-1]} data...\033[0m')
 
     # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
-    # if x_fit in ['1st fit', '3rd fit']:
-    if x_fit in ['3rd fit']:
-        mean = fit_utils('get_t_E_1L2S', data, settings, model=dict_start)  ## NEW LINE!!!
+    # if nfit in ['1st fit', '3rd fit']:
+    if nfit in ['3rd fit']:
+        data = event.datasets[0]
+        mean = fit_utils('get_t_E_1L2S', data, settings, model=dict_start)
         settings['init_params_1L2S'] = mean
         start = [mean + np.random.randn(n_dim)*10*sigmas for i in range(nwlk)]
         start = abs(np.array(start))
@@ -419,6 +449,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings):
         sampler.run_mcmc(start, int(nstep/2), progress=n_emcee['progress'])
         samples = sampler.chain[:, int(nburn/2):, :].reshape((-1, n_dim))
         mean = np.percentile(samples, 50, axis=0)
+        settings['init_params_1L2S'] = mean
         # prob_temp = sampler.lnprobability[:, int(nburn/2):].reshape((-1))
         # mean = samples[np.argmax(prob_temp)]
     start = [mean + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
@@ -433,7 +464,7 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings):
     #     moves=[(emcee.moves.DEMove(),0.8),(emcee.moves.DESnookerMove(),0.2)],
     #     args=(event, params_to_fit, spec))
     sampler.run_mcmc(start, nstep, progress=n_emcee['progress'])
-    
+
     # Setting up multi-threading (std: fork in Linux, spawn in Mac)
     # multiprocessing.set_start_method("fork", force=True)
     # os.environ["OMP_NUM_THREADS"] = "1"
@@ -445,14 +476,14 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings):
 
     # Remove burn-in samples and reshape:
     samples = sampler.chain[:, nburn:, :].reshape((-1, n_dim))
-    blobs = sampler.get_blobs()[nburn:].T.flatten() # [:10]
+    blobs = sampler.get_blobs()[nburn:].T.flatten()
     source_fluxes = np.array(list(chain.from_iterable(blobs))[::2])
     blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
     prob = sampler.lnprobability[:, nburn:].reshape((-1))
     if len(params_to_fit) == 3:
-        samples = np.c_[samples, source_fluxes[:,0], blend_flux, prob]
+        samples = np.c_[samples, source_fluxes[:, 0], blend_flux, prob]
     elif len(params_to_fit) == 5:
-        samples = np.c_[samples, source_fluxes[:,0], source_fluxes[:,1],
+        samples = np.c_[samples, source_fluxes[:, 0], source_fluxes[:, 1],
                         blend_flux, prob]
     else:
         raise RuntimeError('Wrong number of dimensions')
@@ -474,17 +505,17 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings):
 
     # We extract best model parameters and chi2 from event:
     best_idx = np.argmax(prob)
-    best = samples[best_idx,:-1] if n_emcee['ans'] == 'max_prob' else perc[1]
-    best = dict(zip(params_to_fit, best))
-    for (key, value) in zip(params_to_fit, best.values()):
+    best = samples[best_idx, :-1] if n_emcee['ans'] == 'max_prob' else perc[1]
+    for (key, value) in zip(params_to_fit, best):
         if key == 'flux_ratio':
             event.fix_source_flux_ratio = {event.datasets[0]: value}
         else:
             setattr(event.model.parameters, key, value)
     print("\nSmallest chi2 model:")
-    print(*[repr(b) if isinstance(b, float) else b.value for b in best.values()])
+    print(*[repr(b) if isinstance(b, float) else b for b in best])
     deg_of_freedom = event.datasets[0].n_epochs - n_dim
     print(f"chi2 = {event.chi2:.8f}, dof = {deg_of_freedom}")
+    best = dict(zip(params_to_fit, best))
 
     # Cleaning posterior and cplot if required by the user
     if n_emcee['clean_cplot']:
@@ -492,21 +523,22 @@ def fit_EMCEE(dict_start, sigmas, ln_prob, event, settings):
         if new_states is not None:
             pars_perc = dict(zip(params_to_fit, new_perc.T))
             samples = new_states
-    
-    # return best, pars_best, event.get_chi2(), states, sampler    
-    return best, sampler, samples, pars_perc #, samples, sampler
+
+    # return best, pars_best, event.get_chi2(), states, sampler
+    return best, sampler, samples, pars_perc
+
 
 def clean_posterior_emcee(sampler, params, n_burn):
     """
     Manipulate emcee chains to reject stray walkers and clean posterior
     Arguments:
         sampler - ensemble sampler from EMCEE
-        ## params - set of best parameters from fit_EMCEE function -> deactivate
+        ## params - set of best parameters from fit_emcee function
         n_burn - number of steps considered as burn-in ( < n_steps)
     """
 
     # here I will put all the manipulation of emcee chains...
-    
+
     # Rejecting stray walkers (copied from King)
     # acc = sampler.acceptance_fraction
     # w = (abs(acc-np.median(acc)) < max(np.std(acc), 0.1))
@@ -517,35 +549,35 @@ def clean_posterior_emcee(sampler, params, n_burn):
     # states = np.reshape(states,[gwlk*nburn,npars])
 
     # Rejecting stray walkers (copied from rad_profile)
-    tau = sampler.get_autocorr_time(tol=0)
+    sampler.get_autocorr_time(tol=0)
     acc = sampler.acceptance_fraction
-    w = np.where(abs(acc-np.median(acc)) < min(0.1,3*np.std(acc)))
+    w = np.where(abs(acc-np.median(acc)) < min(0.1, 3*np.std(acc)))
 
     if len(w[0]) == 0:
         return None, None
     # states = sampler.chain[w[0],burnin::thin,:].copy()  # with thinning
-    new_states = sampler.chain[w[0],n_burn::,:].copy()  # no thinning
+    new_states = sampler.chain[w[0], n_burn::, :].copy()  # no thinning
     gwlk, nthin, npars = np.shape(new_states)
-    new_states = np.reshape(new_states,[gwlk*nthin, npars])
+    new_states = np.reshape(new_states, [gwlk*nthin, npars])
 
     # Trying to add the source_fluxes after flattening...
-    blobs = sampler.get_blobs().T # [:10]
-    blobs = blobs[w[0],n_burn:].reshape(-1)
-    source_fluxes = np.array(list(chain.from_iterable(blobs))[::2])
+    blobs = sampler.get_blobs().T  # [:10]
+    blobs = blobs[w[0], n_burn:].reshape(-1)
+    source_fluxes = np.array(list(chain.from_iterable(blobs))[::2]).T
     blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
     prob = sampler.lnprobability[w[0], n_burn:].reshape(-1)
     if npars == 3:
-        new_states = np.c_[new_states, source_fluxes[:,0], blend_flux, prob]
+        new_states = np.c_[new_states, source_fluxes[0], blend_flux, prob]
     elif npars == 5:
-        new_states = np.c_[new_states, source_fluxes[:,0], source_fluxes[:,1],
+        new_states = np.c_[new_states, source_fluxes[0], source_fluxes[1],
                            blend_flux, prob]
 
     # new_samples = samples[w[0]].copy()[npars:.]
     # breakpoint()
-    
+
     n_rej, perc_rej = sampler.nwalkers-gwlk, 100*(1-gwlk/sampler.nwalkers)
     print(f'Obs: {n_rej} walkers ({round(perc_rej)}%) were rejected')
-    
+
     # Finding median values and confidence intervals... FIT SKEWED GAUSSIANS!!!
     # To-Do... [...]
     # test = params # [...]
@@ -562,54 +594,70 @@ def clean_posterior_emcee(sampler, params, n_burn):
     # perr_low  = w[0,:]-pars_best
     # perr_high = w[2,:]-pars_best
 
-    return new_states, np.quantile(new_states,[0.16,0.50,0.84],axis=0)
+    return new_states, np.quantile(new_states, [0.16, 0.50, 0.84], axis=0)
 
-def make_plots(results_states, n_emcee, dataset, xlim, orig_data=[], pdf=""):
+
+def make_plots(results_states, dataset, settings, orig_data=None, pdf=""):
     """
     plot results
     """
     best, sampler, states = results_states
+    n_emcee = settings['fitting_parameters']
     condition = (n_emcee['fix_blend'] is not False) and (len(best) != 8)
-    c_states = states[:,:-2] if condition else states[:,:-1]
+    c_states = states[:, :-2] if condition else states[:, :-1]
     params = list(best.keys())[:-1] if condition else list(best.keys())
     values = list(best.values())[:-1] if condition else list(best.values())
     tracer_plot(params, sampler, n_emcee['nburn'], pdf=pdf)
-    cplot = corner.corner(c_states, quantiles=[0.16,0.50,0.84], labels=params,
-                          truths=values, show_titles=True)
+    cplot = corner.corner(c_states, quantiles=[0.16, 0.50, 0.84],
+                          labels=params, truths=values, show_titles=True)
     if pdf:
         pdf.savefig(cplot)
     else:
         plt.show()
-    event = plot_fit(best, dataset, n_emcee, xlim, orig_data, pdf=pdf)
+    event = plot_fit(best, dataset, settings, orig_data, pdf=pdf)
 
     return event, cplot
+
 
 def tracer_plot(params_to_fit, sampler, nburn, pdf=""):
     """
     Plot tracer plots (or walkers' time series)
     """
     npars = sampler.ndim
-    fig, axes = plt.subplots(npars, 1, sharex=True, figsize=(10,10))
+    fig, axes = plt.subplots(npars, 1, sharex=True, figsize=(10, 10))
     for i in range(npars):
-        axes[i].plot(np.array(sampler.chain[:,:,i]).T,rasterized=True)
+        axes[i].plot(np.array(sampler.chain[:, :, i]).T, rasterized=True)
         axes[i].axvline(x=nburn, ls='--', color='gray', lw=1.5)
         axes[i].set_ylabel(params_to_fit[i], fontsize=16)
     axes[npars-1].set_xlabel(r'steps', fontsize=16)
     plt.tight_layout()
-    
+
     if pdf:
         pdf.savefig(fig)
     else:
         plt.show()
 
-def get_xlim2(best, data, n_emcee):
+
+def get_xlim2(best, data, n_emcee, ref=0.):
+    """
+    WRITE LATER...
+
+    Args:
+        best (_type_): _description_
+        data (_type_): _description_
+        n_emcee (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
 
     # only works for PSPL case... (A' should be considered for 1L2S)
     # Amax = (best['u_0']**2 + 2) / (best['u_0']*np.sqrt(best['u_0']**2 + 4))
 
     # Radek: using get_data_magnification from MulensModel
     bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    fix = None if n_emcee['fix_blend'] is False else {data: n_emcee['fix_blend']}
+    fix = None if n_emcee['fix_blend'] is False else {data:
+                                                      n_emcee['fix_blend']}
     event = mm.Event(data, model=mm.Model(bst), fix_blend_flux=fix)
     event.get_flux_for_dataset(0)
     Amax = max(event.fits[0].get_data_magnification())
@@ -620,28 +668,29 @@ def get_xlim2(best, data, n_emcee):
     # Get the magnitude at the model peak (mag_peak ~ comp? ok)
     idx_peak = np.argmin(abs(data.time-best['t_0']))
     model_mag = event.fits[0].get_model_magnitudes()
-    mag_peak, comp = model_mag[idx_peak], data.mag[idx_peak]
+    mag_peak = model_mag[idx_peak]  # comp = data.mag[idx_peak]
 
     # Summing 0.85*deltaI to the mag_peak, then obtain t_range (+2%)
     mag_baseline = mag_peak + 0.85*deltaI
     idx1 = np.argmin(abs(mag_baseline - model_mag[:idx_peak]))
     idx2 = idx_peak + np.argmin(abs(mag_baseline - model_mag[idx_peak:]))
     t_range = np.array([0.97*data.time[idx1], 1.03*data.time[idx2]])
-    max_diff_t_0 = max(abs(t_range - best['t_0'])) + 100
-    xlim = [best['t_0']-max_diff_t_0, best['t_0']+max_diff_t_0]
+    t_cen = best['t_0'] if ref == 0. else ref
+    max_diff_t_0 = max(abs(t_range - t_cen)) + 100
 
-    if np.diff(xlim)[0] < 500:
-        xlim = [best['t_0']-500, best['t_0']+500]
-    
-    return xlim
+    if max_diff_t_0 > 250:
+        return [t_cen-max_diff_t_0, t_cen+max_diff_t_0]
+    return [t_cen-500, t_cen+500]
 
-def plot_fit(best, data, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
+
+def plot_fit(best, data, settings, orig_data=None, best_50=None, pdf=""):
     """
     Plot the best-fitting model(s) over the light curve in mag or flux.
 
     Args:
         best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
         data (mm.MulensData instance): object containing all the data.
+        ans (str): input whether to use best or median value as solution.
         n_emcee (dict): parameters relevant to emcee fitting.
         xlim (list): time interval to be plotted.
         orig_data (list, optional): Plot with subtracted data. Defaults to [].
@@ -652,32 +701,30 @@ def plot_fit(best, data, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
         mm.Event: final event containing the model and datasets.
     """
 
-    fig = plt.figure(figsize=(7.5,5.5))
+    ans, xlim = settings['fitting_parameters']['ans'], settings['xlim']
+    fig = plt.figure(figsize=(7.5, 5.5))
     gs = GridSpec(3, 1, figure=fig)
-    ax1 = fig.add_subplot(gs[:-1, :]) # or gs.new_subplotspec((0, 0), rowspan=2)
-    bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    fix_source = {data: [best[key] for key in best if 'source' in key]}
-    event = mm.Event(data, model=mm.Model(bst), fix_source_flux=fix_source,
-                     fix_blend_flux={data: best['blending_flux']})
+    ax1 = fig.add_subplot(gs[:-1, :])  # gs.new_subplotspec((0, 0), rowspan=2)
+    event = fit_utils('get_1L2S_event', data, settings, best=best)
     data_label = "Original data" if not orig_data else "Subtracted data"
     event.plot_data(subtract_2450000=False, label=data_label)
     plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
                    't_start': xlim[0], 't_stop': xlim[1], 'zorder': 10,
                    'color': 'black'}
     if orig_data:
-        orig_data.plot(phot_fmt='mag', color='gray', alpha=0.2, label="Original data")
+        orig_data.plot(phot_fmt='mag', color='gray', alpha=0.2,
+                       label="Original data")
 
-    label = 'PSPL' if event.model.n_sources==1 else '1L2S'
-    label += f" ({n_emcee['ans']}):\n"
-    for item in bst:
-        label += f'{item} = {bst[item]:.2f}\n'
-    event.plot_model(label=r"%s"%label[:-1], **plot_params)
+    txt = f'PSPL ({ans}):' if event.model.n_sources == 1 else f'1L2S ({ans}):'
+    for key, val in best.items():
+        txt += f'\n{key} = {val:.2f}' if 'flux' not in key else ""
+    event.plot_model(label=rf"{txt}", **plot_params)  # % txt
     plt.tick_params(axis='both', direction='in')
     ax1.xaxis.set_ticks_position('both')
     ax1.yaxis.set_ticks_position('both')
-    
+
     ax2 = fig.add_subplot(gs[2:, :], sharex=ax1)
-    event.plot_residuals(subtract_2450000=False, zorder=10) # fix zorder
+    event.plot_residuals(subtract_2450000=False, zorder=10)  # fix zorder
     plt.tick_params(axis='both', direction='in')
     ax2.xaxis.set_ticks_position('both')
     ax2.yaxis.set_ticks_position('both')
@@ -686,14 +733,8 @@ def plot_fit(best, data, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     plt.subplots_adjust(hspace=0)
 
     plt.axes(ax1)
-    if len(best_50) > 0:
-        if len(best_50) == 3:
-            model_x = mm.Model({'t_0': best_50[0], 'u_0': best_50[1],
-                                't_E': best_50[2]})
-        elif len(best_50) == 5:
-            model_x = mm.Model({'t_0_1': best_50[0], 'u_0_1': best_50[1],
-                                't_0_2': best_50[2], 'u_0_2': best_50[3],
-                                't_E': best_50[4]})
+    if best_50 is not None:
+        model_x = dict((key, best_50[i]) for i, key in enumerate(best.keys()))
         event_x = mm.Event(model=model_x, datasets=[data])
         plot_params['color'] = 'orange'
         event_x.plot_model(label='50th_perc', **plot_params)
@@ -705,6 +746,7 @@ def plot_fit(best, data, n_emcee, xlim, orig_data=[], best_50=[], pdf=""):
     else:
         plt.show()
     return event
+
 
 def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
     """
@@ -729,7 +771,7 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
         chains = np.delete(result[2], idxs_remove, axis=1)
         chains = Table(chains, names=list(bst.keys())+['chi2'])
         chains.write(fname, format=fmt, overwrite=True)
-    
+
     # organizing results to be saved in yaml file (as in example16)
     fluxes = dict(item for item in list(best.items()) if 'flux' in item[0])
     perc = dict(item for item in result[3].items() if 'flux' not in item[0])
@@ -753,10 +795,10 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
     with open(f'{path}/../1L2S-result_template.yaml') as file_:
         template_result = file_.read()
     if 'yaml output' in outputs.keys():
-        yaml_fname =  outputs['yaml output']['file name'].format(name)
+        yaml_fname = outputs['yaml output']['file name'].format(name)
         with open(f'{path}/{yaml_fname}', 'w') as yaml_results:
             yaml_results.write(template_result.format(*lst))
-    
+
     # saving results to table with all the events (e.g. W16)
     if 'table output' in outputs.keys():
         fname, columns, dtypes = outputs['table output'].values()
@@ -767,7 +809,7 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
         else:
             result_tab = Table.read(f'{path}/{fname}', format='ascii')
         bst_values = [round(val, 5) for val in bst.values()]
-        lst = bst_values+[0.,0.] if len(bst)==3 else bst_values
+        lst = bst_values+[0., 0.] if len(bst) == 3 else bst_values
         lst = [name] + lst + [round(result[4].chi2, 4), deg_of_freedom]
         if name in result_tab['id']:
             idx_event = np.where(result_tab['id'] == name)[0]
@@ -778,22 +820,23 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
         result_tab.sort('id')
         result_tab.write(f'{path}/{fname}', format=fmt, overwrite=True)
 
+
 if __name__ == '__main__':
 
     np.random.seed(12343)
     path = os.path.dirname(os.path.realpath(sys.argv[1]))
-    with open(sys.argv[1]) as in_data:
+    with open(sys.argv[1], encoding='utf-8') as in_data:
         settings = yaml.safe_load(in_data)
 
-    data_list, filenames = read_data(path, settings['phot_settings'])
-    for data, name in zip(data_list[5:6], filenames[5:6]):
-        
+    data_list, file_names = read_data(path, settings['phot_settings'])
+    for data, name in zip(data_list[8:9], file_names[8:9]):
+
         print(f'\n\033[1m * Running fit for {name}\033[0m')
         # breakpoint()
         pdf_dir = settings['plots']['all_plots']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
-        # prefit_split_and_fit(data, settings, pdf=pdf)
-        result, cplot, xlim = make_all_fittings(data, settings, pdf=pdf)
+        result, cplot = prefit_split_and_fit(data, settings, pdf=pdf)
+        # result, cplot = make_all_fittings(data, settings, pdf=pdf)
         res_event, two_pspl = result[4], result[5]
         pdf.close()
         write_tables(path, settings, name, result)
@@ -802,19 +845,18 @@ if __name__ == '__main__':
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
         pdf.savefig(cplot)
         pdf.close()
-
         pdf_dir = settings['plots']['best model']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_fit.pdf")
-        plot_fit(result[0], data, settings['fitting_parameters'], xlim, pdf=pdf)
+        plot_fit(result[0], data, settings, pdf=pdf)
         pdf.close()
 
         # Split data into two and fit PSPL to get 2L1S initial params
         make_2L1S = settings['other_output']['yaml_files_2L1S']['t_or_f']
         if make_2L1S and res_event.model.n_sources == 2:
-            data_left_right = split.split_after_result(res_event, result)
-            if isinstance(data_left_right[0], list):
-                continue
-            two_pspl = split.fit_PSPL_twice(data_left_right, settings, result)
+            # data_left_right = split.split_after_result(res_event, result)[0]
+            # if isinstance(data_left_right[0], list):  ### IMPORTANT LATER!
+            #     continue
+            # two_pspl = split.fit_PSPL_twice(data_left_right, settings, result)
             split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
         print("\n--------------------------------------------------")
     # breakpoint()
