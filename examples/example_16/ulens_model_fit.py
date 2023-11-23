@@ -38,7 +38,7 @@ try:
 except Exception:
     raise ImportError('\nYou have to install MulensModel first!\n')
 
-__version__ = '0.34.0'
+__version__ = '0.34.2'
 
 
 class UlensModelFit(object):
@@ -3131,10 +3131,7 @@ class UlensModelFit(object):
         flux_max = mm.Utils.get_flux_from_mag(ylim[1])
         (source_flux, blend_flux) = self._event.get_ref_fluxes()
 
-        if self._model.n_sources == 1:
-            total_source_flux = source_flux[0]
-        else:
-            total_source_flux = sum(source_flux)
+        total_source_flux = sum(source_flux)
         A_min = (flux_min - blend_flux) / total_source_flux
         A_max = (flux_max - blend_flux) / total_source_flux
 
