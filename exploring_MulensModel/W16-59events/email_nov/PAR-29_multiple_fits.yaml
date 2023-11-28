@@ -33,12 +33,13 @@ plots:
     best model:
         file: ./W16-59events/email_nov/PAR-29_model_parallax_vs_binary.pdf
         time range: 2453444. 2454176.
-        magnitude range: None
+        magnitude range: False
         coords: 18:08:46.04 -28:12:34.6
         chi2: 738.3267 738.2145 736.6956
+        show_model_parameters_in_label: False
+        third panel: cumulative  # options: False | delta | cumulative
         labels: Parallax 1L2S 2L1S
         colors: black green gray
-        show_model_parameters_in_label: False
-        cumulative chi2: True
+        subtract_2450000: True
         # second Y scale:
         #     magnifications: optimal # [1, 1.5, 2, 2.5, 3]
