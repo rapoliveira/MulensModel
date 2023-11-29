@@ -20,8 +20,6 @@ New stellar spectra in fits format should be added to the [spectra/](https://git
 It is possible to compute JHKs magnitudes of the stellar spectra using the transmission curves from HAWK-I or 2MASS ([Skrutskie et al. 2006](https://ui.adsabs.harvard.edu/abs/2006AJ....131.1163S/abstract)), to be compared with values from Simbad or VVV. To do that for each of the JHKs filters, edit line 182 and uncomment line 265 of the main code, and print the array JHKmag to the terminal. -->
 
 ## To-Do List (Raphael)
-<!-- - *old: I will also review the code one last time and improve the derivation of JHKs mags.* -->
-<!-- - URGENT: Deal with more than one spectrum for the same star (weighted average) ->> Only duplicated spectra working so far. -->
 - [X] Improve fixed value of blending_flux in the yaml input
 - [X] Function write_tables() to write the chains, a yaml with the results, and a table with all results
 - [X] Correct major bug related to source/blending fluxes retrieved from emcee.blobs
@@ -31,8 +29,7 @@ It is possible to compute JHKs magnitudes of the stellar spectra using the trans
 - [X] Add degree of freedom to the table with all results and the results yaml file
 - [X] Correct issues on generating 2L1S yaml files. Plus: plot the 2L1S model (saved in same folder)
 - [ ] Convert the entire fit_1L2S_3steps.py code to 2450000 system, to be in agreement with the 2L1S files
-- [ ] Make unit tests and document the entire code
-- [ ] Try to make it in classes (e.g. Data, Fitting, Tables)
+- [ ] Unit tests, docstrings, classes (e.g. Data, Fitting, Tables)
 - [ ] [...]
 - [ ] Make the code more general for other databases...
 
@@ -40,6 +37,7 @@ It is possible to compute JHKs magnitudes of the stellar spectra using the trans
 - [X] NEW SCRIPT: split data after 1L2S to get the initial 2L1S parameters (end of October)
 - [X] Split data as first step, before any fit (03.nov)
 - [X] Improve pipeline/steps with new function with prefit and split (07-10.nov)
+- [X] Script to plot multiple fits for the same data (22-28.nov)
 - [ ] Check if there is a second peak above 3 sigma to go for 1L2S...
 - [ ] Include and test all cases, including those with a single peak or skewed(?)
 
