@@ -1,22 +1,23 @@
 photometry_files:
     - {file_name: ./W16-59events/phot/PAR-29.dat, add_2450000: True}
-model:
-    parameters: t_0 u_0 t_E pi_E_N pi_E_E t_0_par
-    values: 2453816.71320 -0.53324 140.27146 0.18149 -0.09290 2453818
-    source_flux: [58.41293]
-    blending_flux: 355.12941
-model_2:
-    parameters: t_0_1 u_0_1 t_0_2 u_0_2 t_E
-    values: 2453816.25287 0.66177 2453615.86094 0.44635 91.17497
-    source_flux: [83.44015, 2.68749]
-    blending_flux: 327.63577
-model_3:
-    parameters: t_0 u_0 t_E s q alpha
-    values: 2453809.01653 -0.59216 95.21557 2.92271 0.02973 159.17557
-    source_flux: [77.43632]
-    blending_flux: 336.33550
-    methods: 2453444. point_source 2454176.
-    default method: point_source_point_lens
+models:
+    model_1:
+        parameters: t_0 u_0 t_E pi_E_N pi_E_E t_0_par
+        values: 2453816.71320 -0.53324 140.27146 0.18149 -0.09290 2453818
+        source_flux: [58.41293]
+        blending_flux: 355.12941
+    model_2:
+        parameters: t_0_1 u_0_1 t_0_2 u_0_2 t_E
+        values: 2453816.25287 0.66177 2453615.86094 0.44635 91.17497
+        source_flux: [83.44015, 2.68749]
+        blending_flux: 327.63577
+    model_3:
+        parameters: t_0 u_0 t_E s q alpha
+        values: 2453809.01653 -0.59216 95.21557 2.92271 0.02973 159.17557
+        source_flux: [77.43632]
+        blending_flux: 336.33550
+        methods: 2453444. point_source 2454176.
+        default method: point_source_point_lens
 # Three sections below will be ignored by the plotting script:
 # starting_parameters:
 #     t_0: gauss 2455380. 0.1
@@ -32,12 +33,12 @@ model_3:
 plots:
     best model:
         file: ./W16-59events/email_nov/PAR-29_model_parallax_vs_binary.pdf
-        time range: 2453444. 2454176.
-        magnitude range: False
+        time_range: 2453444. 2454176.
+        magnitude_range: False
         coords: 18:08:46.04 -28:12:34.6
         chi2: 738.3267 738.2145 736.6956
         show_model_parameters_in_label: False
-        third panel: cumulative  # options: False | delta | cumulative
+        third_panel: cumulative  # options: False | cumulative | delta
         labels: Parallax 1L2S 2L1S
         colors: black green gray
         subtract_2450000: True
