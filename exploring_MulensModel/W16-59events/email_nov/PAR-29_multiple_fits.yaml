@@ -33,14 +33,14 @@ models:
 plots:
     best model:
         file: ./W16-59events/email_nov/PAR-29_model_parallax_vs_binary.pdf
-        time_range: 2453444. 2454176.
-        magnitude_range: False
-        coords: 18:08:46.04 -28:12:34.6
-        chi2: 738.3267 738.2145 736.6956
-        show_model_parameters_in_label: False
-        third_panel: cumulative  # options: False | cumulative | delta
+        t_range: 2453444. 2454176.        # str with two values or False
+        mag_range: False                  # str with two values or False
+        coords: 18:08:46.04 -28:12:34.6   # real or False (18:00:00 -30:00:00)
+        chi2: 738.3267 738.2145 736.6956  # str with values
         labels: Parallax 1L2S 2L1S
         colors: black green gray
-        subtract_2450000: True
+        show_params_in_label: False  # options: True | False
+        third_panel: cumulative           # options: False | cumulative | delta
+        subtract_2450000: True            # options: True | False
         # second Y scale:
         #     magnifications: optimal # [1, 1.5, 2, 2.5, 3]

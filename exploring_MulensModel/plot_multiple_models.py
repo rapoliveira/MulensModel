@@ -9,7 +9,7 @@ import os
 import sys
 import warnings
 import yaml
-from astropy.table import Table
+# from astropy.table import Table
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.colors as mcolors
 from matplotlib.gridspec import GridSpec
@@ -26,109 +26,85 @@ class PlotMultipleModels(UlensModelFit):
     residuals and optional cumulative delta_chi2.
 
     Args:
-        UlensModelFit (_type_): _description_  ==>> MISSING!
+        UlensModelFit (class): parent class from example16
     """
 
     def __init__(self, photometry_files, models, plots, other_output=None):
 
-        # UlensModelFit.__init__(self, photometry_files)
-        self._photometry_files = photometry_files
-        filename = photometry_files[0]['file_name']
+        super().__init__(photometry_files, model=models['model_1'])
+        filename = self._photometry_files[0]['file_name']
         self._event_id = filename.split('/')[-1].split('.')[0]
         self._plot_settings = plots['best model']
-        self._list_of_models = [*models.values()]
-
-        # self._read_data()
-        self._residuals_output = False
-        self._get_datasets()
-        self._check_plot_settings(**self._plot_settings)
-        self._events = self._get_list_of_events()
-
-        # self._fig = self._best_model_plot_multiple()
-        # self._save_or_show_final_plot(self._fig)
-
-    def _read_data(self, test=None):
-        """
-        Read a catalogue and create MulensData instance
-
-        Args:
-            self (_type_): _description_
-
-        Returns:
-            tuple: identification of the event and MulensData instance
-        """
+        self._list_of_models, self._colors = [*models.values()], None
 
         # dat_file = "./OB231171/phot/OB231171-v1-reduced.dat"
         # W16: 25, 29, 34, 53, 57 (2L1S); 24, 35 (1L2S);
         # W16_bad_canditates: candidates: 15, 20, 27, 48, 52, 56...
-        # dat_file, add_2450000 = settings['photometry_files'][0].values()
-        dat_file, add_2450000 = self._photometry_files[0].values()
-        # self._event_id = os.path.splitext(dat_file)[0].split('/')[-1]
-        tab = Table.read(dat_file, format='ascii')
-        my_dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
-        if add_2450000:
-            my_dataset[0] += 2450000
-        self._datasets = []
-        self._datasets.append(mm.MulensData(my_dataset, phot_fmt='mag'))
-
-        if test is not None:
-            plt.figure(tight_layout=True)
-            my_dataset.plot(phot_fmt='mag')
-            plt.show()
+        self._get_datasets()
+        self._check_plot_settings(**self._plot_settings)
+        self._events = self._get_list_of_events()
 
     def _check_plot_settings(
-            self, file, time_range, magnitude_range, coords, chi2,
-            show_model_parameters_in_label=False, third_panel=False,
-            labels=None, colors=None, subtract_2450000=True
+            self, file, t_range, mag_range, coords, chi2, labels=None,
+            colors=None, show_params_in_label=False, third_panel=False,
+            subtract_2450000=True
             ):
-        """
-        Check if the plot settings are complete and consistent with models.
+        """Check if plot settings are complete and consistent with models."""
 
-        Args:
-            models (List[object]): list of all inserted models
-            plot_settings (dict): dictionary with the plot settings
+        for (key, val) in list(self._plot_settings.items())[:4]:
+            if not isinstance(val, str) and val is not False:
+                raise ValueError(f'{key} should be string or False.')
+            if key != 'file' and val is not False and len(val.split()) != 2:
+                raise ValueError(f'{key} should contain only two values.')
 
-        Raises:
-            ValueError: if some of the main inputs are not given
-            ValueError: if the number of models and chi2 values are different
-            ValueError: if the number of models and labels are different
-        """
-
-        # main_keys = ['time range', 'magnitude range', 'coords', 'chi2']
-        # if any(key not in self._plot_settings.keys() for key in main_keys):
-        #     raise ValueError('Some of the main keys are not given in input.')
-
-        # TO-DO :: Still need to check all the keys... !!!
+        self._plot_file = file
+        t_r = [self._datasets[0].time[0], self._datasets[0].time[-1]]
+        self._xlim = [float(t) for t in t_range.split()] if t_range else t_r
+        self._mag_range = mag_range.split() if mag_range else mag_range
+        self._coords = coords or '18:00:00 -30:00:00'
 
         if len(self._list_of_models) != len(chi2.split()):
             raise ValueError('The number of models and length of the list with'
                              'the chi2 values are different.')
+        self._input_chi2 = [float(val) for val in chi2.split()]
 
-        aux = [f'Model {i}' for i in range(len(self._list_of_models))]
-        self._model_labels = labels.split() if labels else aux
-        if labels and len(self._list_of_models) != len(labels.split()):
-            raise ValueError('The number of models and length of the list with'
-                             'labels are different.')
+        if labels is not None:
+            if len(self._list_of_models) != len(labels.split()):
+                raise ValueError('The number of models and length of the list'
+                                 'with labels are different.')
+            self._labels = labels.split()
+        else:
+            self._labels = [f'Model {i}' for i in range(len(self._input_chi2))]
+
+        if isinstance(colors, str) and len(colors.split()) < len(chi2.split()):
+            raise ValueError('More colors should be provided in the input.')
+
+        for check in [show_params_in_label, subtract_2450000]:
+            if not isinstance(check, bool):
+                raise ValueError('show_params_in_label or subtract_2450000.')
+        self._show_params_in_label = show_params_in_label
+        self._subtract = subtract_2450000
+
+        if third_panel not in [False, 'cumulative', 'delta']:
+            raise ValueError('third_panel has invalid input.')
+        self._third_panel = third_panel
+
+    def _get_ln_probability_for_other_parameters(self):
+        pass
 
     def _get_list_of_events(self):
         """
         Get list of mm.Event instances according to input values
 
-        Args:
-            list_of_models (list): list with all the inserted models (dicts)
-            data (mm.Data): _description_
-            plot_settings (dict): settings of the plot figure
+        Raises:
+            ValueError: parameter of a specific model is not recognized
 
         Returns:
             list: all mm.Event instances to be plotted inside a list
         """
 
         events = []
-        coords = self._plot_settings.get('coords', '18:00:00 -30:00:00')
         data = self._datasets[0]  # increase for more than one catalogue?
-        chi2_in = [float(val) for val in self._plot_settings['chi2'].split()]
-        self._task = 'plot'
-        self._set_default_parameters()
         self._all_MM_parameters.append('t_0_par')  # temporary
 
         for i, item in enumerate(self._list_of_models):
@@ -139,7 +115,7 @@ class PlotMultipleModels(UlensModelFit):
             values = [float(value) for value in item['values'].split()]
             fix_source = item.get('source_flux', None)
             fix_blend = item.get('blending_flux', None)
-            model = mm.Model(dict(zip(params, values)), coords=coords)
+            model = mm.Model(dict(zip(params, values)), coords=self._coords)
             if model.n_lenses == 2:
                 methods = enumerate(item['methods'].split())
                 methods = [float(x) if i % 2 == 0 else x for (i, x) in methods]
@@ -149,12 +125,11 @@ class PlotMultipleModels(UlensModelFit):
                                    fix_source_flux={data: fix_source},
                                    fix_blend_flux={data: fix_blend}))
 
-            if abs(events[i].get_chi2() - chi2_in[i]) > 0.01:
+            if abs(events[i].get_chi2() - self._input_chi2[i]) > 0.01:
                 print()
                 msg = ("Chi2 of the event {:} is more than 0.01 different "
                        "than the provided chi2:\n{:}")
-                warnings.warn(msg.format(self._model_labels[i],
-                                         events[i].model))
+                warnings.warn(msg.format(self._labels[i], events[i].model))
 
         return events
 
@@ -162,36 +137,28 @@ class PlotMultipleModels(UlensModelFit):
         """
         Generate plot figure with matplotlib and assign all settings.
 
-        Raises:
-            ValueError: if key for third_panel is invalid.
-
         Returns:
             matplotlib.figure.Figure: figure instance with settings.
         """
 
-        third_panel = self._plot_settings.get('third_panel', False)
-        n_panels = 3 if third_panel is not False else 2
-        figsize = (6.6, 6.5) if third_panel is not False else (6.6, 5.5)
+        n_panels = 3 if self._third_panel is not False else 2
+        figsize = (6.6, 6.5) if self._third_panel is not False else (6.6, 5.5)
         fig = plt.figure(figsize=figsize)
 
         gs = GridSpec(n_panels+1, 1, figure=fig)
         ax1 = fig.add_subplot(gs[:2, :])
-        if self._plot_settings.get('magnitude_range', False) is not False:
-            ax1.set_ylim(*self._plot_settings['magnitude_range'].split())
+        if self._mag_range is not False:
+            ax1.set_ylim(*self._mag_range)
         fig.add_subplot(gs[2:3, :], sharex=ax1)
 
-        if third_panel is not False:
+        if self._third_panel is not False:
             ax3 = fig.add_subplot(gs[3:, :], sharex=ax1)
-            subtract = self._plot_settings.get('subtract_2450000', True)
-            ax3.set_xlabel('Time - 2450000' if subtract else 'Time')
-            if third_panel == "cumulative":
+            ax3.set_xlabel('Time - 2450000' if self._subtract else 'Time')
+            if self._third_panel == "cumulative":
                 ax3.set_ylabel(r'Cumulative $\Delta\chi^2$')
-            elif third_panel == "delta":
+            else:
                 ax3.set_ylabel(r'$\Delta\chi^2$')
                 ax3.set_ylim(-9.9, 9.9)
-            else:
-                raise ValueError('Invalid value for third_panel key. Options'
-                                 ' are: False, cumulative or delta.')
 
         for ax in fig.get_axes():
             ax.tick_params(axis='both', direction='in')
@@ -200,7 +167,7 @@ class PlotMultipleModels(UlensModelFit):
 
         return fig
 
-    def _get_delta_chi2_two_events(self, event1, event2, cumulative=True):
+    def _get_delta_chi2_events(self, event1, event2, cumulative=True):
         """
         Get delta chi2 for event2 points (or cumulative) compared to event1.
 
@@ -224,9 +191,7 @@ class PlotMultipleModels(UlensModelFit):
         chi2_per_point_2 = event2.get_chi2_per_point()[0]
         chi2_diff = chi2_per_point_2 - chi2_per_point_1
 
-        self._chi2_ans = np.cumsum(chi2_diff) if cumulative else chi2_diff
-
-        return self._chi2_ans
+        return np.cumsum(chi2_diff) if cumulative else chi2_diff
 
     def _get_label_with_model_parameters(self, event):
         """
@@ -240,7 +205,7 @@ class PlotMultipleModels(UlensModelFit):
         """
 
         label_more = f': chi2={event.get_chi2():.2f}'
-        if self._plot_settings.get('show_model_parameters_in_label', False):
+        if self._show_params_in_label:
             params = event.model.parameters.as_dict()
             param_names = ', '.join(params.keys())
             param_values = ', '.join(str(value) for value in params.values())
@@ -261,7 +226,7 @@ class PlotMultipleModels(UlensModelFit):
         event_base, subt = self._events[0], all_params['subtract_2450000']
         event_base.plot_data(subtract_2450000=subt, label=self._event_id)
 
-        zip_models = zip(self._events, self._model_labels, self._colors)
+        zip_models = zip(self._events, self._labels, self._colors)
         for (event, label, color) in zip_models:
             label += self._get_label_with_model_parameters(event)
             event.plot_model(label=label, color=color, **all_params)
@@ -276,12 +241,9 @@ class PlotMultipleModels(UlensModelFit):
         """
 
         plt.axes(fig.get_axes()[1])
-        xlim = [all_params.pop('t_start'), all_params.pop('t_stop')]
-        subtract = all_params.pop('subtract_2450000')
-
         events = self._events
-        events[0].plot_residuals(subtract_2450000=subtract, zorder=1)
-        epochs = np.linspace(*xlim, 10000)
+        events[0].plot_residuals(subtract_2450000=self._subtract, zorder=1)
+        epochs = np.linspace(*self._xlim, 10000)
         base_lc = events[0].model.get_lc(epochs,
                                          source_flux=events[0].fluxes[0][0],
                                          blend_flux=events[0].fluxes[0][1])
@@ -290,17 +252,17 @@ class PlotMultipleModels(UlensModelFit):
             comp_lc = event.model.get_lc(epochs,
                                          source_flux=event.fluxes[0][0],
                                          blend_flux=event.fluxes[0][1])
-            plt.plot(epochs-self._subt_value, comp_lc-base_lc, color=color,
-                     **all_params)
-            if self._plot_settings.get('third_panel', False) is not False:
+            plt.plot(epochs - int(self._subtract)*2450000, comp_lc-base_lc,
+                     color=color, **all_params)
+            if self._third_panel is not False:
                 ax3 = fig.get_axes()[-1]
-                cumulative = self._plot_settings['third_panel'] == 'cumulative'
-                self._get_delta_chi2_two_events(events[0], event, cumulative)
-                ax3.plot(self._datasets[0].time - self._subt_value,
-                         self._chi2_ans, color=color, **all_params)
+                cumul = self._third_panel == 'cumulative'
+                chi2_ = self._get_delta_chi2_events(events[0], event, cumul)
+                ax3.plot(self._datasets[0].time - int(self._subtract)*2450000,
+                         chi2_, color=color, **all_params)
                 ax3.axhline(0, color='black', lw=1.5, ls='--', zorder=1)
 
-    def _best_model_plot_multiple(self):
+    def best_model_plot_multiple(self):
         """
         Plot multiple fits on a figure.
 
@@ -316,28 +278,23 @@ class PlotMultipleModels(UlensModelFit):
             self._colors = self._plot_settings['colors'].split()
         else:
             self._colors = ['black'] + list(mcolors.TABLEAU_COLORS.keys())[1:]
-        t_min_max = [self._datasets[0].time[0], self._datasets[0].time[-1]]
-        xlim = self._plot_settings.get('time_range')
-        xlim = [float(val) for val in xlim.split()] if xlim else t_min_max
-        self._subtract = self._plot_settings.get('subtract_2450000', True)
+        self._colors = self._colors[:len(self._list_of_models)]
         plt_params = {'lw': 2.5, 'alpha': 0.8, 'zorder': 10}
-        all_params = {**plt_params, **{'t_start': xlim[0], 't_stop': xlim[1],
-                                       'subtract_2450000': self._subtract}}
-        self._subt_value = 2450000 if self._subtract else 0
-        self._xlim = np.array(xlim) - self._subt_value
-        # breakpoint()
+        model_params = {'t_start': self._xlim[0], 't_stop': self._xlim[1],
+                        'subtract_2450000': self._subtract}
+        xlim_new = np.array(self._xlim) - int(self._subtract)*2450000
 
         fig = self._make_plot_figure()
-        self._plot_model_upper_panel(fig, all_params)
-        self._plot_residuals_chi2(fig, all_params)
-        plt.xlim(*self._xlim)
+        self._plot_model_upper_panel(fig, {**plt_params, **model_params})
+        self._plot_residuals_chi2(fig, plt_params)
+        plt.xlim(*xlim_new)
         plt.tight_layout()
         plt.subplots_adjust(hspace=0)
         fig.get_axes()[0].legend(loc='best')
 
         return fig
 
-    def _save_or_show_final_plot(self, fig):
+    def save_or_show_final_plot(self, fig):
         """
         Save or show the final plot based on the provided plot settings.
 
@@ -348,15 +305,15 @@ class PlotMultipleModels(UlensModelFit):
             ValueError: If the output format is not PDF or PNG.
         """
 
-        if 'file' in self._plot_settings.keys():
+        if self._plot_file is not False:
 
-            file_format = os.path.splitext(self._plot_settings['file'])[1]
+            file_format = os.path.splitext(self._plot_file)[1]
             if file_format == '.pdf':
-                pdf = PdfPages(self._plot_settings['file'])
+                pdf = PdfPages(self._plot_file)
                 pdf.savefig(fig)
                 pdf.close()
             elif file_format == '.png':
-                plt.savefig(self._plot_settings['file'])
+                plt.savefig(self._plot_file)
             else:
                 raise ValueError('PDF or PNG format is required for output.')
 
@@ -374,5 +331,5 @@ if __name__ == '__main__':
         all_settings = yaml.safe_load(yaml_input)
 
     plot_multiple_models = PlotMultipleModels(**all_settings)
-    fig_ = plot_multiple_models._best_model_plot_multiple()
-    plot_multiple_models._save_or_show_final_plot(fig_)
+    fig_ = plot_multiple_models.best_model_plot_multiple()
+    plot_multiple_models.save_or_show_final_plot(fig_)
