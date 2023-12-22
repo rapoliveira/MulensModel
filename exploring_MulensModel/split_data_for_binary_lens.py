@@ -122,7 +122,8 @@ def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
         settings['123_fits'] += ' after 1L2S result'
         t_brightest = round(result[0]['t_0_1'], 2)
         start = get_initial_t0_u0(data_1, settings, t_brightest=t_brightest)[0]
-    fix_1 = None if n_emcee['fix_blend'] is False else {data_1: n_emcee['fix_blend']}
+    fix_1 = None if n_emcee['fix_blend'] is False else {data_1:
+                                                        n_emcee['fix_blend']}
     ev_st = mm.Event(data_1, model=mm.Model(start), fix_blend_flux=fix_1)
     n_emcee['sigmas'][0] = [0.01, 0.05, 1.0]
     output_1 = fit_emcee(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
@@ -146,7 +147,8 @@ def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
                                           t_brightest=t_brightest)
     else:
         start, f_base = get_initial_t0_u0(data_2_subt, settings)
-    fix_2 = None if n_emcee['fix_blend'] is False else {data_2_subt: n_emcee['fix_blend']}
+    fix_2 = None if n_emcee['fix_blend'] is False else {data_2_subt:
+                                                        n_emcee['fix_blend']}
     ev_st = mm.Event(data_2_subt, model=mm.Model(start), fix_blend_flux=fix_2)
     output_2 = fit_emcee(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
     model_2 = mm.Model(dict(list(output_2[0].items())[:3]))
@@ -161,7 +163,8 @@ def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
 
     # 3rd PSPL (to data_1_subt)
     settings['123_fits'] = settings['123_fits'].replace('2nd', '1st') + ' again'
-    fix_1 = None if n_emcee['fix_blend'] is False else {data_1_subt: n_emcee['fix_blend']}
+    fix_1 = None if n_emcee['fix_blend'] is False else {data_1_subt:
+                                                        n_emcee['fix_blend']}
     ev_st = mm.Event(data_1_subt, model=model_1, fix_blend_flux=fix_1)
     output_3 = fit_emcee(dict(list(output_1[0].items())[:3]),
                          n_emcee['sigmas'][0], ln_prob, ev_st, settings)
@@ -276,25 +279,25 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
 
     # plot best 2L1S model (between)
     with open('2L1S_plot_template.yaml', 'r', encoding='utf-8') as data:
-        template_plot_2L1S = data.read()
+        template_plot = data.read()
     init_2L1S = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
-    plot_list = [name.split('.')[0]] + init_2L1S + ['between'] + xlim_str
-    plot_2L1S = yaml.safe_load(template_plot_2L1S.format(*plot_list))
-    ulens_model_fit = UlensModelFit(**plot_2L1S)
-    ulens_model_fit.plot_best_model()
+    # plot_list = [name.split('.')[0]] + init_2L1S + ['between'] + xlim_str
 
     # writing traj_between yaml file
     init_2L1S = [round(param, 5) for param in init_2L1S]
     init_2L1S[0], init_2L1S[2] = round(init_2L1S[0], 2), round(init_2L1S[2], 2)
     diff_path = path.replace(os.getcwd(), '.')
-    init_2L1S.insert(0, diff_path)
-    init_2L1S.insert(1, name.split('.')[0])
+    add_2450000 = settings['phot_settings']['add_2450000']
+    init_2L1S = [diff_path, name.split('.')[0], add_2450000] + init_2L1S
     init_2L1S += xlim_str + [round(max(3, t_E_2L1S/5.), 3), 'between']
     f_template = settings['other_output']['yaml_files_2L1S']['yaml_template']
     with open(f'{path}/{f_template}', 'r', encoding='utf-8') as template_file_:
         template = template_file_.read()
     with open(f'{path}/{yaml_file_1}', 'w', encoding='utf-8') as out_file_1:
         out_file_1.write(template.format(*init_2L1S))
+    plot = yaml.safe_load(template_plot.format(*init_2L1S[:-2]+init_2L1S[-1:]))
+    ulens_model_fit = UlensModelFit(**plot)
+    ulens_model_fit.plot_best_model()
 
     # equations for trajectory beyond the lenses
     u_0_2L1S = -(pspl_1['u_0'] + q_2L1S*pspl_2['u_0']) / (1 + q_2L1S)  # negative!!!
@@ -311,10 +314,10 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
         out_file_2.write(template.format(*init_2L1S))
 
     # plot best 2L1S model (beyond)
-    init_2L1S = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
-    plot_list = [name.split('.')[0]] + init_2L1S + ['beyond'] + xlim_str
-    plot_2L1S = yaml.safe_load(template_plot_2L1S.format(*plot_list))
-    ulens_model_fit = UlensModelFit(**plot_2L1S)
+    # init_2L1S = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
+    # plot_list = [name.split('.')[0]] + init_2L1S + ['beyond'] + xlim_str
+    plot = yaml.safe_load(template_plot.format(*init_2L1S[:-2]+init_2L1S[-1:]))
+    ulens_model_fit = UlensModelFit(**plot)
     ulens_model_fit.plot_best_model()
 
 

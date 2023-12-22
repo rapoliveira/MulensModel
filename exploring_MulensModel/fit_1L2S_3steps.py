@@ -48,7 +48,7 @@ def read_data(path, phot_settings, plot=False):
         tuple of lists: list of data instances and filenames to be looped
     """
 
-    filenames, subtract, phot_fmt = phot_settings.values()
+    filenames, subtract, add, phot_fmt = phot_settings.values()
     if os.path.isdir(f"{path}/{filenames}"):
         all_data = []
         for fname in sorted(os.listdir(f'{path}/{filenames}')):
@@ -91,7 +91,7 @@ def get_initial_t0_u0(data, settings, t_brightest=0.):
     """
 
     if t_brightest == 0.:
-        t_brightest = np.mean(data.time[np.argsort(data.mag)][:10])
+        t_brightest = np.median(data.time[np.argsort(data.mag)][:10])
     if 't_E' in settings['fit_constraints']['ln_prior'].keys():
         t_E_prior = settings['fit_constraints']['ln_prior']['t_E']
         t_E_init = round(np.exp(float(t_E_prior.split()[1])), 1)
@@ -116,7 +116,11 @@ def get_initial_t0_u0(data, settings, t_brightest=0.):
     # Compute magnification and corresponding u_0(A)
     magnif_A = flux_peak / flux_base
     u_init = round(np.sqrt(2*magnif_A / np.sqrt(magnif_A**2 - 1) - 2), 3)
+
+    # Get optimal t_E and create dictionary
     start = {'t_0': round(t_brightest, 1), 'u_0': u_init, 't_E': t_E_init}
+    t_E_optimal = fit_utils('get_t_E_1L2S', data, settings, start)
+    start['t_E'] = round(t_E_optimal[2], 2)
 
     return start, flux_mag_base
 
@@ -145,16 +149,22 @@ def fit_utils(method, data, settings, model="", best=None):
     if method == 'scipy_minimize':
         # fix = {data: 0.}
         start = get_initial_t0_u0(data, settings)[0]
+        # start['t_E'] = 10.  # 1.  ===>>> still apply gradient!!!
         ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
         x0, arg = list(start.values()), (list(start.keys()), ev_st)
-        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='Nelder-Mead')
+        # bnds = [(0.1, None), (1e-5, None), (1e-2, None)]
+        bnds = [(x0[0]-50, x0[0]+50), (1e-5, 3), (1e-2, None)]
+        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
+                         method='Nelder-Mead')
         model = {'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}
         return model
 
     elif method == 'get_t_E_1L2S':
         aux_event = mm.Event(data, model=mm.Model(model))
         x0, arg = [model['t_E']], (['t_E'], aux_event)
-        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='Nelder-Mead')
+        bnds = [(0.1, None)]
+        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
+                         method='Nelder-Mead')
         model['t_E'] = r_.x[0]
         return list(model.values())
 
@@ -170,8 +180,8 @@ def fit_utils(method, data, settings, model="", best=None):
         bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
         fix_source = {data: [best[p] for p in best if 'source' in p]}
         event_1L2S = mm.Event(data, model=mm.Model(bst),
-                            fix_source_flux=fix_source,
-                            fix_blend_flux={data: best['blending_flux']})
+                              fix_source_flux=fix_source,
+                              fix_blend_flux={data: best['blending_flux']})
         event_1L2S.get_chi2()
         return event_1L2S
 
@@ -233,7 +243,7 @@ def make_all_fittings(data, settings, pdf=""):
 
     # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
     # if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
-    if max(output_2[0]['u_0_1'], output_2[0]['u_0_2']) > 3.:
+    if max(output_2[0]['u_0_1'], output_2[0]['u_0_2']) > 3.1:
         return output + (event, two_pspl), cplot
     return output_2 + (event_2, two_pspl), cplot_2
 
@@ -265,6 +275,8 @@ def prefit_split_and_fit(data, settings, pdf=""):
     n_emcee = settings['fitting_parameters']
     start = {'t_0_1': model_1['t_0'], 'u_0_1': model_1['u_0'], 't_0_2':
              model_2['t_0'], 'u_0_2': model_2['u_0'], 't_E': 25}
+    t_E_optimal = fit_utils('get_t_E_1L2S', data, settings, start)
+    start['t_E'] = round(t_E_optimal[4], 2)
     ev_st = mm.Event(data, model=mm.Model(start))
     output = fit_emcee(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
     event_1L2S = fit_utils('get_1L2S_event', data, settings, best=output[0])
@@ -346,7 +358,7 @@ def ln_prior(theta, event, params_to_fit, settings):
         if 't_0' in param and 't_0' in stg_min_max[1].keys():
             t_range = event.datasets[0].time[::len(event.datasets[0].time)-1]
             t_range = t_range + np.array(stg_min_max[1]['t_0'])
-            if t_range[0] > theta[params_to_fit.index(param)] > t_range[1]:
+            if not t_range[0] < theta[params_to_fit.index(param)] < t_range[1]:
                 return -np.inf
         if 'u_0' in param and 'u_0' in stg_min_max[1].keys():
             if theta[params_to_fit.index(param)] > stg_min_max[1]['u_0']:
@@ -829,7 +841,8 @@ if __name__ == '__main__':
         settings = yaml.safe_load(in_data)
 
     data_list, file_names = read_data(path, settings['phot_settings'])
-    for data, name in zip(data_list[8:9], file_names[8:9]):
+    # for data, name in zip(data_list[8:9], file_names[8:9]):
+    for data, name in zip(data_list[5:], file_names[5:]):
 
         print(f'\n\033[1m * Running fit for {name}\033[0m')
         # breakpoint()
@@ -853,10 +866,10 @@ if __name__ == '__main__':
         # Split data into two and fit PSPL to get 2L1S initial params
         make_2L1S = settings['other_output']['yaml_files_2L1S']['t_or_f']
         if make_2L1S and res_event.model.n_sources == 2:
-            # data_left_right = split.split_after_result(res_event, result)[0]
-            # if isinstance(data_left_right[0], list):  ### IMPORTANT LATER!
+            # data_lr = split.split_after_result(res_event, result)[0]
+            # if isinstance(data_lr[0], list):  ### IMPORTANT LATER!
             #     continue
-            # two_pspl = split.fit_PSPL_twice(data_left_right, settings, result)
+            # two_pspl = split.fit_PSPL_twice(data_lr, settings, result)
             split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
         print("\n--------------------------------------------------")
     # breakpoint()

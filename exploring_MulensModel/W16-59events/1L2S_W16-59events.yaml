@@ -1,6 +1,7 @@
 phot_settings:
     name: phot/
     subtract_2450000: False
+    add_2450000: False
     phot_fmt: mag
 # starting_parameters:  # Does not apply...?
 #     t_0: gauss 2453815.7 0.01
