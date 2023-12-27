@@ -28,10 +28,10 @@ It is possible to compute JHKs magnitudes of the stellar spectra using the trans
 - [X] Correct error with minimum values and priors... bad results
 - [X] Add degree of freedom to the table with all results and the results yaml file
 - [X] Correct issues on generating 2L1S yaml files. Plus: plot the 2L1S model (saved in same folder)
-- [ ] Convert the entire fit_1L2S_3steps.py code to 2450000 system, to be in agreement with the 2L1S files
-- [ ] Unit tests, docstrings, classes (e.g. Data, Fitting, Tables)
+- [X] Convert the entire fit_1L2S_3steps.py code to 2450000 system, in agreement with 2L1S codes (26.dec)
+- [ ] Unit tests, docstrings, **classes** (e.g. Data, Fitting, Tables)
 - [ ] [...]
-- [ ] Make the code more general for other databases...
+- [ ] Make the code more general for other databases... 1/2
 
 ### New script for 2xPSPL fits: split and subtract data from the beginning
 - [X] NEW SCRIPT: split data after 1L2S to get the initial 2L1S parameters (end of October)
@@ -40,5 +40,6 @@ It is possible to compute JHKs magnitudes of the stellar spectra using the trans
 - [X] Script to plot multiple fits for the same data (22-28.nov)
 - [ ] Check if there is a second peak above 3 sigma to go for 1L2S...
 - [ ] Include and test all cases, including those with a single peak or skewed(?)
+- [ ] Apply gradient in scipy_minimize of PSPL fit
 
-Last updated: 10 Nov 2023
+Last updated: 26 Dec 2023

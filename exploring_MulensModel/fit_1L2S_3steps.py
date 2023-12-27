@@ -34,63 +34,57 @@ import split_data_for_binary_lens as split
 
 def read_data(path, phot_settings, plot=False):
     """
-    Read a catalogue or list of catalogues and creates MulensData instance
+    Read a catalogue or list of catalogues and creates MulensData instance.
 
     Args:
-        path (str): directory of the Python script and catalogues
-        phot_settings (dict): photometry settings from the yaml file
+        path (str): directory of the Python script and catalogues.
+        phot_settings (dict): photometry settings from the yaml file.
         plot (bool, optional): Plot the catalogues or not. Defaults to False.
 
     Raises:
         RuntimeError: if photometry files(s) are not available.
 
     Returns:
-        tuple of lists: list of data instances and filenames to be looped
+        tuple of lists: list of data instances and filenames to be looped.
     """
 
-    filenames, subtract, add, phot_fmt = phot_settings.values()
-    if os.path.isdir(f"{path}/{filenames}"):
-        all_data = []
-        for fname in sorted(os.listdir(f'{path}/{filenames}')):
-            tab = Table.read(f'{path}/{filenames}/{fname}', format='ascii')
-            dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
-            dataset[0] = dataset[0]-2450000 if subtract else dataset[0]
-            all_data.append(mm.MulensData(dataset, phot_fmt=phot_fmt))
-        filenames = sorted(os.listdir(f'{path}/{filenames}'))
-
-    elif os.path.isfile(f"{path}/{filenames}"):
-        tab = Table.read(f"{path}/{filenames}", format='ascii')
-        dataset = np.array([tab['col1'], tab['col2'], tab['col3']])
-        dataset[0] = dataset[0]-2450000 if subtract else dataset[0]
-        all_data = [mm.MulensData(dataset, phot_fmt=phot_fmt)]
-        filenames = [filenames.split('/')[1]]
-
+    path_files = path + '/' + phot_settings.pop('name')
+    if os.path.isdir(path_files):
+        filenames = [f'{path_files}/{i}' for i in os.listdir(path_files)]
+    elif os.path.isfile(path_files):
+        filenames = [path_files]
     else:
         raise RuntimeError(f'Photometry file(s) {filenames} not available.')
 
+    datasets = []
+    for fname in sorted(filenames):
+        datasets.append(mm.MulensData(file_name=fname, **phot_settings))
+
     if plot:
         plt.figure(tight_layout=True)
-        for dataset in all_data:
-            dataset.plot(phot_fmt=phot_fmt, alpha=0.5)
-        plt.gca().set(**{'xlabel': 'Time', 'ylabel': phot_fmt})
+        for dataset in datasets:
+            dataset.plot(phot_fmt=phot_settings['phot_fmt'], alpha=0.5)
+        plt.xlabel('Time')
+        plt.ylabel(phot_settings['phot_fmt'])
         plt.show()
 
-    return all_data, filenames
+    return datasets, sorted(filenames)
 
 
-def get_initial_t0_u0(data, settings, t_brightest=0.):
+def get_initial_t0_u0(data, settings, t_brightest=None):
     """
-    _summary_
+    Get initial values for time and separation of maximum approach.
 
     Args:
-        data (_type_): _description_
-        t_brightest (_type_, optional): _description_. Defaults to 0..
+        data (mm.MulensData): data instance of a single event.
+        settings (dict): all input settings from yaml file.
+        t_brightest (float, optional): fixed value for t_0. Defaults to None.
 
     Returns:
-        _type_: _description_
+        tuple: dictionary of starting values and mag/flux of baseline.
     """
 
-    if t_brightest == 0.:
+    if t_brightest is None:
         t_brightest = np.median(data.time[np.argsort(data.mag)][:10])
     if 't_E' in settings['fit_constraints']['ln_prior'].keys():
         t_E_prior = settings['fit_constraints']['ln_prior']['t_E']
@@ -99,7 +93,6 @@ def get_initial_t0_u0(data, settings, t_brightest=0.):
         t_E_init = 25.
 
     # Starting the baseline (360d or half-data window?)
-    # t_window = [t_brightest - 180, t_brightest + 180] # 360d window
     t_diff = data.time - t_brightest
     t_window = [t_brightest + min(t_diff)/2., t_brightest + max(t_diff)/2.]
     t_mask = (data.time < t_window[0]) | (data.time > t_window[1])
@@ -125,21 +118,22 @@ def get_initial_t0_u0(data, settings, t_brightest=0.):
     return start, flux_mag_base
 
 
-def fit_utils(method, data, settings, model="", best=None):
+def fit_utils(method, data, settings, model=None, best=None):
     """
-    Useful short functions to be applied in mm.Data
+    Useful short functions to be applied in mm.Data instance.
 
     Args:
-        method (_type_): _description_
-        data (_type_): _description_
-        settings (_type_): _description_
-        model (str, optional): _description_. Defaults to "".
+        method (str): which method to execute.
+        data (mm.MulensData): data instance of a single event.
+        settings (dict): all input settings from yaml file.
+        model (dict, optional): parameters to get mm.Model. Defaults to None.
+        best (dict, optional): parameters to get mm.Event. Defaults to None.
 
     Raises:
-        Exception: _description_
+        ValueError: if invalid method is given.
 
     Returns:
-        _type_: _description_
+        [...]: depends on the method (dict, list or mm.Event)
     """
 
     n_emcee = settings['fitting_parameters']
@@ -147,12 +141,10 @@ def fit_utils(method, data, settings, model="", best=None):
                                                       n_emcee['fix_blend']}
 
     if method == 'scipy_minimize':
-        # fix = {data: 0.}
         start = get_initial_t0_u0(data, settings)[0]
         # start['t_E'] = 10.  # 1.  ===>>> still apply gradient!!!
         ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
         x0, arg = list(start.values()), (list(start.keys()), ev_st)
-        # bnds = [(0.1, None), (1e-5, None), (1e-2, None)]
         bnds = [(x0[0]-50, x0[0]+50), (1e-5, 3), (1e-2, None)]
         r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
                          method='Nelder-Mead')
@@ -190,9 +182,18 @@ def fit_utils(method, data, settings, model="", best=None):
 
 
 def make_all_fittings(data, settings, pdf=""):
-    '''
-    Missing description for this function...
-    '''
+    """
+    OLD function for doing 2xPSPL fits, subtraction and then 1L2S fit.
+
+    Args:
+        data (mm.MulensData): data instance of a single event.
+        settings (dict): all input settings from yaml file.
+        pdf (str, optional): pdf file to save the plot. Defaults to "".
+
+    Returns:
+        tuple: emcee output, mm.Event, two PSPL results and corner plot.
+    """
+
     # 1st fit: Fitting a PSPL/1L1S without parallax...
     start = get_initial_t0_u0(data, settings)[0]  # , fm_base
     n_emcee = settings['fitting_parameters']
@@ -250,12 +251,15 @@ def make_all_fittings(data, settings, pdf=""):
 
 def prefit_split_and_fit(data, settings, pdf=""):
     """
-    General function for fitting PSPL and then 1L2S if there is second peak.
+    NEW function for fitting PSPL-split, then 1L2S if there is a second peak.
 
     Args:
-        data (_type_): _description_
-        settings (_type_): _description_
-        pdf (str, optional): _description_. Defaults to "".
+        data (mm.MulensData): data instance of a single event.
+        settings (dict): all input settings from yaml file.
+        pdf (str, optional): pdf file to save the plot. Defaults to "".
+
+    Returns:
+        tuple: emcee output, mm.Event, two PSPL results and corner plot.
     """
 
     # Split data before 1L2S fit, too specific (02-06/nov)
@@ -304,7 +308,18 @@ def prefit_split_and_fit(data, settings, pdf=""):
 
 
 def ln_like(theta, event, params_to_fit):
-    """ likelihood function """
+    """
+    Get the value of the likelihood function from chi2 of event.
+
+    Args:
+        theta (np.array): chain parameters to sample the likelihood.
+        event (mm.Event): event instance containing the model and datasets.
+        params_to_fit (list): microlensing parameters to be fitted.
+
+    Returns:
+        tuple: likelihood value (-0.5*chi2) and fluxes of the event.
+    """
+
     for (param, theta_) in zip(params_to_fit, theta):
         # Here we handle fixing source flux ratio:
         if param == 'flux_ratio':
@@ -320,20 +335,21 @@ def ln_like(theta, event, params_to_fit):
 
 def ln_prior(theta, event, params_to_fit, settings):
     """
-    Apply all the priors (minimum, maximum and distributions)
+    Apply all the priors (minimum, maximum and distributions).
 
     Args:
-        theta (np.array): chain parameters to sample the likelihood/prior.
+        theta (np.array): chain parameters to sample the prior.
         event (mm.Event): Event instance containing the model and datasets.
         params_to_fit (list): name of the parameters to be fitted.
         settings (dict): all settings from yaml file.
-        spec (str, optional): _description_. Defaults to "". (TO EDIT...)
 
     Raises:
-        ValueError: if input prior is not implemented
+        ValueError: if the maximum values for t_0 are not a list.
+        ValueError: if Mróz priors for t_E are selected.
+        ValueError: if input prior is not implemented.
 
     Returns:
-        float: -np.inf or prior value to be added on the likelihood
+        float: -np.inf or prior value to be added on the likelihood.
     """
 
     stg_priors = settings['fit_constraints']
@@ -408,7 +424,19 @@ def ln_prior(theta, event, params_to_fit, settings):
 
 
 def ln_prob(theta, event, params_to_fit, settings):
-    """ combines likelihood and priors"""
+    """
+    Combines likelihood value and priors for a given set of parameters.
+
+    Args:
+        theta (np.array): chain parameters to sample the likelihood+prior.
+        event (mm.Event): Event instance containing the model and datasets.
+        params_to_fit (list): name of the parameters to be fitted.
+        settings (dict): all settings from yaml file.
+
+    Returns:
+        tuple: value of prior+likelihood, source and blending fluxes.
+    """
+
     ln_prior_ = ln_prior(theta, event, params_to_fit, settings)
     if not np.isfinite(ln_prior_):
         return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
@@ -424,14 +452,14 @@ def ln_prob(theta, event, params_to_fit, settings):
 
 def fit_emcee(dict_start, sigmas, ln_prob, event, settings):
     """
-    Fit model using EMCEE and print results.
+    Fit model using EMCEE (Foreman-Mackey et al. 2013) and print results.
 
     Args:
-        dict_start (dict): dict that specifies values of these parameters
-        sigmas (list): sigma values used to find starting values
-        ln_prob (func): function returning logarithm of probability
-        event (mm.Event): MulensModel.Event instance
-        settings (dict): all settings from yaml file
+        dict_start (dict): dict that specifies values of these parameters.
+        sigmas (list): sigma values used to find starting values.
+        ln_prob (func): function returning logarithm of probability.
+        event (mm.Event): Event instance containing the model and datasets.
+        settings (dict): all settings from yaml file.
 
     Raises:
         RuntimeError: if number of dimensions different than 3 or 5 is given
@@ -542,11 +570,15 @@ def fit_emcee(dict_start, sigmas, ln_prob, event, settings):
 
 def clean_posterior_emcee(sampler, params, n_burn):
     """
-    Manipulate emcee chains to reject stray walkers and clean posterior
-    Arguments:
-        sampler - ensemble sampler from EMCEE
-        ## params - set of best parameters from fit_emcee function
-        n_burn - number of steps considered as burn-in ( < n_steps)
+    OLD: manipulate emcee chains to reject stray walkers and clean posterior.
+
+    Args:
+        sampler (emcee.EnsembleSampler): sampler that contain the chains.
+        params (...): set of best parameters from fit_emcee function.
+        n_burn (int): number of steps considered as burn-in (< n_steps).
+
+    Returns:
+        tuple: new states and 1sigma quantiles of these states.
     """
 
     # here I will put all the manipulation of emcee chains...
@@ -609,10 +641,21 @@ def clean_posterior_emcee(sampler, params, n_burn):
     return new_states, np.quantile(new_states, [0.16, 0.50, 0.84], axis=0)
 
 
-def make_plots(results_states, dataset, settings, orig_data=None, pdf=""):
+def make_plots(results_states, data, settings, orig_data=None, pdf=""):
     """
-    plot results
+    Make three plots: tracer plot, corner plot and best model.
+
+    Args:
+        results_states (tuple): contains best results, sampler and states.
+        data (mm.MulensData): data instance of a single event.
+        settings (dict): all input settings from yaml file.
+        orig_data (list, optional): Plot with original data. Defaults to None.
+        pdf (str, optional): pdf file to save the plot. Defaults to "".
+
+    Returns:
+        tuple: mm.Event and corner plot instances, to be used later.
     """
+
     best, sampler, states = results_states
     n_emcee = settings['fitting_parameters']
     condition = (n_emcee['fix_blend'] is not False) and (len(best) != 8)
@@ -626,15 +669,22 @@ def make_plots(results_states, dataset, settings, orig_data=None, pdf=""):
         pdf.savefig(cplot)
     else:
         plt.show()
-    event = plot_fit(best, dataset, settings, orig_data, pdf=pdf)
+    event = plot_fit(best, data, settings, orig_data, pdf=pdf)
 
     return event, cplot
 
 
 def tracer_plot(params_to_fit, sampler, nburn, pdf=""):
     """
-    Plot tracer plots (or walkers' time series)
+    Plot tracer plots (or time series) of the walkers.
+
+    Args:
+        params_to_fit (list): name of the parameters to be fitted.
+        sampler (emcee.EnsembleSampler): sampler that contain the chains.
+        (int): number of steps considered as burn-in (< n_steps).
+        pdf (str, optional): pdf file to save the plot. Defaults to "".
     """
+
     npars = sampler.ndim
     fig, axes = plt.subplots(npars, 1, sharex=True, figsize=(10, 10))
     for i in range(npars):
@@ -650,17 +700,18 @@ def tracer_plot(params_to_fit, sampler, nburn, pdf=""):
         plt.show()
 
 
-def get_xlim2(best, data, n_emcee, ref=0.):
+def get_xlim2(best, data, n_emcee, ref=None):
     """
-    WRITE LATER...
+    Get the optimal range for the x-axis, considering the event results.
 
     Args:
-        best (_type_): _description_
-        data (_type_): _description_
-        n_emcee (_type_): _description_
+        best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
+        data (mm.MulensData instance): object containing all the data.
+        n_emcee (dict): parameters relevant to emcee fitting.
+        ref (float, optional): reference for t_0. Defaults to None.
 
     Returns:
-        _type_: _description_
+        list: range for the x-axis, without subtracting 2450000.
     """
 
     # only works for PSPL case... (A' should be considered for 1L2S)
@@ -682,13 +733,14 @@ def get_xlim2(best, data, n_emcee, ref=0.):
     model_mag = event.fits[0].get_model_magnitudes()
     mag_peak = model_mag[idx_peak]  # comp = data.mag[idx_peak]
 
-    # Summing 0.85*deltaI to the mag_peak, then obtain t_range (+2%)
+    # Summing 0.85*deltaI to the mag_peak, then obtain t_range (+3%)
     mag_baseline = mag_peak + 0.85*deltaI
     idx1 = np.argmin(abs(mag_baseline - model_mag[:idx_peak]))
     idx2 = idx_peak + np.argmin(abs(mag_baseline - model_mag[idx_peak:]))
-    t_range = np.array([0.97*data.time[idx1], 1.03*data.time[idx2]])
-    t_cen = best['t_0'] if ref == 0. else ref
-    max_diff_t_0 = max(abs(t_range - t_cen)) + 100
+    t_range = [0.97*(data.time[idx1]-2450000) + 2450000,
+               1.03*(data.time[idx2]-2450000) + 2450000]
+    t_cen = best['t_0'] if ref is None else ref
+    max_diff_t_0 = max(abs(np.array(t_range) - t_cen)) + 100
 
     if max_diff_t_0 > 250:
         return [t_cen-max_diff_t_0, t_cen+max_diff_t_0]
@@ -702,10 +754,8 @@ def plot_fit(best, data, settings, orig_data=None, best_50=None, pdf=""):
     Args:
         best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
         data (mm.MulensData instance): object containing all the data.
-        ans (str): input whether to use best or median value as solution.
-        n_emcee (dict): parameters relevant to emcee fitting.
-        xlim (list): time interval to be plotted.
-        orig_data (list, optional): Plot with subtracted data. Defaults to [].
+        settings (dict): all input settings from yaml file.
+        orig_data (list, optional): Plot with original data. Defaults to None.
         best_50 (list, optional): Additional percentile result. Defaults to [].
         pdf (str, optional): pdf file to save the plot. Defaults to "".
 
@@ -713,16 +763,16 @@ def plot_fit(best, data, settings, orig_data=None, best_50=None, pdf=""):
         mm.Event: final event containing the model and datasets.
     """
 
-    ans, xlim = settings['fitting_parameters']['ans'], settings['xlim']
+    ans, subtract = settings['fitting_parameters']['ans'], True
     fig = plt.figure(figsize=(7.5, 5.5))
     gs = GridSpec(3, 1, figure=fig)
     ax1 = fig.add_subplot(gs[:-1, :])  # gs.new_subplotspec((0, 0), rowspan=2)
     event = fit_utils('get_1L2S_event', data, settings, best=best)
     data_label = "Original data" if not orig_data else "Subtracted data"
-    event.plot_data(subtract_2450000=False, label=data_label)
-    plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
-                   't_start': xlim[0], 't_stop': xlim[1], 'zorder': 10,
-                   'color': 'black'}
+    event.plot_data(subtract_2450000=subtract, label=data_label)
+    plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': subtract,
+                   'color': 'black', 't_start': settings['xlim'][0],
+                   't_stop': settings['xlim'][1], 'zorder': 10}
     if orig_data:
         orig_data.plot(phot_fmt='mag', color='gray', alpha=0.2,
                        label="Original data")
@@ -736,11 +786,11 @@ def plot_fit(best, data, settings, orig_data=None, best_50=None, pdf=""):
     ax1.yaxis.set_ticks_position('both')
 
     ax2 = fig.add_subplot(gs[2:, :], sharex=ax1)
-    event.plot_residuals(subtract_2450000=False, zorder=10)  # fix zorder
+    event.plot_residuals(subtract_2450000=True, zorder=10)
     plt.tick_params(axis='both', direction='in')
     ax2.xaxis.set_ticks_position('both')
     ax2.yaxis.set_ticks_position('both')
-    plt.xlim(xlim[0], xlim[1])
+    plt.xlim(*np.array(settings['xlim']) - subtract*2450000)
     plt.tight_layout()
     plt.subplots_adjust(hspace=0)
 
@@ -766,10 +816,10 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
     paths and other informations provided in the settings file.
 
     Args:
-        path (str): directory of the Python script and catalogues
-        settings (dict): all settings from yaml file
-        name (str): name of the photometry file
-        result (tuple): contains the EMCEE outputs and mm.Event instance
+        path (str): directory of the Python script and catalogues.
+        settings (dict): all input settings from yaml file.
+        name (str): name of the photometry file.
+        result (tuple): contains the EMCEE outputs and mm.Event instance.
         fmt (str, optional): format of the ascii tables.
     """
 
@@ -840,10 +890,11 @@ if __name__ == '__main__':
     with open(sys.argv[1], encoding='utf-8') as in_data:
         settings = yaml.safe_load(in_data)
 
-    data_list, file_names = read_data(path, settings['phot_settings'])
+    data_list, file_names = read_data(path, settings['phot_settings'][0])
     # for data, name in zip(data_list[8:9], file_names[8:9]):
     for data, name in zip(data_list[5:], file_names[5:]):
 
+        name = name.split('/')[-1]
         print(f'\n\033[1m * Running fit for {name}\033[0m')
         # breakpoint()
         pdf_dir = settings['plots']['all_plots']['file_dir']

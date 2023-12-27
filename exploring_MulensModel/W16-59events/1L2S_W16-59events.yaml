@@ -1,6 +1,5 @@
 phot_settings:
     name: phot/
-    subtract_2450000: False
     add_2450000: False
     phot_fmt: mag
 # starting_parameters:  # Does not apply...?
@@ -9,7 +8,7 @@ phot_settings:
 #     t_E: gauss 118.7 1.
 fit_constraints:
     # negative_blending_flux_sigma_mag: 20.
-    # no_negative_blending_flux: True # sharp alternative
+    # no_negative_blending_flux: True  # sharp alternative
     ln_prior:
         t_E: lognormal 2.70 2.00 # 0.99-1.20  # 1.172 0.5 (wrong log10)  # TBD: Mroz et al. 2017 (free-floating), Mroz et al. 2020***
 min_values:
