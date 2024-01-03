@@ -68,4 +68,42 @@ source/MulensModel/*.so
 
 # Coverage report:
 coverage.xml
+<<<<<<< HEAD
+
+# Raphael directory files:
+exploring_MulensModel/ulens_model_fit.py
+exploring_MulensModel/rprof.test.h5
+exploring_MulensModel/r.py
+exploring_MulensModel/old_figs_ex11/
+exploring_MulensModel/old_codes_and_files/
+exploring_MulensModel/mre_test_chi2/
+exploring_MulensModel/example11_1L2S_result.pdf
+exploring_MulensModel/add_parallax/yaml_files/
+exploring_MulensModel/add_parallax/ulens_model_plot.py
+exploring_MulensModel/add_parallax/results/
+exploring_MulensModel/add_parallax/prepare_yaml_Radek/
+exploring_MulensModel/add_parallax/figs/
+exploring_MulensModel/add_parallax/example_figs_5events/
+exploring_MulensModel/add_parallax/data/OB*
+exploring_MulensModel/add_parallax/data/Mroz+17/
+exploring_MulensModel/add_parallax/chains/
+exploring_MulensModel/add_parallax/bkpi_files/
+exploring_MulensModel/add_parallax/W16_all_settings*
+exploring_MulensModel/add_parallax/1st-results-*
+exploring_MulensModel/add_parallax/2nd-results-*
+exploring_MulensModel/W16-59events/TEMP_results*
+exploring_MulensModel/W16-59events/chains-*
+exploring_MulensModel/W16-59events/output-*
+exploring_MulensModel/W16-59events/results*
+exploring_MulensModel/W16-59events/term_text*
+exploring_MulensModel/W16-59events/ulens_model_fit.py
+exploring_MulensModel/W16-59events/yaml_files_2L1S/
+exploring_MulensModel/W16-59events/email_nov/
+
+# Raphael examples (changed?) and others...
+examples/example_16/*
+build/
+dist/
+=======
 /source/MulensModel/htmlcov/
+>>>>>>> dff8bc59e4c7148aad1209d83cde6baf53f8fba7
