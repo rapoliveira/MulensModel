@@ -55,7 +55,7 @@ def split_before_result(mm_data, f_base, f_base_sigma):
     return (data_right, data_left)
 
 
-def split_after_result(event_1L2S, result):
+def split_after_result(event_1L2S, result, settings):
     """
     Find the minimum between t_0_1 and t_0_2 (1L2S) and split data into two.
 
@@ -82,11 +82,33 @@ def split_after_result(event_1L2S, result):
     # Detect the minimum flux in model_data_between_peaks
     idx_min_flux = np.argmin(model_data_between_peaks[:, 1])
     time_min_flux = model_data_between_peaks[:, 0][idx_min_flux]
-    if time_min_flux - 0.1 < t_0_left or time_min_flux + 0.1 > t_0_right:
-        return [], []
+    # if time_min_flux - 0.1 < t_0_left or time_min_flux + 0.1 > t_0_right:
+    #     # return [], []
     # elif model_data_between_peaks[:,1].min() in [t_0_left, t_0_right] or \
     # [...] Still to think about it... Cases where the minimum flux is
-    # breakpoint()
+    chi2_lr, chi2_dof_lr = [], []
+    if time_min_flux - 0.1 < t_0_left or time_min_flux + 0.1 > t_0_right or \
+            min(idx_min_flux, len(model_data_between_peaks)-idx_min_flux) < 3:
+        for item in model_data_between_peaks[::10]:
+            flag = mm_data.time <= item[0]
+            data_np = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
+            data_left = mm.MulensData(data_np[flag].T, phot_fmt='mag')
+            data_right = mm.MulensData(data_np[~flag].T, phot_fmt='mag')
+            model_1 = fit.fit_utils('scipy_minimize', data_left, settings)
+            data_r_subt = fit.fit_utils('subt_data', data_right, settings, model_1)
+            model_2 = fit.fit_utils('scipy_minimize', data_r_subt, settings)
+            data_l_subt = fit.fit_utils('subt_data', data_left, settings, model_2)
+            model_1 = fit.fit_utils('scipy_minimize', data_l_subt, settings)
+            ev_1 = mm.Event(data_l_subt, model=mm.Model(model_1))
+            ev_2 = mm.Event(data_r_subt, model=mm.Model(model_2))
+            chi2_lr.append([ev_1.get_chi2(), ev_2.get_chi2()])
+            chi2_dof_lr.append([ev_1.get_chi2() / (data_left.n_epochs-3),
+                                ev_2.get_chi2() / (data_right.n_epochs-3)])
+        ### Add fine solution later, getting the 10 or 100 central...
+        # Temporary solution for BLG505.31.30585
+        chi2_dof_l, chi2_dof_r = np.array(chi2_dof_lr).T
+        idx_min = int(np.mean([np.argmin(chi2_dof_l[:-1]), np.argmin(chi2_dof_r[:-1])]))
+        time_min_flux = model_data_between_peaks[idx_min*10][0]
 
     flag = mm_data.time <= time_min_flux
     mm_data = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
@@ -280,7 +302,7 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     init_2L1S = [round(param, 5) for param in init_2L1S]
     init_2L1S[0], init_2L1S[2] = round(init_2L1S[0], 2), round(init_2L1S[2], 2)
     diff_path = path.replace(os.getcwd(), '.')
-    add_2450000 = settings['phot_settings']['add_2450000']
+    add_2450000 = settings['phot_settings'][0]['add_2450000']
     init_2L1S = [diff_path, name.split('.')[0], add_2450000] + init_2L1S
     init_2L1S += xlim_str + [round(max(3, t_E_2L1S/5.), 3), 'between']
     f_template = settings['other_output']['yaml_files_2L1S']['yaml_template']

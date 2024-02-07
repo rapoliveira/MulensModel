@@ -284,7 +284,7 @@ def prefit_split_and_fit(data, settings, pdf=""):
     ev_st = mm.Event(data, model=mm.Model(start))
     output = fit_emcee(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
     event_1L2S = fit_utils('get_1L2S_event', data, settings, best=output[0])
-    data_left_right, t_min = split.split_after_result(event_1L2S, output)
+    data_left_right, t_min = split.split_after_result(event_1L2S, output, settings)
 
     # Fits 2xPSPL if data is good (u_0 < 3.)...
     start = get_initial_t0_u0(data, settings)[0]
@@ -663,6 +663,8 @@ def make_plots(results_states, data, settings, orig_data=None, pdf=""):
     params = list(best.keys())[:-1] if condition else list(best.keys())
     values = list(best.values())[:-1] if condition else list(best.values())
     tracer_plot(params, sampler, n_emcee['nburn'], pdf=pdf)
+    if len(best) == 8:
+        c_states, params, values = c_states[:, :-3], params[:5], values[:5]
     cplot = corner.corner(c_states, quantiles=[0.16, 0.50, 0.84],
                           labels=params, truths=values, show_titles=True)
     if pdf:
@@ -892,7 +894,7 @@ if __name__ == '__main__':
 
     data_list, file_names = read_data(path, settings['phot_settings'][0])
     # for data, name in zip(data_list[8:9], file_names[8:9]):
-    for data, name in zip(data_list[5:], file_names[5:]):
+    for data, name in zip(data_list, file_names):
 
         name = name.split('/')[-1]
         print(f'\n\033[1m * Running fit for {name}\033[0m')

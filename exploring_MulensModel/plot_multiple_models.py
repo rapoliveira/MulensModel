@@ -148,6 +148,7 @@ class PlotMultipleModels(UlensModelFit):
         gs = GridSpec(n_panels+1, 1, figure=fig)
         ax1 = fig.add_subplot(gs[:2, :])
         if self._mag_range is not False:
+            self._mag_range = [float(val) for val in self._mag_range]
             ax1.set_ylim(*self._mag_range)
         fig.add_subplot(gs[2:3, :], sharex=ax1)
 
@@ -224,7 +225,8 @@ class PlotMultipleModels(UlensModelFit):
 
         plt.axes(fig.get_axes()[0])
         event_base, subt = self._events[0], all_params['subtract_2450000']
-        event_base.plot_data(subtract_2450000=subt, label=self._event_id)
+        # event_base.plot_data(subtract_2450000=subt, label=self._event_id)
+        event_base.plot_data(subtract_2450000=subt, label="OGLE data")
 
         zip_models = zip(self._events, self._labels, self._colors)
         for (event, label, color) in zip_models:
