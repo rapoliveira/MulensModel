@@ -144,6 +144,8 @@ def fit_PSPL_twice(data_left_right, settings, result=[], start={}):
         settings['123_fits'] += ' after 1L2S result'
         t_brightest = round(result[0]['t_0_1'], 2)
         start = get_initial_t0_u0(data_1, settings, t_brightest=t_brightest)[0]
+    if not data_1.time.min() <= start['t_0'] <= data_1.time.max():
+        data_1, data_2 = data_2, data_1  # BLG611.09.12112 only?
     fix_1 = None if n_emcee['fix_blend'] is False else {data_1:
                                                         n_emcee['fix_blend']}
     ev_st = mm.Event(data_1, model=mm.Model(start), fix_blend_flux=fix_1)
@@ -249,7 +251,7 @@ def chi2_fun(theta, parameters_to_fit, event):
     return event.get_chi2()
 
 
-def jacobian(theta, event, parameters_to_fit):
+def jacobian(theta, parameters_to_fit, event):
     """
     - Set values of microlensing parameters AND
     - Calculate chi^2 gradient (also called Jacobian).

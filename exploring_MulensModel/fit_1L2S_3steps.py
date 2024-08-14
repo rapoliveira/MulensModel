@@ -48,11 +48,12 @@ def read_data(path, phot_settings, plot=False):
         tuple of lists: list of data instances and filenames to be looped.
     """
 
-    path_files = path + '/' + phot_settings.pop('name')
-    if os.path.isdir(path_files):
-        filenames = [f'{path_files}/{i}' for i in os.listdir(path_files)]
-    elif os.path.isfile(path_files):
-        filenames = [path_files]
+    dir_file = os.path.join(path, phot_settings.pop('name'))
+    if os.path.isdir(dir_file):
+        filenames = [f for f in os.listdir(dir_file) if not f.startswith('.')]
+        filenames = [os.path.join(dir_file, f) for f in filenames]
+    elif os.path.isfile(dir_file):
+        filenames = [dir_file]
     else:
         raise RuntimeError(f'Photometry file(s) {filenames} not available.')
 
@@ -71,7 +72,7 @@ def read_data(path, phot_settings, plot=False):
     return datasets, sorted(filenames)
 
 
-def get_initial_t0_u0(data, settings, t_brightest=None):
+def get_initial_t0_u0(data, settings, t_bright=None):
     """
     Get initial values for time and separation of maximum approach.
 
@@ -84,8 +85,16 @@ def get_initial_t0_u0(data, settings, t_brightest=None):
         tuple: dictionary of starting values and mag/flux of baseline.
     """
 
-    if t_brightest is None:
-        t_brightest = np.median(data.time[np.argsort(data.mag)][:10])
+    t_brightest = np.median(data.time[np.argsort(data.mag)][:9])
+    if isinstance(t_bright, np.ndarray):
+        if np.all(t_bright != 0):
+            subt = np.abs(t_bright - t_brightest + 2450000)
+            t_brightest = 2450000 + t_bright[np.argmin(subt)]
+            t_bright = np.delete(t_bright, np.argmin(subt))
+            settings['starting_parameters']['t_peaks'] = t_bright
+    elif t_bright not in [None, False]:
+        raise ValueError('t_bright should be a list of peak times or False.')
+
     if 't_E' in settings['fit_constraints']['ln_prior'].keys():
         t_E_prior = settings['fit_constraints']['ln_prior']['t_E']
         t_E_init = round(np.exp(float(t_E_prior.split()[1])), 1)
@@ -141,15 +150,21 @@ def fit_utils(method, data, settings, model=None, best=None):
                                                       n_emcee['fix_blend']}
 
     if method == 'scipy_minimize':
-        start = get_initial_t0_u0(data, settings)[0]
+        t_bright = settings['starting_parameters']['t_peaks']
+        start = get_initial_t0_u0(data, settings, t_bright)[0]
         # start['t_E'] = 10.  # 1.  ===>>> still apply gradient!!!
         ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
+        # Nelder-Mead (no gradient)
         x0, arg = list(start.values()), (list(start.keys()), ev_st)
         bnds = [(x0[0]-50, x0[0]+50), (1e-5, 3), (1e-2, None)]
         r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
                          method='Nelder-Mead')
-        model = {'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}
-        return model
+        model_nm = {'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}
+        # Newton-CG (with gradient)
+        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='Newton-CG',
+                         jac=split.jacobian, tol=1e-3)
+        model_ncg = {'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}
+        return model_ncg
 
     elif method == 'get_t_E_1L2S':
         aux_event = mm.Event(data, model=mm.Model(model))
@@ -176,6 +191,16 @@ def fit_utils(method, data, settings, model=None, best=None):
                               fix_blend_flux={data: best['blending_flux']})
         event_1L2S.get_chi2()
         return event_1L2S
+
+    elif method == 'get_peak_times':
+        tab_file = settings['starting_parameters']['t_peaks']
+        tab = Table.read(os.path.join(path, tab_file), format='ascii')
+        event = data.plot_properties['label'].split('.')[0]
+        event = event.replace('_OGLE', '').replace('_', '.')
+        line = tab[tab['obj_id'] == event]
+        t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
+        settings['starting_parameters']['t_peaks'] = t_peaks
+        return settings
 
     else:
         raise ValueError('Invalid method sent to function fit_utils().')
@@ -268,6 +293,8 @@ def prefit_split_and_fit(data, settings, pdf=""):
     # two_pspl = split.fit_PSPL_twice(data_left_right, settings, start=start)
 
     # Radek's suggestion: scipy_minimize (06/nov-[...])
+    if settings['starting_parameters']['t_peaks'] is not False:
+        settings = fit_utils('get_peak_times', data, settings)
     model_1 = fit_utils('scipy_minimize', data, settings)
     data_2_subt = fit_utils('subt_data', data, settings, model_1)
     # fm_base = get_initial_t0_u0(data_2_subt, settings)[1]  # above 3sigma?
@@ -893,7 +920,6 @@ if __name__ == '__main__':
         settings = yaml.safe_load(in_data)
 
     data_list, file_names = read_data(path, settings['phot_settings'][0])
-    # for data, name in zip(data_list[8:9], file_names[8:9]):
     for data, name in zip(data_list, file_names):
 
         name = name.split('/')[-1]
