@@ -2457,11 +2457,10 @@ class UlensModelFit(object):
         """
         self._sampler = ultranest.ReactiveNestedSampler(
             self._fit_parameters,
-            self._ln_like_MN, self._transform_unit_cube,
+            self._ln_like, transform=self._transform_unit_cube_un
         )
 
-    # def _transform_unit_cube(self, cube, n_dims, n_params):
-    def _transform_unit_cube(self, cube, n_dims=3, n_params=3):
+    def _transform_unit_cube(self, cube, n_dims, n_params):
         """
         Transform MulitNest unit cube to microlensing parameters.
 
@@ -2497,7 +2496,34 @@ class UlensModelFit(object):
                 cube[i] = fluxes[i-n_dims]
             self._last_fluxes = fluxes
 
+    def _transform_unit_cube_un(self, cube, n_dims=3, n_params=3):
+        """
+        Transform UltraNest unit cube to microlensing parameters.
+
+        [...]
+        """
+        cube_out = self._min_values + cube[:n_dims] * self._range_values
+
+        # Raphael, check: are "x_caustic_in" lines needed here?
+
+        # if hasattr(self, '_last_theta'):
+        #     self._prev_last_theta = self._last_theta.copy()
+        # else:
+        #     self._prev_last_theta = cube_out
+        # self._last_ln_like = self._ln_like(cube_out)
+        # self._last_theta = cube_out
+
+        # Raphael, check: are self._return_fluxes lines needed here?
+        if self._return_fluxes:
+            fluxes = self._get_fluxes()
+            for i in range(n_dims, n_params):
+                cube[i] = fluxes[i-n_dims]
+            self._last_fluxes = fluxes
+
+        return cube_out
+
     def _ln_like_MN(self, theta, n_dim, n_params, lnew):
+        # def _ln_like_MN(self, theta, n_dim=3, n_params=3, lnew=-1.e300):
         """
         Calculate likelihood and save if its best model.
         This is used for MultiNest fitting.
@@ -2553,7 +2579,7 @@ class UlensModelFit(object):
         """
         Run Ultranest fit
         """
-        self.un_result = self._sampler.run(min_num_live_points=400)
+        self.un_result = self._sampler.run()
 
     def _finish_fit(self):
         """
@@ -2630,6 +2656,15 @@ class UlensModelFit(object):
                 self._save_posterior_EMCEE()
         elif self._fit_method == "MultiNest":
             self._parse_results_MultiNest()
+        elif self._fit_method == "UltraNest":
+            result = self.un_result['maximum_likelihood']['point']
+            stdev = self.un_result['posterior']['stdev']
+            print("\n--\nUltraNest results:")
+            for (i, param) in enumerate(self.un_result['paramnames']):
+                print(param, ' =', result[i], ' +/-', stdev[i])
+            print('logl =', self.un_result['maximum_likelihood']['logl'])
+            print('logz =', self.un_result['logz'], '+/-',
+                  self.un_result['logzerr'])
         else:
             raise ValueError('internal bug')
 
