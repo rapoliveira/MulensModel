@@ -67,8 +67,11 @@ def split_after_result(event_1L2S, result, settings):
         tuple: two mm.Data instances, to the left and right of the minimum
     """
 
-    t_0_1, t_0_2 = result[0]['t_0_1'], result[0]['t_0_2']
-    t_0_left, t_0_right = sorted([t_0_1, t_0_2])
+    if np.all(settings['starting_parameters']['t_peaks_list_orig'] != 0):
+        t_peaks = settings['starting_parameters']['t_peaks_list_orig'] + 2.45e6
+    else:
+        t_peaks = [result[0]['t_0_1'], result[0]['t_0_2']]
+    t_0_left, t_0_right = sorted(t_peaks)
     mm_data = event_1L2S.datasets[0]
     flux_model = event_1L2S.fits[0].get_model_fluxes()
     model_data = np.c_[mm_data.time, flux_model, mm_data.err_flux]
@@ -285,6 +288,11 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     pspl_1, pspl_2 = two_pspl[0].copy(), two_pspl[1].copy()
     xlim_str = [str(int(item))+'.' for item in settings['xlim']]
 
+    # phot_settings
+    phot_settings = settings['phot_settings'][0]
+    phot_name, add_2450000 = list(phot_settings.values())[:-1]
+    diff_path = path.replace(os.getcwd(), '.')
+
     # equations for trajectory between the lenses
     if (pspl_2['t_E'] / pspl_1['t_E']) ** 2 > 1.:
         pspl_1, pspl_2 = pspl_2, pspl_1
@@ -303,9 +311,7 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     init_2L1S = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
     init_2L1S = [round(param, 5) for param in init_2L1S]
     init_2L1S[0], init_2L1S[2] = round(init_2L1S[0], 2), round(init_2L1S[2], 2)
-    diff_path = path.replace(os.getcwd(), '.')
-    add_2450000 = settings['phot_settings'][0]['add_2450000']
-    init_2L1S = [diff_path, name.split('.')[0], add_2450000] + init_2L1S
+    init_2L1S = [diff_path, phot_name, name.split('.')[0], add_2450000] + init_2L1S
     init_2L1S += xlim_str + [round(max(3, t_E_2L1S/5.), 3), 'between']
     f_template = settings['other_output']['yaml_files_2L1S']['yaml_template']
     with open(f'{path}/{f_template}', 'r', encoding='utf-8') as template_file_:
@@ -326,8 +332,8 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     s_prime = np.sqrt((diff_t0/t_E_2L1S)**2 + diff_u0**2)
     factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
     s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
-    init_2L1S[-1], init_2L1S[4] = 'beyond', round(u_0_2L1S, 5)
-    init_2L1S[6], init_2L1S[8] = round(s_2L1S, 5), round(alpha_2L1S, 5)
+    init_2L1S[-1], init_2L1S[5] = 'beyond', round(u_0_2L1S, 5)
+    init_2L1S[7], init_2L1S[9] = round(s_2L1S, 5), round(alpha_2L1S, 5)
 
     # traj_beyond: write yaml file and plot model
     with open(f'{path}/{yaml_file_2}', 'w', encoding='utf-8') as out_file_2:

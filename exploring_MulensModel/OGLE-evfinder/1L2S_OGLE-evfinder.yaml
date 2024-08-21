@@ -1,5 +1,5 @@
 phot_settings:
-    - {name: phot/, add_2450000: True, phot_fmt: mag}
+    - {name: phot/phot_obvious/, add_2450000: True, phot_fmt: mag}
 starting_parameters:
     t_peaks: t_peak-obvious-evfinder.dat  # file or False
 #     t_0: gauss 2453815.7 0.01
@@ -14,16 +14,16 @@ min_values:
     t_E: 0.
     u_0: 0.
 max_values:
-    u_0: 5. # or 6.   # Radek: 10, prev: 100   # only for 2nd fitting. Now it's for all
-    t_0: [-100., 100.]              # above and below the time range of the data
+    u_0: 5. # or 6.
+    t_0: [-100., 100.]  # above and below the time range of the data
 fitting_parameters:
     nwlk: 20
-    nstep: 3000                     # 3000 or 10000
+    nstep: 3000
     nburn: 1500
     clean_cplot: False
     ans: max_prob
     progress: True
-    fix_blend: 0.  # float value for 2L1S initial params, otherwise False
+    fix_blend: 0.  # float (0. for 2L1S initial params) or False
     sigmas: [[1., 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
     # sigmas: [[1., 0.05, 1.], [0.01, 0.01, 0.01, 0.01, 0.1]]
 plots:

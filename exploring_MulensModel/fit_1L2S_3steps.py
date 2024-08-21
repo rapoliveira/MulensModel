@@ -48,7 +48,8 @@ def read_data(path, phot_settings, plot=False):
         tuple of lists: list of data instances and filenames to be looped.
     """
 
-    dir_file = os.path.join(path, phot_settings.pop('name'))
+    phot_settings_aux = phot_settings.copy()
+    dir_file = os.path.join(path, phot_settings_aux.pop('name'))
     if os.path.isdir(dir_file):
         filenames = [f for f in os.listdir(dir_file) if not f.startswith('.')]
         filenames = [os.path.join(dir_file, f) for f in filenames]
@@ -59,7 +60,7 @@ def read_data(path, phot_settings, plot=False):
 
     datasets = []
     for fname in sorted(filenames):
-        datasets.append(mm.MulensData(file_name=fname, **phot_settings))
+        datasets.append(mm.MulensData(file_name=fname, **phot_settings_aux))
 
     if plot:
         plt.figure(tight_layout=True)
@@ -87,11 +88,11 @@ def get_initial_t0_u0(data, settings, t_bright=None):
 
     t_brightest = np.median(data.time[np.argsort(data.mag)][:9])
     if isinstance(t_bright, np.ndarray):
-        if np.all(t_bright != 0):
+        if len(t_bright) > 0 and np.all(t_bright != 0):
             subt = np.abs(t_bright - t_brightest + 2450000)
             t_brightest = 2450000 + t_bright[np.argmin(subt)]
             t_bright = np.delete(t_bright, np.argmin(subt))
-            settings['starting_parameters']['t_peaks'] = t_bright
+            settings['starting_parameters']['t_peaks_list'] = t_bright
     elif t_bright not in [None, False]:
         raise ValueError('t_bright should be a list of peak times or False.')
 
@@ -150,7 +151,7 @@ def fit_utils(method, data, settings, model=None, best=None):
                                                       n_emcee['fix_blend']}
 
     if method == 'scipy_minimize':
-        t_bright = settings['starting_parameters']['t_peaks']
+        t_bright = settings['starting_parameters']['t_peaks_list']
         start = get_initial_t0_u0(data, settings, t_bright)[0]
         # start['t_E'] = 10.  # 1.  ===>>> still apply gradient!!!
         ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
@@ -159,12 +160,13 @@ def fit_utils(method, data, settings, model=None, best=None):
         bnds = [(x0[0]-50, x0[0]+50), (1e-5, 3), (1e-2, None)]
         r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
                          method='Nelder-Mead')
-        model_nm = {'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}
-        # Newton-CG (with gradient)
-        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='Newton-CG',
-                         jac=split.jacobian, tol=1e-3)
-        model_ncg = {'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}
-        return model_ncg
+        models = [{'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}]
+        # Options with gradient from jacobian
+        # L-BFGS-B and TNC accept `bounds``, Newton-CG doesn't
+        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='L-BFGS-B',
+                         bounds=bnds, jac=split.jacobian, tol=1e-3)
+        models.append({'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]})
+        return models[1]
 
     elif method == 'get_t_E_1L2S':
         aux_event = mm.Event(data, model=mm.Model(model))
@@ -199,7 +201,8 @@ def fit_utils(method, data, settings, model=None, best=None):
         event = event.replace('_OGLE', '').replace('_', '.')
         line = tab[tab['obj_id'] == event]
         t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
-        settings['starting_parameters']['t_peaks'] = t_peaks
+        settings['starting_parameters']['t_peaks_list'] = t_peaks
+        settings['starting_parameters']['t_peaks_list_orig'] = t_peaks
         return settings
 
     else:

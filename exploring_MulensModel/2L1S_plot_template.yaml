@@ -1,16 +1,16 @@
 photometry_files:
-    - {{file_name: {0:}/phot/{1:}.dat, add_2450000: {2:}}}
+    - {{file_name: {0:}/{1:}/{2:}.dat, add_2450000: {3:}}}
 # Define model to be plotted:
 model:
     parameters: t_0 u_0 t_E s q alpha
-    values: {3:} {4:} {5:} {6:} {7:} {8:}
-    methods: {9:} point_source {10:}
+    values: {4:} {5:} {6:} {7:} {8:} {9:}
+    methods: {10:} point_source {11:}
     default method: point_source_point_lens
 # Now set the file where you want the light curve to be plotted:
 plots:
     best model:
-        file: {0:}/yaml_files_2L1S/plots/{1:}_2L1S_init_plot_{11:}.png
-        time range: {9:} {10:}
+        file: {0:}/yaml_files_2L1S/plots/{2:}_2L1S_init_plot_{12:}.png
+        time range: {10:} {11:}
     trajectory:
-        file: {0:}/yaml_files_2L1S/plots/{1:}_2L1S_init_traj_{11:}.png
-        time range: {9:} {10:}
+        file: {0:}/yaml_files_2L1S/plots/{2:}_2L1S_init_traj_{12:}.png
+        time range: {10:} {11:}

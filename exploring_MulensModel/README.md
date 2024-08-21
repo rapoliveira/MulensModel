@@ -1,23 +1,19 @@
-# Raphael's workspace within the MulensModel repository 
-
-This script multiplies...
+# Raphael's workspace within the MulensModel repository
 
 The main script is [fit_1L2S_3steps.py](https://github.com/rapoliveira/MulensModel/blob/master/exploring_MulensModel/fit_1L2S_3steps.py), which does...
 
-<!-- - Give other references or details from the ESO proposal? -->
+## Run binary source (1L2S) fitting
 
-<!-- ## Instructions to run the script
+Add a folder containing the data, yaml file, folders for output...
 
-If the Python libraries astropy, matplotlib, numpy and scipy are installed, a single command do the entire analysis and produces the two outputs:
-```
-python3 multiply_integrate_spectra_tcurves.py
-```
+The first key of the YAML file is `phot_settings`, which contains a list of dictionaries with at least `name`, `add_2450000` (True or False) and `phot_fmt` (mag or flux) keys.
+For each item, if the value of `name` is a directory, all the photometry files inside it will be executed in the fitting process.
+If `name` is a file, it will be used for the only fitting.
+The photometry file should be in .dat format with at least three columns, i.e. time, magnitude and magnitude error.
 
-Other transmission curves and spectra can be adopted, as the functions are general and a 1d-interpolation is applied to account for the different grids in wavelength.
-New transmission curves should be added to the [transm_curves/](https://github.com/rapoliveira/ESO_prop_extinction/tree/master/transm_curves) folder, with the first two columns containing the wavelength and efficiency.
-New stellar spectra in fits format should be added to the [spectra/](https://github.com/rapoliveira/ESO_prop_extinction/tree/master/spectra) folder and listed in the file spectra_coords.txt. The spectra should contain at least two columns named as WAVE and FLUX, as well as the X-Shooter spectra.
+## Run binary lens (2L1S) fitting
 
-It is possible to compute JHKs magnitudes of the stellar spectra using the transmission curves from HAWK-I or 2MASS ([Skrutskie et al. 2006](https://ui.adsabs.harvard.edu/abs/2006AJ....131.1163S/abstract)), to be compared with values from Simbad or VVV. To do that for each of the JHKs filters, edit line 182 and uncomment line 265 of the main code, and print the array JHKmag to the terminal. -->
+ulens_model_fit.py yaml file...
 
 ## To-Do List (Raphael)
 - [X] Improve fixed value of blending_flux in the yaml input
@@ -40,6 +36,6 @@ It is possible to compute JHKs magnitudes of the stellar spectra using the trans
 - [X] Script to plot multiple fits for the same data (22-28.nov)
 - [ ] Check if there is a second peak above 3 sigma to go for 1L2S...
 - [ ] Include and test all cases, including those with a single peak or skewed(?)
-- [ ] Apply gradient in scipy_minimize of PSPL fit
+- [X] Apply gradient in scipy_minimize of PSPL fit
 
-Last updated: 26 Dec 2023
+Last updated: 19 Aug 2024
