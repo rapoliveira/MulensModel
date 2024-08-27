@@ -8,7 +8,6 @@ starting_parameters:
     q: gauss {8:} 0.001
     alpha: gauss {9:} 0.001
 model:
-    # methods: 2452800. point_source 2452833. VBBL 2452845. point_source 2452860. # (example16)
     methods: {10:} point_source {11:}
     default method: point_source_point_lens
 min_values:
@@ -19,7 +18,7 @@ min_values:
     alpha: 0.
 max_values:
     # u_0: 0.
-    s: 10.
+    s: 100.
     q: 1.
     alpha: 360.
 fitting_parameters:

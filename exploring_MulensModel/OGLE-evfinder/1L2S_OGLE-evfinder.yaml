@@ -47,4 +47,4 @@ other_output:
     yaml_files_2L1S:
         t_or_f: True
         yaml_template: ../1L2S-to-2L1S_template.yaml
-        yaml_dir_name: ./yaml_files_2L1S/{}-2L1S.yaml
+        yaml_dir_name: yaml_files_2L1S/{}-2L1S.yaml

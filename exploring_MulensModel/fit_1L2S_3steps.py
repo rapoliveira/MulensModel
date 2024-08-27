@@ -842,7 +842,8 @@ def plot_fit(best, data, settings, orig_data=None, best_50=None, pdf=""):
     return event
 
 
-def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
+def write_tables(path, settings, name, two_pspl, result,
+                 fmt="ascii.commented_header"):
     """
     Save the chains, yaml results and table with results, according with the
     paths and other informations provided in the settings file.
@@ -871,16 +872,21 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
     perc = dict(item for item in result[3].items() if 'flux' not in item[0])
     perc_fluxes = dict(item for item in result[3].items() if 'flux' in item[0])
     print()
+    acc_fraction = np.mean(result[1].acceptance_fraction)
     acor = result[1].get_autocorr_time(quiet=True, discard=n_emcee['nburn'])
     deg_of_freedom = result[4].datasets[0].n_epochs - len(bst)
-    lst = [np.mean(result[1].acceptance_fraction), np.mean(acor), '', '',
+    pspl_1, pspl_2 = two_pspl
+    pspl_1 = str([round(val, 7) for val in pspl_1.values()])
+    pspl_2 = str([round(val, 7) for val in pspl_2.values()])
+    xlim = str([round(val, 2) for val in settings['xlim']])
+    lst = ['', pspl_1, pspl_2, xlim, acc_fraction, np.mean(acor), '', '',
            result[4].chi2, deg_of_freedom, '', '']
-    dict_perc_best = {2: perc, 3: perc_fluxes, 6: bst, 7: fluxes}
+    dict_perc_best = {6: perc, 7: perc_fluxes, 10: bst, 11: fluxes}
 
     # filling and writing the template
     for idx, dict_obj in dict_perc_best.items():
         for key, val in dict_obj.items():
-            if idx in [2, 3]:
+            if idx in [6, 7]:
                 uncerts = f'+{val[2]-val[1]:.5f}, -{val[1]-val[0]:.5f}'
                 lst[idx] += f'    {key}: [{val[1]:.5f}, {uncerts}]\n'
             else:
@@ -890,7 +896,9 @@ def write_tables(path, settings, name, result, fmt="ascii.commented_header"):
         template_result = file_.read()
     if 'yaml output' in outputs.keys():
         yaml_fname = outputs['yaml output']['file name'].format(name)
-        with open(f'{path}/{yaml_fname}', 'w') as yaml_results:
+        yaml_path = os.path.join(path, yaml_fname)
+        lst[0] = sys.argv[1]
+        with open(yaml_path, 'w') as yaml_results:
             yaml_results.write(template_result.format(*lst))
 
     # saving results to table with all the events (e.g. W16)
@@ -934,7 +942,7 @@ if __name__ == '__main__':
         # result, cplot = make_all_fittings(data, settings, pdf=pdf)
         res_event, two_pspl = result[4], result[5]
         pdf.close()
-        write_tables(path, settings, name, result)
+        write_tables(path, settings, name, two_pspl, result)
 
         pdf_dir = settings['plots']['triangle']['file_dir']
         pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
