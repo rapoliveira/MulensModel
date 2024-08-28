@@ -4,27 +4,49 @@ import yaml
 
 import numpy as np
 
-# import MulensModel as mm
+import MulensModel as mm
 from ulens_model_fit import UlensModelFit
 
 
 class PrepareBinaryLens(object):
     """
-    Auxiliary CLASS to get initial 2L1S parameters from split 1L2S data.
+    Class to calculate the initial parameters and prepare the YAML files to
+    be used as input in binary lens (2L1S) fitting. Two files are produced,
+    one for the trajectory between the lenses and another for the trajectory
+    beyond the lenses.
 
-    Remove it? Improve doc...
-    The auxiliary code uses the binary source results as input, finds the minimum
-    of the light curve between t_0_1 and t_0_2, splits the data into t < t_0_1 and
-    t > t_0_2, and fits PSPL to each of them. These results generate the initial
-    parameters for the binary lens fitting (ulens_fit, yaml file).
+    It uses as attributes the results of the binary source (1L2S) fitting
+    and the two PSPL models.
 
-    Args:
-        object (_type_): _description_
+    It can be imported with the required attributes or called as standalone
+    code with a YAML file (1L2S result) via the command line.
+
+    Usage:
+        python3 prepare_binary_lens.py <path>/<id>_results_1L2S.yaml
+
+    Attributes :
+        path_orig_settings: *str*
+            path to the original settings YAML file, which contains the
+            input information for the 1L2S fitting
+        pspl_1, pspl_2: *list*
+            lists of the PSPL models fitted separately, which will be used
+            to get the initial parameters for the 2L1S model
+        xlim: *list*
+            list of the lower and upper limits for the x-axis in the plot,
+            used here to set the limits for point_source model
+        fitted_parameters: *dict*
+            median and 1-sigma errors for the fitted parameters (t_0_1,
+            u_0_1, t_0_2, u_0_2, t_E), from the 1L2S fitting
+        fitted_fluxes: *dict*
+            median and 1-sigma errors for the fitted fluxes (source_flux_1,
+            source_flux_2, blending_flux)
+        best_model: *dict*
+            dictionary with information about the model with minimum chi2,
+            should contain chi2, dof, Parameters and Fluxes
     """
 
-    def __init__(self, path_orig_settings=None, pspl_1=None, pspl_2=None,
-                 xlim=None, fitted_parameters=None, fitted_fluxes=None,
-                 best_model=None):
+    def __init__(self, path_orig_settings, pspl_1, pspl_2, xlim,
+                 fitted_parameters, fitted_fluxes, best_model):
 
         self.path_orig_settings = path_orig_settings
         self.get_paths_and_orig_settings()
@@ -36,40 +58,20 @@ class PrepareBinaryLens(object):
         self.fitted_parameters = fitted_parameters
         self.fitted_fluxes = fitted_fluxes
         self.best_chi2 = best_model['chi2']
-        self.best_dof = best_model['dof']
         self.best_params = best_model['Parameters']
         self.best_fluxes = best_model['Fluxes']
 
         self.check_input_types()
+        self.check_binary_source_chi2()
         self.get_filenames_and_templates()
         params_between = self.get_initial_params_traj_between()
         params_beyond = self.get_initial_params_traj_beyond(params_between)
         self.round_params_and_save(params_between, 'between')
         self.round_params_and_save(params_beyond, 'beyond')
 
-    def check_input_types(self):
-        """
-        Check the input types...
-        """
-        strings = [self.path_orig_settings]
-        lists = [self.pspl_1, self.pspl_2, self.xlim_str]
-        floats = [self.best_chi2]
-        ints = [self.best_dof]
-        dicts = [self.fitted_parameters, self.fitted_fluxes, self.best_params,
-                 self.best_fluxes]
-
-        is_str = [isinstance(val, str) for val in strings]
-        is_list = [isinstance(val, list) for val in lists]
-        is_float = [isinstance(val, float) for val in floats]
-        is_int = [isinstance(val, int) for val in ints]
-        is_dict = [isinstance(val, dict) for val in dicts]
-
-        if not all(is_str + is_list + is_float + is_int + is_dict):
-            raise TypeError('Input types are not correct in YAML file.')
-
     def get_paths_and_orig_settings(self):
         """
-        Get the paths and original settings from the yaml file.
+        Get the paths and original settings from the YAML file.
         """
         self.path = os.path.dirname(os.path.realpath(__file__))
         yaml_path = os.path.dirname(os.path.realpath(sys.argv[1]))
@@ -79,12 +81,52 @@ class PrepareBinaryLens(object):
         fname = os.path.join(self.path, self.path_orig_settings)
         with open(fname, 'r', encoding='utf-8') as data:
             self.settings = yaml.safe_load(data)
-        self.phot_name = self.settings['phot_settings'][0]['name']
-        self.add_2450000 = self.settings['phot_settings'][0]['add_2450000']
+        self.phot_settings = self.settings['phot_settings'][0]
+        self.phot_name = self.phot_settings['name']
+        self.add_2450000 = self.phot_settings['add_2450000']
+
+    def check_input_types(self):
+        """
+        Check the input types: strings, lists, floats and dicts.
+        """
+        strings = [self.path_orig_settings]
+        lists = [self.pspl_1, self.pspl_2, self.xlim_str]
+        floats = [self.best_chi2]
+        dicts = [self.fitted_parameters, self.fitted_fluxes, self.best_params,
+                 self.best_fluxes]
+
+        is_str = [isinstance(val, str) for val in strings]
+        is_list = [isinstance(val, list) for val in lists]
+        is_float = [isinstance(val, float) for val in floats]
+        is_dict = [isinstance(val, dict) for val in dicts]
+
+        if not all(is_str + is_list + is_float + is_dict):
+            raise TypeError('At least one type is not correct in YAML file.')
+
+    def check_binary_source_chi2(self):
+        """
+        Check if the chi2 of the binary source model is consistent.
+        """
+        filename = os.path.join(self.base_path, self.phot_name, self.event_id)
+        self.phot_settings.pop('name')
+        self.phot_settings['file_name'] = filename + '.dat'
+        data = mm.MulensData(**self.phot_settings)
+
+        fluxes = self.best_fluxes
+        fix_source = {data: [fluxes[p] for p in fluxes if 'source' in p]}
+        event_1L2S = mm.Event(data, model=mm.Model(self.best_params),
+                              fix_source_flux=fix_source,
+                              fix_blend_flux={data: fluxes['blending_flux']})
+        chi2 = event_1L2S.get_chi2()
+
+        if abs(chi2 - self.best_chi2) > 2e-4:
+            raise ValueError('Chi2 of the best model is not consistent.')
 
     def get_filenames_and_templates(self):
         """
-        Get the filenames for the between/beyond yaml files.
+        Get the filenames and templates for the two YAML files: trajectories
+        between and beyond the lenses. A template to obtain the plots (using
+        UlensModelFit) is also recorded.
         """
         yaml_2L1S = self.settings['other_output']['yaml_files_2L1S']
         yaml_dir = yaml_2L1S['yaml_dir_name']
@@ -152,7 +194,10 @@ class PrepareBinaryLens(object):
 
     def round_params_and_save(self, params, between_or_beyond):
         """
-        Improve... Write the two 2L1S yaml files using the template.
+        Round the parameters to five decimal places (except for t_0 and t_E,
+        which are rounded to two decimal places) and save them in the YAML
+        file. The best model and trajectory plots are also saved using the
+        UlensModelFit class.
         """
         round_dec = (2, 5, 2, 5, 5, 5)
         lst = [round(param, round_dec[i]) for i, param in enumerate(params)]

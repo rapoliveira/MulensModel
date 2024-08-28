@@ -2,9 +2,6 @@ phot_settings:
     - {name: phot/phot_obvious/, add_2450000: True, phot_fmt: mag}
 starting_parameters:
     t_peaks: t_peak-obvious-evfinder.dat  # file or False
-#     t_0: gauss 2453815.7 0.01
-#     u_0: gauss -1.6 0.01
-#     t_E: gauss 118.7 1.
 fit_constraints:
     # negative_blending_flux_sigma_mag: 5. # 3. # 20.
     # no_negative_blending_flux: True # sharp alternative
@@ -14,7 +11,7 @@ min_values:
     t_E: 0.
     u_0: 0.
 max_values:
-    u_0: 5. # or 6.
+    u_0: 5.  # or 6.
     t_0: [-100., 100.]  # above and below the time range of the data
 fitting_parameters:
     nwlk: 20
