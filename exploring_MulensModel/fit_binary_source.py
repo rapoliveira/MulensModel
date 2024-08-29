@@ -33,7 +33,7 @@ import split_data_for_binary_lens as split
 from ulens_model_fit import UlensModelFit
 
 
-class FitBinarySource(object):
+class FitBinarySource(UlensModelFit):
     """
     Add documentation later...
     """
@@ -43,36 +43,38 @@ class FitBinarySource(object):
                  prior_limits=None, fit_constraints=None, min_values=None,
                  max_values=None, plots=None, other_output=None):
 
-        # Use underscore _ or not ???
-        self.photometry_files_orig = photometry_files[0]
-        self.fitting_parameters = fitting_parameters
-        self._fit_method = fit_method
-        self._starting_parameters_input = starting_parameters
-        self.prior_limits = prior_limits
-        self.fit_constraints = fit_constraints
-        self.min_values = min_values
-        self.max_values = max_values
-        self.plots = plots
-        self.other_output = other_output
+        super().__init__(photometry_files,
+                         fitting_parameters=fitting_parameters,
+                         fit_method=fit_method,
+                         starting_parameters=starting_parameters,
+                         prior_limits=prior_limits,
+                         fit_constraints=fit_constraints,
+                         min_values=min_values,
+                         max_values=max_values, plots=plots,
+                         other_output=other_output)
+
+        self.photometry_files_orig = photometry_files
+        self.starting_parameters = starting_parameters
 
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
-        UlensModelFit._check_fitting_method(self)
+        self._check_fit_constraints()
+        self._parse_fit_constraints_keys()
         self.read_data()
 
         for data, name in zip(self.data_list, self.file_names):
+            self.datasets = [data]
             self.event_id = name.split('/')[-1].split('.')[0]
-            # add self.photometry_files here...
-            print(f'\n\033[1m * Running fit for {self.event_id}\033[0m')
-            breakpoint()
+            self.photometry_files = self.photometry_files_orig.copy()
+            self.photometry_files[0]['file_name'] += self.event_id + '.dat'
+            self.setup_fit()
             self.run_fit()
-            print("\n--------------------------------------------------")
 
     def read_data(self):
         """
         Read a catalogue or list of catalogues and creates MulensData instance.
         """
-        self.phot_fmt = self.photometry_files_orig['phot_fmt']
-        phot_settings_aux = self.photometry_files_orig.copy()
+        self.phot_fmt = self.photometry_files_orig[0]['phot_fmt']
+        phot_settings_aux = self.photometry_files_orig[0].copy()
         dir_file = os.path.join(self.path, phot_settings_aux.pop('file_name'))
 
         if os.path.isdir(dir_file):
@@ -89,6 +91,31 @@ class FitBinarySource(object):
             data = mm.MulensData(file_name=fname, **phot_settings_aux)
             self.data_list.append(data)
 
+    def setup_fit(self):
+        """
+        Write later... Only setup stuff here!!!
+        """
+        print(f'\n\033[1m * Running fit for {self.event_id}\033[0m')
+        self.t_peaks, self.t_peaks_orig = [], []
+        if self.starting_parameters['t_peaks'] is not False:
+            self._get_peak_times()
+
+        fix_blend = self._fitting_parameters['fix_blend']
+        fix_dict = {self.datasets[0]: fix_blend}
+        self.fix_blend = None if fix_blend is False else fix_dict
+
+    def _get_peak_times(self):
+        """
+        Write docstrings later...
+        """
+        tab_file = self.starting_parameters['t_peaks']
+        tab = Table.read(os.path.join(self.path, tab_file), format='ascii')
+
+        event = self.event_id.replace('_OGLE', '').replace('_', '.')
+        line = tab[tab['obj_id'] == event]
+        self.t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
+        self.t_peaks_orig = self.t_peaks.copy()
+
     def run_fit(self):
         """
         Run the fit, print the output, and make the plots.
@@ -96,71 +123,150 @@ class FitBinarySource(object):
         This function does not accept any parameters. All the settings
         are passed via __init__().
         """
+        self._quick_fits_pspl_subtract_pspl()
+        breakpoint()
+
         # *** Add all the fitting routine here... calling short functions!
+        # 2) EMCEE to get a first estimate for 1L2S
+        # 3) Split data and fit PSPL twice with EMCEE
+        # 4) Get final 1L2S fit...
 
-        # if self._task != "fit":
-        #     raise ValueError('wrong settings to run .run_fit()')
+        print("\n--------------------------------------------------")
 
-        # self._check_plots_parameters()
-        # self._check_model_parameters()
-        # self._check_other_fit_parameters()
-        # self._parse_other_output_parameters()
-        # self._get_datasets()
+    def _quick_fits_pspl_subtract_pspl(self):
+        """
+        First step: quick estimate of PSPL models using scipy.minimize.
+        Two fits are carried out: with original data and then with data
+        subtracted from the first fit.
+        """
+        self.quick_pspl_1 = self._run_scipy_minimize()
+        self._subtract_model_from_data()
+        self.quick_pspl_2 = self._run_scipy_minimize(self.subt_data)
+        pass
 
+    def _run_scipy_minimize(self, data=None):
+        """
+        Write later... Decide about gradient and which...
+        """
+        if data is None:
+            data = self.datasets[0]
+        self._guess_starting_params(self.t_peaks)
+        model = mm.Model(self.start_dict)
+        ev_st = mm.Event(data, model=model, fix_blend_flux=self.fix_blend)
 
-def get_initial_t0_u0(data, settings, t_bright=None):
-    """
-    Get initial values for time and separation of maximum approach.
+        # Nelder-Mead (no gradient)
+        x0 = list(self.start_dict.values())
+        arg = (list(self.start_dict.keys()), ev_st)
+        bnds = [(x0[0]-50, x0[0]+50), (1e-5, 3), (1e-2, None)]
+        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
+                         method='Nelder-Mead')
+        results = [{'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}]
 
-    Args:
-        data (mm.MulensData): data instance of a single event.
-        settings (dict): all input settings from yaml file.
-        t_brightest (float, optional): fixed value for t_0. Defaults to None.
+        # Options with gradient from jacobian
+        # L-BFGS-B and TNC accept `bounds``, Newton-CG doesn't
+        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='L-BFGS-B',
+                         bounds=bnds, jac=split.jacobian, tol=1e-3)
+        results.append({'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]})
 
-    Returns:
-        tuple: dictionary of starting values and mag/flux of baseline.
-    """
+        return results[1]
 
-    t_brightest = np.median(data.time[np.argsort(data.mag)][:9])
-    if isinstance(t_bright, np.ndarray):
-        if len(t_bright) > 0 and np.all(t_bright != 0):
-            subt = np.abs(t_bright - t_brightest + 2450000)
-            t_brightest = 2450000 + t_bright[np.argmin(subt)]
-            t_bright = np.delete(t_bright, np.argmin(subt))
-            settings['starting_parameters']['t_peaks_list'] = t_bright
-    elif t_bright not in [None, False]:
-        raise ValueError('t_bright should be a list of peak times or False.')
+    def _guess_starting_params(self, t_bright=None):
+        """
+        Guess PSPL parameters: t_0 from brightest points, u_0 from the
+        flux difference between baseline and brightest point and t_E from
+        a quick Nelder-Mead minimization.
+        """
+        self._guess_initial_t_0(t_bright)
+        self._guess_initial_u_0()
+        self._guess_initial_t_E()
+        start = {'t_0': round(self.t_init, 1), 'u_0': self.u_init,
+                 't_E': self.t_E_init}
 
-    if 't_E' in settings['fit_constraints']['ln_prior'].keys():
-        t_E_prior = settings['fit_constraints']['ln_prior']['t_E']
-        t_E_init = round(np.exp(float(t_E_prior.split()[1])), 1)
-    else:
-        t_E_init = 25.
+        self._scipy_minimize_t_E_only(start)
+        self.start_dict = start.copy()
+        self.start_dict['t_E'] = round(self.t_E_scipy, 2)
 
-    # Starting the baseline (360d or half-data window?)
-    t_diff = data.time - t_brightest
-    t_window = [t_brightest + min(t_diff)/2., t_brightest + max(t_diff)/2.]
-    t_mask = (data.time < t_window[0]) | (data.time > t_window[1])
-    flux_base = np.median(data.flux[t_mask])
-    flux_mag_base = (flux_base, np.std(data.flux[t_mask]),
-                     np.median(data.mag[t_mask]), np.std(data.mag[t_mask]))
+    def _guess_initial_t_0(self, t_bright=None):
+        """
+        Write later...
+        """
+        data_time = self.datasets[0].time
+        data_mag = self.datasets[0].mag
+        t_brightest = np.median(data_time[np.argsort(data_mag)][:9])
 
-    # Get the brightest flux around t_brightest (to avoid outliers)
-    idx_min = np.argmin(abs(t_diff))
-    min_, max_ = max(idx_min-5, 0), min(idx_min+6, len(data.mag))
-    # mag_peak = min(data.mag[min_:max_]) # [idx_min-5:idx_min+6]
-    flux_peak = max(data.flux[min_:max_])
+        if isinstance(t_bright, np.ndarray):
+            if len(t_bright) > 0 and np.all(t_bright != 0):
+                subt = np.abs(t_bright - t_brightest + 2450000)
+                t_brightest = 2450000 + t_bright[np.argmin(subt)]
+                self.t_peaks = np.delete(t_bright, np.argmin(subt))
+        elif t_bright not in [None, False]:
+            raise ValueError('t_bright should be a list of peak times, False'
+                             ' or None.')
 
-    # Compute magnification and corresponding u_0(A)
-    magnif_A = flux_peak / flux_base
-    u_init = round(np.sqrt(2*magnif_A / np.sqrt(magnif_A**2 - 1) - 2), 3)
+        self.t_init = t_brightest
 
-    # Get optimal t_E and create dictionary
-    start = {'t_0': round(t_brightest, 1), 'u_0': u_init, 't_E': t_E_init}
-    t_E_optimal = fit_utils('get_t_E_1L2S', data, settings, start)
-    start['t_E'] = round(t_E_optimal[2], 2)
+    def _guess_initial_u_0(self):
+        """
+        Write later...
+        """
+        data = self.datasets[0]
 
-    return start, flux_mag_base
+        # Starting the baseline (360d or half-data window?)
+        t_diff = data.time - self.t_init
+        t_window = [self.t_init + min(t_diff)/2., self.t_init + max(t_diff)/2.]
+        t_mask = (data.time < t_window[0]) | (data.time > t_window[1])
+        flux_base = np.median(data.flux[t_mask])
+        # flux_mag_base = (flux_base, np.std(data.flux[t_mask]),
+        #                  np.median(data.mag[t_mask]),
+        #                  np.std(data.mag[t_mask]))
+
+        # Get the brightest flux around self.t_init (to avoid outliers)
+        idx_min = np.argmin(abs(t_diff))
+        min_, max_ = max(idx_min-5, 0), min(idx_min+6, len(data.mag))
+        # mag_peak = min(data.mag[min_:max_]) # [idx_min-5:idx_min+6]
+        flux_peak = max(data.flux[min_:max_])
+
+        # Compute magnification and corresponding u_0(A)
+        magnif_A = flux_peak / flux_base
+        self.u_init = np.sqrt(2*magnif_A / np.sqrt(magnif_A**2 - 1) - 2)
+        self.u_init = round(self.u_init, 3)
+
+    def _guess_initial_t_E(self):
+        """
+        Write later...
+        """
+        if 't_E' in self._fit_constraints['prior'].keys():
+            t_E_prior = self._fit_constraints['prior']['t_E']
+            self.t_E_init = round(np.exp(float(t_E_prior.split()[1])), 1)
+        else:
+            self.t_E_init = 25.
+
+    def _scipy_minimize_t_E_only(self, model):
+        """
+        Write...
+        """
+        aux_event = mm.Event(self.datasets[0], model=mm.Model(model))
+        x0, arg = [model['t_E']], (['t_E'], aux_event)
+        bnds = [(0.1, None)]
+        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
+                         method='Nelder-Mead')
+
+        # model['t_E'] = r_.x[0]
+        # return list(model.values())
+        self.t_E_scipy = r_.x[0]
+
+    def _subtract_model_from_data(self):
+        """
+        Write later...
+        """
+        data = self.datasets[0]
+        model = mm.Model(self.quick_pspl_1)
+        aux_event = mm.Event(data, model=model, fix_blend_flux=self.fix_blend)
+        (flux, blend) = aux_event.get_flux_for_dataset(0)
+
+        fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
+        subt_data = np.c_[data.time, fsub, data.err_flux][fsub > 0]
+        self.subt_data = mm.MulensData(subt_data.T, phot_fmt='flux')
 
 
 def fit_utils(method, data, settings, model=None, best=None):
@@ -185,25 +291,7 @@ def fit_utils(method, data, settings, model=None, best=None):
     fix = None if n_emcee['fix_blend'] is False else {data:
                                                       n_emcee['fix_blend']}
 
-    if method == 'scipy_minimize':
-        t_bright = settings['starting_parameters']['t_peaks_list']
-        start = get_initial_t0_u0(data, settings, t_bright)[0]
-        # start['t_E'] = 10.  # 1.  ===>>> still apply gradient!!!
-        ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
-        # Nelder-Mead (no gradient)
-        x0, arg = list(start.values()), (list(start.keys()), ev_st)
-        bnds = [(x0[0]-50, x0[0]+50), (1e-5, 3), (1e-2, None)]
-        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
-                         method='Nelder-Mead')
-        models = [{'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}]
-        # Options with gradient from jacobian
-        # L-BFGS-B and TNC accept `bounds``, Newton-CG doesn't
-        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, method='L-BFGS-B',
-                         bounds=bnds, jac=split.jacobian, tol=1e-3)
-        models.append({'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]})
-        return models[1]
-
-    elif method == 'get_t_E_1L2S':
+    if method == 'get_t_E_1L2S':
         aux_event = mm.Event(data, model=mm.Model(model))
         x0, arg = [model['t_E']], (['t_E'], aux_event)
         bnds = [(0.1, None)]
@@ -211,14 +299,6 @@ def fit_utils(method, data, settings, model=None, best=None):
                          method='Nelder-Mead')
         model['t_E'] = r_.x[0]
         return list(model.values())
-
-    elif method == 'subt_data':
-        aux_event = mm.Event(data, model=mm.Model(model), fix_blend_flux=fix)
-        (flux, blend) = aux_event.get_flux_for_dataset(0)
-        fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
-        subt_data = np.c_[data.time, fsub, data.err_flux][fsub > 0]
-        subt_data = mm.MulensData(subt_data.T, phot_fmt='flux')
-        return subt_data
 
     elif method == 'get_1L2S_event':
         bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
@@ -229,87 +309,8 @@ def fit_utils(method, data, settings, model=None, best=None):
         event_1L2S.get_chi2()
         return event_1L2S
 
-    elif method == 'get_peak_times':
-        tab_file = settings['starting_parameters']['t_peaks']
-        tab = Table.read(os.path.join(path, tab_file), format='ascii')
-        event = data.plot_properties['label'].split('.')[0]
-        event = event.replace('_OGLE', '').replace('_', '.')
-        line = tab[tab['obj_id'] == event]
-        t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
-        settings['starting_parameters']['t_peaks_list'] = t_peaks
-        settings['starting_parameters']['t_peaks_list_orig'] = t_peaks
-        return settings
-
     else:
         raise ValueError('Invalid method sent to function fit_utils().')
-
-
-def make_all_fittings(data, settings, pdf=""):
-    """
-    OLD function for doing 2xPSPL fits, subtraction and then 1L2S fit.
-
-    Args:
-        data (mm.MulensData): data instance of a single event.
-        settings (dict): all input settings from yaml file.
-        pdf (str, optional): pdf file to save the plot. Defaults to "".
-
-    Returns:
-        tuple: emcee output, mm.Event, two PSPL results and corner plot.
-    """
-
-    # 1st fit: Fitting a PSPL/1L1S without parallax...
-    start = get_initial_t0_u0(data, settings)[0]  # , fm_base
-    n_emcee = settings['fitting_parameters']
-    fix = None if n_emcee['fix_blend'] is False else {data:
-                                                      n_emcee['fix_blend']}
-    ev_st = mm.Event(data, model=mm.Model(start), fix_blend_flux=fix)
-    settings['123_fits'] = '1st fit'
-    output = fit_emcee(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
-    settings['xlim'] = get_xlim2(output[0], data, n_emcee)
-    event, cplot = make_plots(output[:-1], data, settings, pdf=pdf)
-
-    # Subtracting light curve from first fit
-    model = mm.Model(dict(list(output[0].items())[:3]))
-    aux_event = mm.Event(data, model=model, fix_blend_flux=fix)
-    (flux, blend) = aux_event.get_flux_for_dataset(0)
-    fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
-    subt_data = [data.time[fsub > 0], fsub[fsub > 0], data.err_flux[fsub > 0]]
-    subt_data = mm.MulensData(subt_data, phot_fmt='flux')
-
-    # 2nd fit: PSPL to the subtracted data
-    t_brightest = np.mean(subt_data.time[np.argsort(subt_data.mag)][:10])
-    start = {'t_0': round(t_brightest, 1), 'u_0': 0.1, 't_E': output[0]['t_E']}
-    fix = None if n_emcee['fix_blend'] is False else {subt_data:
-                                                      n_emcee['fix_blend']}
-    ev_st = mm.Event(subt_data, model=mm.Model(start), fix_blend_flux=fix)
-    settings['123_fits'] = '2nd fit'
-    output_1 = fit_emcee(start, n_emcee['sigmas'][0], ln_prob, ev_st, settings)
-    two_pspl = (output[0], output_1[0])
-    try:
-        make_plots(output_1[:-1], subt_data, settings, data, pdf=pdf)
-        t_lims = [min(data.time) - 500, max(data.time) + 500]
-        # if output_1[-1]['u_0'][2] > 20:  # fix that 15? 20?
-        # if output_1[0]['u_0'] > 5:
-        if output_1[0]['u_0'] > 5 and output_1[-1]['u_0'][2] > 20:
-            return output + (event, two_pspl), cplot
-        elif output_1[0]['t_0'] < t_lims[0] or output_1[0]['t_0'] > t_lims[1]:
-            return output + (event, two_pspl), cplot
-    except ValueError:
-        return output + (event, two_pspl), cplot
-
-    # Third fit: 1L2S, source flux ratio not set yet (regression)
-    start = {'t_0_1': output[0]['t_0'], 'u_0_1': output[0]['u_0'], 't_0_2':
-             output_1[0]['t_0'], 'u_0_2': output_1[0]['u_0'], 't_E': 25}
-    ev_st = mm.Event(data, model=mm.Model(start))
-    settings['123_fits'] = '3rd fit'
-    output_2 = fit_emcee(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
-    event_2, cplot_2 = make_plots(output_2[:-1], data, settings, pdf=pdf)
-
-    # if max(output_2[-1]['u_0_1'][2], output_2[-1]['u_0_2'][2]) > 3.:
-    # if max(output_2[-1]['u_0_1'][1], output_2[-1]['u_0_2'][1]) > 4.:
-    if max(output_2[0]['u_0_1'], output_2[0]['u_0_2']) > 3.1:
-        return output + (event, two_pspl), cplot
-    return output_2 + (event_2, two_pspl), cplot_2
 
 
 def prefit_split_and_fit(data, settings, pdf=""):
