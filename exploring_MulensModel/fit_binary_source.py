@@ -30,47 +30,82 @@ import yaml
 
 import MulensModel as mm
 import split_data_for_binary_lens as split
+from ulens_model_fit import UlensModelFit
 
 
-def read_data(path, phot_settings, plot=False):
+class FitBinarySource(object):
     """
-    Read a catalogue or list of catalogues and creates MulensData instance.
-
-    Args:
-        path (str): directory of the Python script and catalogues.
-        phot_settings (dict): photometry settings from the yaml file.
-        plot (bool, optional): Plot the catalogues or not. Defaults to False.
-
-    Raises:
-        RuntimeError: if photometry files(s) are not available.
-
-    Returns:
-        tuple of lists: list of data instances and filenames to be looped.
+    Add documentation later...
     """
 
-    phot_settings_aux = phot_settings.copy()
-    dir_file = os.path.join(path, phot_settings_aux.pop('name'))
-    if os.path.isdir(dir_file):
-        filenames = [f for f in os.listdir(dir_file) if not f.startswith('.')]
-        filenames = [os.path.join(dir_file, f) for f in filenames]
-    elif os.path.isfile(dir_file):
-        filenames = [dir_file]
-    else:
-        raise RuntimeError(f'Photometry file(s) {filenames} not available.')
+    def __init__(self, photometry_files, fitting_parameters,
+                 fit_method=None, starting_parameters=None,
+                 prior_limits=None, fit_constraints=None, min_values=None,
+                 max_values=None, plots=None, other_output=None):
 
-    datasets = []
-    for fname in sorted(filenames):
-        datasets.append(mm.MulensData(file_name=fname, **phot_settings_aux))
+        # Use underscore _ or not ???
+        self.photometry_files_orig = photometry_files[0]
+        self.fitting_parameters = fitting_parameters
+        self._fit_method = fit_method
+        self._starting_parameters_input = starting_parameters
+        self.prior_limits = prior_limits
+        self.fit_constraints = fit_constraints
+        self.min_values = min_values
+        self.max_values = max_values
+        self.plots = plots
+        self.other_output = other_output
 
-    if plot:
-        plt.figure(tight_layout=True)
-        for dataset in datasets:
-            dataset.plot(phot_fmt=phot_settings['phot_fmt'], alpha=0.5)
-        plt.xlabel('Time')
-        plt.ylabel(phot_settings['phot_fmt'])
-        plt.show()
+        self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
+        UlensModelFit._check_fitting_method(self)
+        self.read_data()
 
-    return datasets, sorted(filenames)
+        for data, name in zip(self.data_list, self.file_names):
+            self.event_id = name.split('/')[-1].split('.')[0]
+            # add self.photometry_files here...
+            print(f'\n\033[1m * Running fit for {self.event_id}\033[0m')
+            breakpoint()
+            self.run_fit()
+            print("\n--------------------------------------------------")
+
+    def read_data(self):
+        """
+        Read a catalogue or list of catalogues and creates MulensData instance.
+        """
+        self.phot_fmt = self.photometry_files_orig['phot_fmt']
+        phot_settings_aux = self.photometry_files_orig.copy()
+        dir_file = os.path.join(self.path, phot_settings_aux.pop('file_name'))
+
+        if os.path.isdir(dir_file):
+            fnames = [f for f in os.listdir(dir_file) if not f.startswith('.')]
+            fnames = [os.path.join(dir_file, f) for f in fnames]
+        elif os.path.isfile(dir_file):
+            fnames = [dir_file]
+        else:
+            raise RuntimeError(f'Photometry file(s) {fnames} not available.')
+        self.file_names = sorted(fnames)
+
+        self.data_list = []
+        for fname in self.file_names:
+            data = mm.MulensData(file_name=fname, **phot_settings_aux)
+            self.data_list.append(data)
+
+    def run_fit(self):
+        """
+        Run the fit, print the output, and make the plots.
+
+        This function does not accept any parameters. All the settings
+        are passed via __init__().
+        """
+        # *** Add all the fitting routine here... calling short functions!
+
+        # if self._task != "fit":
+        #     raise ValueError('wrong settings to run .run_fit()')
+
+        # self._check_plots_parameters()
+        # self._check_model_parameters()
+        # self._check_other_fit_parameters()
+        # self._parse_other_output_parameters()
+        # self._get_datasets()
 
 
 def get_initial_t0_u0(data, settings, t_bright=None):
@@ -926,40 +961,47 @@ def write_tables(path, settings, name, two_pspl, result,
 if __name__ == '__main__':
 
     np.random.seed(12343)
-    path = os.path.dirname(os.path.realpath(sys.argv[1]))
-    with open(sys.argv[1], encoding='utf-8') as in_data:
-        settings = yaml.safe_load(in_data)
+    if len(sys.argv) != 2:
+        raise ValueError('Exactly one argument needed - YAML file')
 
-    data_list, file_names = read_data(path, settings['phot_settings'][0])
-    for data, name in zip(data_list, file_names):
+    input_file = sys.argv[1]
+    with open(input_file, 'r', encoding='utf-8') as data:
+        settings = yaml.safe_load(data)
 
-        name = name.split('/')[-1]
-        print(f'\n\033[1m * Running fit for {name}\033[0m')
-        # breakpoint()
-        pdf_dir = settings['plots']['all_plots']['file_dir']
-        pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
-        result, cplot = prefit_split_and_fit(data, settings, pdf=pdf)
-        # result, cplot = make_all_fittings(data, settings, pdf=pdf)
-        res_event, two_pspl = result[4], result[5]
-        pdf.close()
-        write_tables(path, settings, name, two_pspl, result)
+    fit_binary_source = FitBinarySource(**settings)
+    fit_binary_source.run_fit()
+    breakpoint()
 
-        pdf_dir = settings['plots']['triangle']['file_dir']
-        pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
-        pdf.savefig(cplot)
-        pdf.close()
-        pdf_dir = settings['plots']['best model']['file_dir']
-        pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_fit.pdf")
-        plot_fit(result[0], data, settings, pdf=pdf)
-        pdf.close()
+    # data_list, file_names = read_data(path, settings['phot_settings'][0])
+    # for data, name in zip(data_list, file_names):
 
-        # Split data into two and fit PSPL to get 2L1S initial params
-        make_2L1S = settings['other_output']['yaml_files_2L1S']['t_or_f']
-        if make_2L1S and res_event.model.n_sources == 2:
-            # data_lr = split.split_after_result(res_event, result)[0]
-            # if isinstance(data_lr[0], list):  ### IMPORTANT LATER!
-            #     continue
-            # two_pspl = split.fit_PSPL_twice(data_lr, settings, result)
-            split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
-        print("\n--------------------------------------------------")
-    # breakpoint()
+    #     name = name.split('/')[-1]
+    #     print(f'\n\033[1m * Running fit for {name}\033[0m')
+    #     breakpoint()
+    #     pdf_dir = settings['plots']['all_plots']['file_dir']
+    #     pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
+    #     result, cplot = prefit_split_and_fit(data, settings, pdf=pdf)
+    #     # result, cplot = make_all_fittings(data, settings, pdf=pdf)
+    #     res_event, two_pspl = result[4], result[5]
+    #     pdf.close()
+    #     write_tables(path, settings, name, two_pspl, result)
+
+    #     pdf_dir = settings['plots']['triangle']['file_dir']
+    #     pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
+    #     pdf.savefig(cplot)
+    #     pdf.close()
+    #     pdf_dir = settings['plots']['best model']['file_dir']
+    #     pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_fit.pdf")
+    #     plot_fit(result[0], data, settings, pdf=pdf)
+    #     pdf.close()
+
+    #     # Split data into two and fit PSPL to get 2L1S initial params
+    #     make_2L1S = settings['other_output']['yaml_files_2L1S']['t_or_f']
+    #     if make_2L1S and res_event.model.n_sources == 2:
+    #         # data_lr = split.split_after_result(res_event, result)[0]
+    #         # if isinstance(data_lr[0], list):  ### IMPORTANT LATER!
+    #         #     continue
+    #         # two_pspl = split.fit_PSPL_twice(data_lr, settings, result)
+    #         split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
+    #     print("\n--------------------------------------------------")
+    # # breakpoint()
