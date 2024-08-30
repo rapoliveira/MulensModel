@@ -147,12 +147,13 @@ class PrepareBinaryLens(object):
         Get the initial parameters for the trajectory between the lenses.
         PSPL lists contain: t_0, u_0, t_E, source_flux, blending_flux.
         """
-        # invert PSPL values if t_E_2 > t_E_1, to avoid q > 1
+        # Invert PSPL values if t_E_2 > t_E_1, to avoid q > 1
         if (self.pspl_2[2] / self.pspl_1[2]) ** 2 > 1.:
             self.pspl_1, self.pspl_2 = self.pspl_2, self.pspl_1
 
         # Calculate t_0, u_0, t_E and q for the 2L1S model
         q_2L1S = (self.pspl_2[2] / self.pspl_1[2]) ** 2
+        q_2L1S = max(q_2L1S, 1e-5)
         t_0_2L1S = (q_2L1S * self.pspl_2[0] + self.pspl_1[0]) / (1 + q_2L1S)
         u_0_2L1S = (q_2L1S * self.pspl_2[1] - self.pspl_1[1]) / (1 + q_2L1S)
         t_E_2L1S = np.sqrt(self.pspl_1[2]**2 + self.pspl_2[2]**2)

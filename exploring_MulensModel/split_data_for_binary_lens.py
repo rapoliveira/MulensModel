@@ -16,8 +16,8 @@ from scipy.signal import argrelextrema
 
 import MulensModel as mm
 from ulens_model_fit import UlensModelFit
-from fit_1L2S_3steps import fit_emcee, ln_prob, get_initial_t0_u0
-import fit_1L2S_3steps as fit
+from fit_1L2S_3steps_bkpi import fit_emcee, ln_prob, get_initial_t0_u0
+import fit_1L2S_3steps_bkpi as fit
 
 
 def split_before_result(mm_data, f_base, f_base_sigma):
@@ -297,6 +297,7 @@ def generate_2L1S_yaml_files(path, two_pspl, name, settings):
     if (pspl_2['t_E'] / pspl_1['t_E']) ** 2 > 1.:
         pspl_1, pspl_2 = pspl_2, pspl_1
     q_2L1S = (pspl_2['t_E'] / pspl_1['t_E']) ** 2
+    q_2L1S = max(q_2L1S, 1e-5)
     t_0_2L1S = (q_2L1S*pspl_2['t_0'] + pspl_1['t_0']) / (1 + q_2L1S)
     u_0_2L1S = (q_2L1S*pspl_2['u_0'] - pspl_1['u_0']) / (1 + q_2L1S)  # neg!!!
     t_E_2L1S = np.sqrt(pspl_1['t_E']**2 + pspl_2['t_E']**2)
