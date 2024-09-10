@@ -100,9 +100,14 @@ class FitBinarySource(UlensModelFit):
         if self.starting_parameters['t_peaks'] is not False:
             self._get_peak_times()
 
-        fix_blend = self._fitting_parameters['fix_blend']
+        fix_blend = self._fitting_parameters.pop('fix_blend')
         fix_dict = {self.datasets[0]: fix_blend}
         self.fix_blend = None if fix_blend is False else fix_dict
+        self.sigmas_emcee = self._fitting_parameters.pop('sigmas')
+        self.ans_emcee = self._fitting_parameters.pop('ans')
+        self.clean_cplot = self._fitting_parameters.pop('clean_cplot')
+        self._parse_fitting_parameters_EMCEE()
+        self._get_n_walkers()
 
     def _get_peak_times(self):
         """
@@ -137,7 +142,7 @@ class FitBinarySource(UlensModelFit):
 
         self._fit_parameters_other = []
         output = self._fit_emcee(self.binary_source_start,
-                                 self._fitting_parameters['sigmas'][1],
+                                 self.sigmas_emcee[1],
                                  self._ln_prob, ev_st, settings)
         breakpoint()
         self.event_temp = self._get_binary_source_event(output[0])
@@ -160,7 +165,6 @@ class FitBinarySource(UlensModelFit):
         self.quick_pspl_1 = self._run_scipy_minimize()
         self._subtract_model_from_data()
         self.quick_pspl_2 = self._run_scipy_minimize(self.subt_data)
-        pass
 
     def _run_scipy_minimize(self, data=None):
         """
@@ -269,8 +273,6 @@ class FitBinarySource(UlensModelFit):
         r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
                          method='Nelder-Mead')
 
-        # model_dict['t_E'] = r_.x[0]
-        # return list(model_dict.values())
         self.t_E_scipy = r_.x[0]
 
     def _subtract_model_from_data(self):
@@ -320,7 +322,6 @@ class FitBinarySource(UlensModelFit):
             theta (np.array): chain parameters to sample the prior.
             event (mm.Event): Event instance containing the model and datasets.
             params_to_fit (list): name of the parameters to be fitted.
-            settings (dict): all settings from yaml file.
 
         Raises:
             ValueError: if the maximum values for t_0 are not a list.
@@ -414,6 +415,17 @@ class FitBinarySource(UlensModelFit):
 
         return ln_prior_ + ln_like_, fluxes[0], fluxes[1]
 
+    def _setup_fit_emcee_binary(self):
+        """
+        Setup EMCEE fit for binary source model.
+        """
+        self.params_to_fit = list(self.binary_source_start.keys())
+        self._n_fit_parameters = len(self.params_to_fit)
+        sigmas = self.sigmas_emcee[1]
+        # self._n_burn = self._fitting_parameters['n_burn']
+        breakpoint()
+        # CONTINUE FROM HERE :: working, adapting to example_16!!!
+
     # def _setup_fit_EMCEE(self):
     #     """
     #     Setup EMCEE fit  --  COPIED FROM EXAMPLE_16 so far...
@@ -439,40 +451,35 @@ class FitBinarySource(UlensModelFit):
             tuple: with EMCEE results (best, sampler, samples, percentiles)
         """
 
-        params_to_fit, mean = list(dict_start.keys()), list(dict_start.values())
-        n_dim, sigmas = len(params_to_fit), np.array(sigmas)
-        n_emcee = self._fitting_parameters
-        nwlk, nstep, nburn = n_emcee['nwlk'], n_emcee['nstep'], n_emcee['nburn']
-        emcee_args = (event, params_to_fit)
+        params_to_fit = list(dict_start.keys())  # OK!
+        n_dim, sigmas = len(params_to_fit), np.array(sigmas)  # OK!
+        n_emcee = self._fitting_parameters  # OK!
+        nwlk, nstep = n_emcee['n_walkers'], n_emcee['n_steps']  # OK!
+        nburn = n_emcee['n_burn']  # OK!
+        emcee_args = (event, params_to_fit)  # Continue from here...
         nfit = settings.get('123_fits', '3rd fit')  # to be removed!
         term = ['PSPL to original', 'PSPL to subtracted', '1L2S to original']
         print(f'\n\033[1m -- {nfit}: {term[int(nfit[0])-1]} data...\033[0m')
+        breakpoint()
 
         # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
         # if nfit in ['1st fit', '3rd fit']:
         if nfit in ['3rd fit']:
-            mean = np.array(list(dict_start.values()))
-            self._init_params_emcee = mean
-            start = abs(mean + np.random.randn(nwlk, n_dim)*10*sigmas)
+            init_params = np.array(list(dict_start.values()))
+            random_sample = np.random.randn(nwlk, n_dim) * 10 * sigmas
+            start = abs(init_params + random_sample)
             sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, args=emcee_args)
             sampler.run_mcmc(start, int(nstep/2), progress=n_emcee['progress'])
-            breakpoint()
             samples = sampler.chain[:, int(nburn/2):, :].reshape((-1, n_dim))
-            mean = np.percentile(samples, 50, axis=0)
-            self._init_params_emcee = mean
+            init_params = np.percentile(samples, 50, axis=0)
             # prob_temp = sampler.lnprobability[:, int(nburn/2):].reshape((-1))
             # mean = samples[np.argmax(prob_temp)]
-        start = [mean + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
-        start = abs(np.array(start))
+        start = abs(init_params + random_sample / 10)
 
         # Run emcee (this can take some time):
         blobs = [('source_fluxes', list), ('blend_fluxes', float)]
         sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, blobs_dtype=blobs,
                                         args=emcee_args)  # backend=backend)
-        # sampler = emcee.EnsembleSampler(
-        #     nwlk, n_dim, ln_prob,
-        #     moves=[(emcee.moves.DEMove(),0.8),(emcee.moves.DESnookerMove(),0.2)],
-        #     args=(event, params_to_fit, spec))
         sampler.run_mcmc(start, nstep, progress=n_emcee['progress'])
 
         # Setting up multi-threading (std: fork in Linux, spawn in Mac)
@@ -515,7 +522,7 @@ class FitBinarySource(UlensModelFit):
 
         # We extract best model parameters and chi2 from event:
         best_idx = np.argmax(prob)
-        best = samples[best_idx, :-1] if n_emcee['ans'] == 'max_prob' else perc[1]
+        best = samples[best_idx, :-1] if self.ans_emcee == 'max_prob' else perc[1]
         for (key, value) in zip(params_to_fit, best):
             if key == 'flux_ratio':
                 event.fix_source_flux_ratio = {event.datasets[0]: value}
