@@ -312,7 +312,7 @@ class FitBinarySource(UlensModelFit):
 
         return -0.5 * event.chi2, event.fluxes[0]
 
-    def _ln_prior(self, theta, event, params_to_fit, settings):
+    def _ln_prior(self, theta, event, params_to_fit):
         """
         Apply all the priors (minimum, maximum and distributions).
 
@@ -331,32 +331,33 @@ class FitBinarySource(UlensModelFit):
             float: -np.inf or prior value to be added on the likelihood.
         """
 
-        stg_priors = settings['fit_constraints']
-        stg_min_max = [settings['min_values'], settings['max_values']]
+        stg_priors = self._fit_constraints
+        stg_min_max = [self._min_values, self._max_values]
         if not isinstance(stg_min_max[1]['t_0'], list):
             raise ValueError('t_0 max_values should be of list type.')
         ln_prior_t_E, ln_prior_fluxes = 0., 0.
 
         # Ensuring that t_0_1 < t_0_2 or t_0_1 > t_0_2
         if event.model.n_sources == 2:
-            init_params = settings['init_params_1L2S']
-            if (init_params[0] > init_params[2]) and (theta[0] < theta[2]):
+            init_t_0_1, init_t_0_2 = self._init_params_emcee[:3:2]
+            if (init_t_0_1 > init_t_0_2) and (theta[0] < theta[2]):
                 return -np.inf
-            elif (init_params[2] > init_params[0]) and (theta[2] < theta[0]):
+            elif (init_t_0_2 > init_t_0_1) and (theta[2] < theta[0]):
                 return -np.inf
 
         # Limiting min and max values (all minimum, then t_0 and u_0 maximum)
-        for param in params_to_fit:
+        for (idx, param) in enumerate(params_to_fit):
             if param[:3] in stg_min_max[0].keys():
-                if theta[params_to_fit.index(param)] < stg_min_max[0][param[:3]]:
+                if theta[idx] < stg_min_max[0][param[:3]]:
                     return -np.inf
             if 't_0' in param and 't_0' in stg_min_max[1].keys():
-                t_range = event.datasets[0].time[::len(event.datasets[0].time)-1]
+                data_time = event.datasets[0].time
+                t_range = data_time[::len(data_time)-1]
                 t_range = t_range + np.array(stg_min_max[1]['t_0'])
-                if not t_range[0] < theta[params_to_fit.index(param)] < t_range[1]:
+                if not t_range[0] < theta[idx] < t_range[1]:
                     return -np.inf
             if 'u_0' in param and 'u_0' in stg_min_max[1].keys():
-                if theta[params_to_fit.index(param)] > stg_min_max[1]['u_0']:
+                if theta[idx] > stg_min_max[1]['u_0']:
                     return -np.inf
 
         # Prior in t_E (only lognormal so far, tbd: Mroz17/20)
@@ -382,13 +383,13 @@ class FitBinarySource(UlensModelFit):
             for flux in [*event.source_fluxes[0], event.blend_fluxes[0]]:
                 if flux < 0.:
                     ln_prior_fluxes += -1/2 * (flux/sig_)**2  # 1000, 100 or less?
-        elif 'no_negative_blending_flux' in stg_priors.keys():
+        elif self._fit_constraints['no_negative_blending_flux']:
             if event.blend_fluxes[0] < 0:
                 return -np.inf
 
         return 0.0 + ln_prior_t_E + ln_prior_fluxes
 
-    def _ln_prob(self, theta, event, params_to_fit, settings):
+    def _ln_prob(self, theta, event, params_to_fit):
         """
         Combines likelihood value and priors for a given set of parameters.
 
@@ -396,13 +397,12 @@ class FitBinarySource(UlensModelFit):
             theta (np.array): chain parameters to sample the likelihood+prior.
             event (mm.Event): Event instance containing the model and datasets.
             params_to_fit (list): name of the parameters to be fitted.
-            settings (dict): all settings from yaml file.
 
         Returns:
             tuple: value of prior+likelihood, source and blending fluxes.
         """
 
-        ln_prior_ = self._ln_prior(theta, event, params_to_fit, settings)
+        ln_prior_ = self._ln_prior(theta, event, params_to_fit)
         if not np.isfinite(ln_prior_):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
         ln_like_, fluxes = self._ln_like(theta, event, params_to_fit)
@@ -441,26 +441,25 @@ class FitBinarySource(UlensModelFit):
 
         params_to_fit, mean = list(dict_start.keys()), list(dict_start.values())
         n_dim, sigmas = len(params_to_fit), np.array(sigmas)
-        n_emcee = settings['fitting_parameters']
+        n_emcee = self._fitting_parameters
         nwlk, nstep, nburn = n_emcee['nwlk'], n_emcee['nstep'], n_emcee['nburn']
-        emcee_args = (event, params_to_fit, settings)
-        nfit = settings['123_fits'] if '123_fits' in settings.keys() else '3rd fit'
+        emcee_args = (event, params_to_fit)
+        nfit = settings.get('123_fits', '3rd fit')  # to be removed!
         term = ['PSPL to original', 'PSPL to subtracted', '1L2S to original']
         print(f'\n\033[1m -- {nfit}: {term[int(nfit[0])-1]} data...\033[0m')
 
         # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
         # if nfit in ['1st fit', '3rd fit']:
         if nfit in ['3rd fit']:
-            data = event.datasets[0]
-            mean = fit_utils('get_t_E_1L2S', data, settings, model=dict_start)
-            settings['init_params_1L2S'] = mean
-            start = [mean + np.random.randn(n_dim)*10*sigmas for i in range(nwlk)]
-            start = abs(np.array(start))
+            mean = np.array(list(dict_start.values()))
+            self._init_params_emcee = mean
+            start = abs(mean + np.random.randn(nwlk, n_dim)*10*sigmas)
             sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, args=emcee_args)
             sampler.run_mcmc(start, int(nstep/2), progress=n_emcee['progress'])
+            breakpoint()
             samples = sampler.chain[:, int(nburn/2):, :].reshape((-1, n_dim))
             mean = np.percentile(samples, 50, axis=0)
-            settings['init_params_1L2S'] = mean
+            self._init_params_emcee = mean
             # prob_temp = sampler.lnprobability[:, int(nburn/2):].reshape((-1))
             # mean = samples[np.argmax(prob_temp)]
         start = [mean + np.random.randn(n_dim) * sigmas for i in range(nwlk)]
