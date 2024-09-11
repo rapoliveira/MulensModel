@@ -138,12 +138,19 @@ class FitBinarySource(UlensModelFit):
         self._scipy_minimize_t_E_only(self.binary_source_start)
         self.binary_source_start['t_E'] = self.t_E_scipy
         model_start = mm.Model(self.binary_source_start)
-        ev_st = mm.Event(self.datasets[0], model=model_start)
+        self.ev_st = mm.Event(self.datasets[0], model=model_start)
 
+        # are these lines needed for self._set_model_parameters() ???
+        # self._starting_parameters_input.pop('t_peaks')
+        # self._check_starting_parameters_type()
+        # self._set_fit_parameters_unsorted()
+        # self._get_parameters_ordered()
+        self._fit_parameters = []
         self._fit_parameters_other = []
-        output = self._fit_emcee(self.binary_source_start,
-                                 self.sigmas_emcee[1],
-                                 self._ln_prob, ev_st, settings)
+        self._setup_fit_emcee_binary()
+        self._run_emcee()
+        #
+        output = self._fit_emcee(self.binary_source_start, self.ev_st)
         breakpoint()
         self.event_temp = self._get_binary_source_event(output[0])
         # event_1L2S = fit_utils('get_1L2S_event', data, settings, best=output[0])
@@ -153,6 +160,7 @@ class FitBinarySource(UlensModelFit):
         # 2) EMCEE to get a first estimate for 1L2S -- OK!
         # 3) Split data and fit PSPL twice with EMCEE
         # 4) Get final 1L2S fit...
+        # 5) Check chi2 of the last fit... if not good, check first PSPL guess
 
         print("\n--------------------------------------------------")
 
@@ -288,21 +296,22 @@ class FitBinarySource(UlensModelFit):
         subt_data = np.c_[data.time, fsub, data.err_flux][fsub > 0]
         self.subt_data = mm.MulensData(subt_data.T, phot_fmt='flux')
 
-    def _ln_like(self, theta, event, params_to_fit):
+    def _ln_like(self, theta):
         """
         Get the value of the likelihood function from chi2 of event.
         NOTE: Still adapt it to use example_16 functions!!!
 
         Args:
             theta (np.array): chain parameters to sample the likelihood.
-            event (mm.Event): event instance containing the model and datasets.
             params_to_fit (list): microlensing parameters to be fitted.
 
         Returns:
             tuple: likelihood value (-0.5*chi2) and fluxes of the event.
         """
 
-        for (param, theta_) in zip(params_to_fit, theta):
+        # still try self._set_model_parameters() here!!!
+        event = self._event
+        for (param, theta_) in zip(self.params_to_fit, theta):
             # Here we handle fixing source flux ratio:
             if param == 'flux_ratio':
                 # implemented for a single dataset
@@ -314,14 +323,12 @@ class FitBinarySource(UlensModelFit):
 
         return -0.5 * event.chi2, event.fluxes[0]
 
-    def _ln_prior(self, theta, event, params_to_fit):
+    def _ln_prior(self, theta):
         """
         Apply all the priors (minimum, maximum and distributions).
 
         Args:
             theta (np.array): chain parameters to sample the prior.
-            event (mm.Event): Event instance containing the model and datasets.
-            params_to_fit (list): name of the parameters to be fitted.
 
         Raises:
             ValueError: if the maximum values for t_0 are not a list.
@@ -332,6 +339,7 @@ class FitBinarySource(UlensModelFit):
             float: -np.inf or prior value to be added on the likelihood.
         """
 
+        event = self._event
         stg_priors = self._fit_constraints
         stg_min_max = [self._min_values, self._max_values]
         if not isinstance(stg_min_max[1]['t_0'], list):
@@ -340,14 +348,14 @@ class FitBinarySource(UlensModelFit):
 
         # Ensuring that t_0_1 < t_0_2 or t_0_1 > t_0_2
         if event.model.n_sources == 2:
-            init_t_0_1, init_t_0_2 = self._init_params_emcee[:3:2]
+            init_t_0_1, init_t_0_2 = self._init_emcee[:3:2]
             if (init_t_0_1 > init_t_0_2) and (theta[0] < theta[2]):
                 return -np.inf
             elif (init_t_0_2 > init_t_0_1) and (theta[2] < theta[0]):
                 return -np.inf
 
         # Limiting min and max values (all minimum, then t_0 and u_0 maximum)
-        for (idx, param) in enumerate(params_to_fit):
+        for (idx, param) in enumerate(self.params_to_fit):
             if param[:3] in stg_min_max[0].keys():
                 if theta[idx] < stg_min_max[0][param[:3]]:
                     return -np.inf
@@ -365,7 +373,7 @@ class FitBinarySource(UlensModelFit):
         # OBS: Still need to remove the ignore warnings line (related to log?)
         if 't_E' in stg_priors['prior'].keys():
             t_E_prior = stg_priors['prior']['t_E']
-            t_E_val = theta[params_to_fit.index('t_E')]
+            t_E_val = theta[self.params_to_fit.index('t_E')]
             if 'lognormal' in t_E_prior:
                 # if t_E >= 1.:
                 warnings.filterwarnings("ignore", category=RuntimeWarning)  # bad!
@@ -390,9 +398,10 @@ class FitBinarySource(UlensModelFit):
 
         return 0.0 + ln_prior_t_E + ln_prior_fluxes
 
-    def _ln_prob(self, theta, event, params_to_fit):
+    def _ln_prob(self, theta):
         """
         Combines likelihood value and priors for a given set of parameters.
+        #  function returning logarithm of probability.
 
         Args:
             theta (np.array): chain parameters to sample the likelihood+prior.
@@ -403,10 +412,10 @@ class FitBinarySource(UlensModelFit):
             tuple: value of prior+likelihood, source and blending fluxes.
         """
 
-        ln_prior_ = self._ln_prior(theta, event, params_to_fit)
+        ln_prior_ = self._ln_prior(theta)
         if not np.isfinite(ln_prior_):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
-        ln_like_, fluxes = self._ln_like(theta, event, params_to_fit)
+        ln_like_, fluxes = self._ln_like(theta)
 
         # In the cases that source fluxes are negative we want to return
         # these as if they were not in priors.
@@ -417,70 +426,38 @@ class FitBinarySource(UlensModelFit):
 
     def _setup_fit_emcee_binary(self):
         """
-        Setup EMCEE fit for binary source model.
+        Setup EMCEE fit for binary source model...
+        # sigmas (list): sigma values used to find starting values.
         """
         self.params_to_fit = list(self.binary_source_start.keys())
         self._n_fit_parameters = len(self.params_to_fit)
-        sigmas = self.sigmas_emcee[1]
-        # self._n_burn = self._fitting_parameters['n_burn']
-        breakpoint()
-        # CONTINUE FROM HERE :: working, adapting to example_16!!!
+        self._sigma_emcee = self.sigmas_emcee[1]
+        self._n_burn = self._fitting_parameters['n_burn']
 
-    # def _setup_fit_EMCEE(self):
-    #     """
-    #     Setup EMCEE fit  --  COPIED FROM EXAMPLE_16 so far...
-    #     """
-    #     # self._sampler = emcee.EnsembleSampler(
-    #     #     self._n_walkers, self._n_fit_parameters, self._ln_prob)
+        pre_str = '3rd ' if hasattr(self, '_sampler') else 'Pre-'
+        print(f'\n\033[1m -- {pre_str}fit: 1L2S to original data...\033[0m')
 
-    def _fit_emcee(self, dict_start, sigmas, ln_prob, event, settings):
+    def _run_emcee(self):
         """
-        Fit model using EMCEE (Foreman-Mackey et al. 2013) and print results.
-
-        Args:
-            dict_start (dict): dict that specifies values of these parameters.
-            sigmas (list): sigma values used to find starting values.
-            ln_prob (func): function returning logarithm of probability.
-            event (mm.Event): Event instance containing the model and datasets.
-            settings (dict): all settings from yaml file.
-
-        Raises:
-            RuntimeError: if number of dimensions different than 3 or 5 is given
-
-        Returns:
-            tuple: with EMCEE results (best, sampler, samples, percentiles)
+        Setup and run EMCEE...
+        TO-DO :::
+        - Add backend=backend to sampler later!!!
+        - Try multiprocessing once more...
         """
+        self._event = self.ev_st
+        self._init_emcee = list(self.binary_source_start.values())
+        rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
+        self._rand_sample = rand_sample * self._sigma_emcee
+        if len(self._init_emcee) == 5:
+            self._run_quick_emcee()
+        start = abs(np.array(self._init_emcee) + rand_sample)
+        self._kwargs_EMCEE['initial_state'] = start
 
-        params_to_fit = list(dict_start.keys())  # OK!
-        n_dim, sigmas = len(params_to_fit), np.array(sigmas)  # OK!
-        n_emcee = self._fitting_parameters  # OK!
-        nwlk, nstep = n_emcee['n_walkers'], n_emcee['n_steps']  # OK!
-        nburn = n_emcee['n_burn']  # OK!
-        emcee_args = (event, params_to_fit)  # Continue from here...
-        nfit = settings.get('123_fits', '3rd fit')  # to be removed!
-        term = ['PSPL to original', 'PSPL to subtracted', '1L2S to original']
-        print(f'\n\033[1m -- {nfit}: {term[int(nfit[0])-1]} data...\033[0m')
-        breakpoint()
-
-        # Doing the 1L2S fitting in two steps (or all? best in 1st and 3rd fits)
-        # if nfit in ['1st fit', '3rd fit']:
-        if nfit in ['3rd fit']:
-            init_params = np.array(list(dict_start.values()))
-            random_sample = np.random.randn(nwlk, n_dim) * 10 * sigmas
-            start = abs(init_params + random_sample)
-            sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, args=emcee_args)
-            sampler.run_mcmc(start, int(nstep/2), progress=n_emcee['progress'])
-            samples = sampler.chain[:, int(nburn/2):, :].reshape((-1, n_dim))
-            init_params = np.percentile(samples, 50, axis=0)
-            # prob_temp = sampler.lnprobability[:, int(nburn/2):].reshape((-1))
-            # mean = samples[np.argmax(prob_temp)]
-        start = abs(init_params + random_sample / 10)
-
-        # Run emcee (this can take some time):
         blobs = [('source_fluxes', list), ('blend_fluxes', float)]
-        sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, blobs_dtype=blobs,
-                                        args=emcee_args)  # backend=backend)
-        sampler.run_mcmc(start, nstep, progress=n_emcee['progress'])
+        self._sampler = emcee.EnsembleSampler(
+            self._n_walkers, self._n_fit_parameters, self._ln_prob,
+            blobs_dtype=blobs)
+        self._sampler.run_mcmc(**self._kwargs_EMCEE)
 
         # Setting up multi-threading (std: fork in Linux, spawn in Mac)
         # multiprocessing.set_start_method("fork", force=True)
@@ -491,12 +468,48 @@ class FitBinarySource(UlensModelFit):
         #     sampler.run_mcmc(start, nstep, progress=n_emcee['progress'])
         # pool.close()
 
+    def _run_quick_emcee(self):
+        """
+        Write here... Only if 1L2S fit...
+        """
+        start = abs(np.array(self._init_emcee) + 10*self._rand_sample)
+        self._kwargs_EMCEE['initial_state'] = start
+        sampler = emcee.EnsembleSampler(
+            self._n_walkers, self._n_fit_parameters, self._ln_prob)
+        nsteps_temp = int(self._kwargs_EMCEE['nsteps'] / 2)
+        kwargs_temp = {**self._kwargs_EMCEE, 'nsteps': nsteps_temp}
+        sampler.run_mcmc(**kwargs_temp)
+
+        samples = sampler.chain[:, int(self._n_burn/2):, :]
+        samples = samples.reshape((-1, self._n_fit_parameters))
+        self._init_emcee = np.percentile(samples, 50, axis=0)
+
+    def _fit_emcee(self, dict_start, event):
+        """
+        Fit model using EMCEE (Foreman-Mackey et al. 2013) and print results.
+
+        Args:
+            dict_start (dict): dict that specifies values of these parameters.
+            event (mm.Event): Event instance containing the model and datasets.
+
+        Returns:
+            tuple: with EMCEE results (best, sampler, samples, percentiles)
+        """
+
+        # !!! I ONLY LEFT THE LINES THAT ARE NOT IN THE OTHER FUNCTIONS !!!
+        params_to_fit = list(dict_start.keys())  # OK!
+        n_dim = len(params_to_fit)  # OK!
+        n_emcee = self._fitting_parameters  # OK!
+        nburn = n_emcee['n_burn']  # OK!
+
+        # Removed a lot of old code from here...
+
         # Remove burn-in samples and reshape:
-        samples = sampler.chain[:, nburn:, :].reshape((-1, n_dim))
-        blobs = sampler.get_blobs()[nburn:].T.flatten()
+        samples = self._sampler.chain[:, nburn:, :].reshape((-1, n_dim))
+        blobs = self._sampler.get_blobs()[nburn:].T.flatten()
         source_fluxes = np.array(list(chain.from_iterable(blobs))[::2])
         blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
-        prob = sampler.lnprobability[:, nburn:].reshape((-1))
+        prob = self._sampler.lnprobability[:, nburn:].reshape((-1))
         if len(params_to_fit) == 3:
             samples = np.c_[samples, source_fluxes[:, 0], blend_flux, prob]
         elif len(params_to_fit) == 5:
@@ -535,14 +548,14 @@ class FitBinarySource(UlensModelFit):
         best = dict(zip(params_to_fit, best))
 
         # Cleaning posterior and cplot if required by the user
-        if n_emcee['clean_cplot']:
-            new_states, new_perc = clean_posterior_emcee(sampler, best, nburn)
+        if self.clean_cplot:
+            new_states, new_perc = clean_posterior_emcee(self._sampler, best, nburn)
             if new_states is not None:
                 pars_perc = dict(zip(params_to_fit, new_perc.T))
                 samples = new_states
 
         # return best, pars_best, event.get_chi2(), states, sampler
-        return best, sampler, samples, pars_perc
+        return best, self._sampler, samples, pars_perc
 
     def _get_binary_source_event(self, best):
 
@@ -555,50 +568,6 @@ class FitBinarySource(UlensModelFit):
         event_1L2S.get_chi2()
 
         return event_1L2S
-
-
-def fit_utils(method, data, settings, model=None, best=None):
-    """
-    Useful short functions to be applied in mm.Data instance.
-
-    Args:
-        method (str): which method to execute.
-        data (mm.MulensData): data instance of a single event.
-        settings (dict): all input settings from yaml file.
-        model (dict, optional): parameters to get mm.Model. Defaults to None.
-        best (dict, optional): parameters to get mm.Event. Defaults to None.
-
-    Raises:
-        ValueError: if invalid method is given.
-
-    Returns:
-        [...]: depends on the method (dict, list or mm.Event)
-    """
-
-    n_emcee = settings['fitting_parameters']
-    fix = None if n_emcee['fix_blend'] is False else {data:
-                                                      n_emcee['fix_blend']}
-
-    if method == 'get_t_E_1L2S':
-        aux_event = mm.Event(data, model=mm.Model(model))
-        x0, arg = [model['t_E']], (['t_E'], aux_event)
-        bnds = [(0.1, None)]
-        r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
-                         method='Nelder-Mead')
-        model['t_E'] = r_.x[0]
-        return list(model.values())
-
-    elif method == 'get_1L2S_event':
-        bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
-        fix_source = {data: [best[p] for p in best if 'source' in p]}
-        event_1L2S = mm.Event(data, model=mm.Model(bst),
-                              fix_source_flux=fix_source,
-                              fix_blend_flux={data: best['blending_flux']})
-        event_1L2S.get_chi2()
-        return event_1L2S
-
-    else:
-        raise ValueError('Invalid method sent to function fit_utils().')
 
 
 def prefit_split_and_fit(data, settings, pdf=""):
@@ -620,24 +589,24 @@ def prefit_split_and_fit(data, settings, pdf=""):
     # two_pspl = split.fit_PSPL_twice(data_left_right, settings, start=start)
 
     # Radek's suggestion: scipy_minimize (06/nov-[...])
-    if settings['starting_parameters']['t_peaks'] is not False:
-        settings = fit_utils('get_peak_times', data, settings)
-    model_1 = fit_utils('scipy_minimize', data, settings)
-    data_2_subt = fit_utils('subt_data', data, settings, model_1)
-    # fm_base = get_initial_t0_u0(data_2_subt, settings)[1]  # above 3sigma?
-    # if no data above 3sigma:
-    #   - run MCMC and return...
-    # else:
-    model_2 = fit_utils('scipy_minimize', data_2_subt, settings)
-    #
-    n_emcee = settings['fitting_parameters']
-    start = {'t_0_1': model_1['t_0'], 'u_0_1': model_1['u_0'], 't_0_2':
-             model_2['t_0'], 'u_0_2': model_2['u_0'], 't_E': 25}
-    t_E_optimal = fit_utils('get_t_E_1L2S', data, settings, start)
-    start['t_E'] = round(t_E_optimal[4], 2)
-    ev_st = mm.Event(data, model=mm.Model(start))
-    output = fit_emcee(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
-    event_1L2S = fit_utils('get_1L2S_event', data, settings, best=output[0])
+    # if settings['starting_parameters']['t_peaks'] is not False:
+    #     settings = fit_utils('get_peak_times', data, settings)
+    # model_1 = fit_utils('scipy_minimize', data, settings)
+    # data_2_subt = fit_utils('subt_data', data, settings, model_1)
+    # # fm_base = get_initial_t0_u0(data_2_subt, settings)[1]  # above 3sigma?
+    # # if no data above 3sigma:
+    # #   - run MCMC and return...
+    # # else:
+    # model_2 = fit_utils('scipy_minimize', data_2_subt, settings)
+    # #
+    # n_emcee = settings['fitting_parameters']
+    # start = {'t_0_1': model_1['t_0'], 'u_0_1': model_1['u_0'], 't_0_2':
+    #          model_2['t_0'], 'u_0_2': model_2['u_0'], 't_E': 25}
+    # t_E_optimal = fit_utils('get_t_E_1L2S', data, settings, start)
+    # start['t_E'] = round(t_E_optimal[4], 2)
+    # ev_st = mm.Event(data, model=mm.Model(start))
+    # output = fit_emcee(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
+    # event_1L2S = fit_utils('get_1L2S_event', data, settings, best=output[0])
     data_left_right, t_min = split.split_after_result(event_1L2S, output, settings)
 
     # Fits 2xPSPL if data is good (u_0 < 3.)...
@@ -659,138 +628,6 @@ def prefit_split_and_fit(data, settings, pdf=""):
     event_1L2S, cplot_1L2S = make_plots(output[:-1], data, settings, pdf=pdf)
 
     return output + (event_1L2S, (output_1[0], output_2[0])), cplot_1L2S
-
-
-# def ln_like(theta, event, params_to_fit):
-#     """
-#     Get the value of the likelihood function from chi2 of event.
-#     NOTE: Still adapt it to use example_16 functions!!!
-
-#     Args:
-#         theta (np.array): chain parameters to sample the likelihood.
-#         event (mm.Event): event instance containing the model and datasets.
-#         params_to_fit (list): microlensing parameters to be fitted.
-
-#     Returns:
-#         tuple: likelihood value (-0.5*chi2) and fluxes of the event.
-#     """
-
-#     for (param, theta_) in zip(params_to_fit, theta):
-#         # Here we handle fixing source flux ratio:
-#         if param == 'flux_ratio':
-#             # implemented for a single dataset
-#             # event.fix_source_flux_ratio = {my_dataset: theta_} # original(?)
-#             event.fix_source_flux_ratio = {event.datasets[0]: theta_}
-#         else:
-#             setattr(event.model.parameters, param, theta_)
-#     event.get_chi2()
-
-#     return -0.5 * event.chi2, event.fluxes[0]
-
-
-# def ln_prior(theta, event, params_to_fit, settings):
-#     """
-#     Apply all the priors (minimum, maximum and distributions).
-
-#     Args:
-#         theta (np.array): chain parameters to sample the prior.
-#         event (mm.Event): Event instance containing the model and datasets.
-#         params_to_fit (list): name of the parameters to be fitted.
-#         settings (dict): all settings from yaml file.
-
-#     Raises:
-#         ValueError: if the maximum values for t_0 are not a list.
-#         ValueError: if Mróz priors for t_E are selected.
-#         ValueError: if input prior is not implemented.
-
-#     Returns:
-#         float: -np.inf or prior value to be added on the likelihood.
-#     """
-
-#     stg_priors = settings['fit_constraints']
-#     stg_min_max = [settings['min_values'], settings['max_values']]
-#     if not isinstance(stg_min_max[1]['t_0'], list):
-#         raise ValueError('t_0 max_values should be of list type.')
-#     ln_prior_t_E, ln_prior_fluxes = 0., 0.
-
-#     # Ensuring that t_0_1 < t_0_2 or t_0_1 > t_0_2
-#     if event.model.n_sources == 2:
-#         init_params = settings['init_params_1L2S']
-#         if (init_params[0] > init_params[2]) and (theta[0] < theta[2]):
-#             return -np.inf
-#         elif (init_params[2] > init_params[0]) and (theta[2] < theta[0]):
-#             return -np.inf
-
-#     # Limiting min and max values (all minimum, then t_0 and u_0 maximum)
-#     for param in params_to_fit:
-#         if param[:3] in stg_min_max[0].keys():
-#             if theta[params_to_fit.index(param)] < stg_min_max[0][param[:3]]:
-#                 return -np.inf
-#         if 't_0' in param and 't_0' in stg_min_max[1].keys():
-#             t_range = event.datasets[0].time[::len(event.datasets[0].time)-1]
-#             t_range = t_range + np.array(stg_min_max[1]['t_0'])
-#             if not t_range[0] < theta[params_to_fit.index(param)] < t_range[1]:
-#                 return -np.inf
-#         if 'u_0' in param and 'u_0' in stg_min_max[1].keys():
-#             if theta[params_to_fit.index(param)] > stg_min_max[1]['u_0']:
-#                 return -np.inf
-
-#     # Prior in t_E (only lognormal so far, tbd: Mroz17/20)
-#     # OBS: Still need to remove the ignore warnings line (related to log?)
-#     if 't_E' in stg_priors['prior'].keys():
-#         t_E_prior = stg_priors['prior']['t_E']
-#         t_E_val = theta[params_to_fit.index('t_E')]
-#         if 'lognormal' in t_E_prior:
-#             # if t_E >= 1.:
-#             warnings.filterwarnings("ignore", category=RuntimeWarning)  # bad!
-#             prior = [float(x) for x in t_E_prior.split()[1:]]
-#             ln_prior_t_E = - (np.log(t_E_val) - prior[0])**2 / (2*prior[1]**2)
-#             ln_prior_t_E -= np.log(t_E_val * np.sqrt(2*np.pi)*prior[1])
-#         elif 'Mroz et al.' in stg_priors['ln_prior']['t_E']:
-#             raise ValueError('Still implementing Mroz et al. priors.')
-#         else:
-#             raise ValueError('t_E prior type not allowed.')
-
-#     # Avoiding negative source/blending fluxes (Radek)
-#     _ = event.get_chi2()
-#     if 'negative_blending_flux_sigma_mag' in stg_priors.keys():
-#         sig_ = stg_priors['negative_blending_flux_sigma_mag']
-#         for flux in [*event.source_fluxes[0], event.blend_fluxes[0]]:
-#             if flux < 0.:
-#                 ln_prior_fluxes += -1/2 * (flux/sig_)**2  # 1000, 100 or less?
-#     elif 'no_negative_blending_flux' in stg_priors.keys():
-#         if event.blend_fluxes[0] < 0:
-#             return -np.inf
-
-#     return 0.0 + ln_prior_t_E + ln_prior_fluxes
-
-
-# def ln_prob(theta, event, params_to_fit, settings):
-#     """
-#     Combines likelihood value and priors for a given set of parameters.
-
-#     Args:
-#         theta (np.array): chain parameters to sample the likelihood+prior.
-#         event (mm.Event): Event instance containing the model and datasets.
-#         params_to_fit (list): name of the parameters to be fitted.
-#         settings (dict): all settings from yaml file.
-
-#     Returns:
-#         tuple: value of prior+likelihood, source and blending fluxes.
-#     """
-
-#     ln_prior_ = ln_prior(theta, event, params_to_fit, settings)
-#     if not np.isfinite(ln_prior_):
-#         return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
-#     ln_like_, fluxes = ln_like(theta, event, params_to_fit)
-
-#     # In the cases that source fluxes are negative we want to return
-#     # these as if they were not in priors.
-#     if np.isnan(ln_like_):
-#         return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
-
-#     return ln_prior_ + ln_like_, fluxes[0], fluxes[1]
-
 
 def fit_emcee(dict_start, sigmas, ln_prob, event, settings):
     """
