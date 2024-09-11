@@ -140,13 +140,6 @@ class FitBinarySource(UlensModelFit):
         model_start = mm.Model(self.binary_source_start)
         self.ev_st = mm.Event(self.datasets[0], model=model_start)
 
-        # are these lines needed for self._set_model_parameters() ???
-        # self._starting_parameters_input.pop('t_peaks')
-        # self._check_starting_parameters_type()
-        # self._set_fit_parameters_unsorted()
-        # self._get_parameters_ordered()
-        self._fit_parameters = []
-        self._fit_parameters_other = []
         self._setup_fit_emcee_binary()
         self._run_emcee()
         #
@@ -296,6 +289,19 @@ class FitBinarySource(UlensModelFit):
         subt_data = np.c_[data.time, fsub, data.err_flux][fsub > 0]
         self.subt_data = mm.MulensData(subt_data.T, phot_fmt='flux')
 
+    def _set_starting_params_emcee(self):
+        """
+        Write docs later... ONLY AFTER STH!
+        """
+        self._starting_parameters_input.pop('t_peaks')
+        for idx, (key, val) in enumerate(self.binary_source_start.items()):
+            line = f"gauss {val} {self._sigma_emcee[idx]}"
+            self._starting_parameters_input[key] = line
+
+        self._check_starting_parameters_type()
+        self._set_fit_parameters_unsorted()
+        self._get_parameters_ordered()
+
     def _ln_like(self, theta):
         """
         Get the value of the likelihood function from chi2 of event.
@@ -303,25 +309,25 @@ class FitBinarySource(UlensModelFit):
 
         Args:
             theta (np.array): chain parameters to sample the likelihood.
-            params_to_fit (list): microlensing parameters to be fitted.
 
         Returns:
             tuple: likelihood value (-0.5*chi2) and fluxes of the event.
         """
 
-        # still try self._set_model_parameters() here!!!
-        event = self._event
-        for (param, theta_) in zip(self.params_to_fit, theta):
-            # Here we handle fixing source flux ratio:
-            if param == 'flux_ratio':
-                # implemented for a single dataset
-                # event.fix_source_flux_ratio = {my_dataset: theta_} # original(?)
-                event.fix_source_flux_ratio = {event.datasets[0]: theta_}
-            else:
-                setattr(event.model.parameters, param, theta_)
-        event.get_chi2()
+        self._set_model_parameters(theta)
+        # *** DISCUSS TOMORROW IF FLUX RATIO WILL EVER BE USED ***
+        # event = self._event
+        # for (param, theta_) in zip(self.params_to_fit, theta):
+        #     # Here we handle fixing source flux ratio:
+        #     if param == 'flux_ratio':
+        #         # implemented for a single dataset
+        #         # event.fix_source_flux_ratio = {my_dataset: theta_} # original(?)
+        #         event.fix_source_flux_ratio = {event.datasets[0]: theta_}
+        #     else:
+        #         setattr(event.model.parameters, param, theta_)
+        chi2 = self._event.get_chi2()
 
-        return -0.5 * event.chi2, event.fluxes[0]
+        return -0.5 * chi2, self._event.fluxes[0]
 
     def _ln_prior(self, theta):
         """
@@ -433,6 +439,7 @@ class FitBinarySource(UlensModelFit):
         self._n_fit_parameters = len(self.params_to_fit)
         self._sigma_emcee = self.sigmas_emcee[1]
         self._n_burn = self._fitting_parameters['n_burn']
+        self._set_starting_params_emcee()
 
         pre_str = '3rd ' if hasattr(self, '_sampler') else 'Pre-'
         print(f'\n\033[1m -- {pre_str}fit: 1L2S to original data...\033[0m')
@@ -445,6 +452,7 @@ class FitBinarySource(UlensModelFit):
         - Try multiprocessing once more...
         """
         self._event = self.ev_st
+        self._model = self._event.model
         self._init_emcee = list(self.binary_source_start.values())
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
         self._rand_sample = rand_sample * self._sigma_emcee
