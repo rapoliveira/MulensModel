@@ -1,10 +1,6 @@
 """
-Fits binary source model using EMCEE sampler.
-
-The FitBinarySource class inherits UlensModelFit from example_16 and uses
-several of its functions to check and parse inputs, setup the EMCEE fitting
-and parse the results. Additional functions to read the data, setup PSPL
-fits twice and run EMCEE with blobs are added.
+Class and script for fitting binary source model using MulensModel.
+All settings are read from a YAML file.
 """
 from itertools import chain
 import os
@@ -39,19 +35,52 @@ except ImportError as err:
 
 class FitBinarySource(UlensModelFit):
     """
-    Class for fitting binary source models using *MulensModel* package.
+    Class for fitting binary source (1L2S) microlensing models using
+    *MulensModel* and *EMCEE* package.
 
-    Check UlensModelFit documentation for details.
-    The additional parameters are: t_peaks and some fitting_parameters
+    It is a child class of UlensModelFit from example_16, using several of
+    its functions to check and parse inputs, setup the EMCEE fitting and
+    parse the results. Additional functions (child methods) are used to
+    read the data, setup PSPL fits and run EMCEE with blobs.
+
+    Parameters :
+        additional_inputs: *dict*
+            Additional inputs compared to UlensModelFit class.
+
+            Currently accepted keys:
+
+            ``'t_peaks'`` - file with peak times for 1L2S fits; if *False*,
+            the peak times are taken from the brightest points in the data.
+            The file should have columns with the names 'obj_id', 't_peak'
+            and 't_peak_2' (see event_finder_modif).
+
+            ``'fix_blend'`` - fix blending flux to a given value; if *False*,
+            the blending flux is fitted.
+
+            ``'sigmas'`` - list of sigma values used to find starting values
+            for EMCEE. The first value is used for the first PSPL fit and the
+            second for the 1L2S fit.
+
+            ``'ans'`` - select which method to get the final solution from
+            the EMCEE posteriors. If *'max_prob'*, the model with the highest
+            probability is used; if *'median'*, the median values are used.
+
+            ``'clean_cplot'`` - if *True*, the corner plot is cleaned from
+            outliers. To be removed in the future...
+
+            ``'yaml_files_2L1S'`` - dictionary with information about the
+            input files generated for 2L1S fitting. It has the keys 't_or_f',
+            'yaml_template' and 'yaml_dir_name'. If 't_or_f' is *True*, the
+            2L1S fits are saved in YAML files with the given template and
+            directory name.
     """
 
-    def __init__(self, photometry_files, fitting_parameters, **kwargs):
+    def __init__(self, photometry_files, additional_inputs, **kwargs):
 
-        super().__init__(photometry_files,
-                         fitting_parameters=fitting_parameters,
-                         **kwargs)
-
+        super().__init__(photometry_files, **kwargs)
         self.photometry_files_orig = photometry_files
+        self.additional_inputs = additional_inputs
+
         self.starting_parameters = self._starting_parameters_input.copy()
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
         self._check_fit_constraints()
@@ -68,7 +97,7 @@ class FitBinarySource(UlensModelFit):
 
     def read_data(self):
         """
-        Read a catalogue or list of catalogues and creates MulensData instance.
+        Read catalogue or list of catalogues and creates MulensData instance.
         """
         self.phot_fmt = self.photometry_files_orig[0]['phot_fmt']
         phot_settings_aux = self.photometry_files_orig[0].copy()
@@ -90,27 +119,24 @@ class FitBinarySource(UlensModelFit):
 
     def setup_fit(self):
         """
-        Write later... Only setup stuff here!!!
+        Set up the fitting parameters and additional inputs.
         """
-        print(f'\n\033[1m * Running fit for {self.event_id}\033[0m')
+        self._check_additional_inputs()
         self.t_peaks, self.t_peaks_orig = [], []
-        if self.starting_parameters['t_peaks'] is not False:
+        t_peaks_in = self.additional_inputs.get('t_peaks', False)
+        if isinstance(t_peaks_in, str):
             self._get_peak_times()
+        elif t_peaks_in is not False:
+            raise ValueError('t_peaks should be a string or False.')
 
-        fix_blend = self._fitting_parameters.pop('fix_blend')
-        fix_dict = {self.datasets[0]: fix_blend}
-        self.fix_blend = None if fix_blend is False else fix_dict
-        self.sigmas_emcee = self._fitting_parameters.pop('sigmas')
-        self.ans_emcee = self._fitting_parameters.pop('ans')
-        self.clean_cplot = self._fitting_parameters.pop('clean_cplot')
         self._parse_fitting_parameters_EMCEE()
         self._get_n_walkers()
 
     def _get_peak_times(self):
         """
-        Write docstrings later...
+        Get the peak times from the input file.
         """
-        tab_file = self.starting_parameters['t_peaks']
+        tab_file = self.additional_inputs['t_peaks']
         tab = Table.read(os.path.join(self.path, tab_file), format='ascii')
 
         event = self.event_id.replace('_OGLE', '').replace('_', '.')
@@ -118,13 +144,43 @@ class FitBinarySource(UlensModelFit):
         self.t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
         self.t_peaks_orig = self.t_peaks.copy()
 
+    def _check_additional_inputs(self):
+        """
+        Check the types of additional inputs and set the values.
+        """
+        dict_types = {'t_peaks': (str, bool), 'fix_blend': (float, bool),
+                      'sigmas': (list,), 'ans': (str,), 'clean_cplot': (bool,),
+                      'yaml_files_2L1S': (dict,)}
+        msg = "Wrong type of `{}`. Expected: {}. Provided: {}"
+        for (key, val) in dict_types.items():
+            provided = self.additional_inputs.get(key)
+            if not isinstance(provided, (*val, type(None))):
+                raise ValueError(msg.format(key, str(val), type(provided)))
+
+        fix_blend = self.additional_inputs.get('fix_blend', False)
+        fix_dict = {self.datasets[0]: fix_blend}
+        self.fix_blend = None if fix_blend is False else fix_dict
+        self.sigmas_emcee = self.additional_inputs['sigmas']
+        self.ans_emcee = self.additional_inputs.get('ans', 'max_prob')
+        self.clean_cplot = self.additional_inputs.get('clean_cplot', False)
+
+        def_ = {'t_or_f': False, 'yaml_template': '', 'yaml_dir_name': ''}
+        self.yaml_2L1S = self.additional_inputs.get('yaml_files_2L1S', def_)
+        for (key, val) in def_.items():
+            provided = self.yaml_2L1S[key]
+            if not isinstance(provided, type(val)):
+                raise ValueError(msg.format(key, type(val), type(provided)))
+
     def run_initial_fits(self):
         """
-        Run the fit, print the output, and make the plots.
+        Run the initial fits: PSPL to original data and subtracted data
+        with scipy.minimize, then binary source with EMCEE.
+        The final fits will be done in a separate function run_fits()...
 
         This function does not accept any parameters. All the settings
         are passed via __init__().
         """
+        print(f'\n\033[1m * Running fit for {self.event_id}\033[0m')
         self._quick_fits_pspl_subtract_pspl()
         self.binary_source_start = {'t_0_1': self.quick_pspl_1['t_0'],
                                     'u_0_1': self.quick_pspl_1['u_0'],
@@ -139,15 +195,12 @@ class FitBinarySource(UlensModelFit):
 
         self._setup_fit_emcee_binary()
         self._run_emcee()
-        #
         output = self._fit_emcee(self.binary_source_start, self.ev_st)
-        breakpoint()
         self.event_temp = self._get_binary_source_event(output[0])
-        # event_1L2S = fit_utils('get_1L2S_event', data, settings, best=output[0])
-        ### STOPPED HERE... Small problem with fitted fluxes as -np.inf
+        breakpoint()
 
         # *** Add all the fitting routine here... calling short functions!
-        # 2) EMCEE to get a first estimate for 1L2S -- OK!
+        # 2) EMCEE to get a first estimate for 1L2S -- OK, solved!
         # 3) Split data and fit PSPL twice with EMCEE
         # 4) Get final 1L2S fit...
         # 5) Check chi2 of the last fit... if not good, check first PSPL guess
@@ -229,7 +282,7 @@ class FitBinarySource(UlensModelFit):
         """
         Write later...
         """
-        data = self.datasets[0]
+        data = getattr(self, 'subt_data', self.datasets[0])
 
         # Starting the baseline (360d or half-data window?)
         t_diff = data.time - self.t_init
@@ -265,7 +318,8 @@ class FitBinarySource(UlensModelFit):
         """
         Write...
         """
-        aux_event = mm.Event(self.datasets[0], model=mm.Model(model_dict))
+        data = getattr(self, 'subt_data', self.datasets[0])
+        aux_event = mm.Event(data, model=mm.Model(model_dict))
         x0, arg = [model_dict['t_E']], (['t_E'], aux_event)
         bnds = [(0.1, None)]
         r_ = op.minimize(split.chi2_fun, x0=x0, args=arg, bounds=bnds,
@@ -290,7 +344,6 @@ class FitBinarySource(UlensModelFit):
         """
         Write docs later... ONLY AFTER STH!
         """
-        self._starting_parameters_input.pop('t_peaks')
         for idx, (key, val) in enumerate(self.binary_source_start.items()):
             line = f"gauss {val} {self._sigma_emcee[idx]}"
             self._starting_parameters_input[key] = line
@@ -1091,7 +1144,7 @@ if __name__ == '__main__':
         settings = yaml.safe_load(data)
 
     fit_binary_source = FitBinarySource(**settings)
-    fit_binary_source.run_fit()
+    # fit_binary_source.run_fit()
     breakpoint()
 
     # data_list, file_names = read_data(path, settings['phot_settings'][0])

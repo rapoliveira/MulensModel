@@ -68,7 +68,7 @@ source/MulensModel/*.so
 
 # Coverage report:
 coverage.xml
-<<<<<<< HEAD
+/source/MulensModel/htmlcov/
 
 # Raphael directory files:
 exploring_MulensModel/ulens_model_fit.py
@@ -109,6 +109,3 @@ hack_sessions/
 examples/example_16/*
 build/
 dist/
-=======
-/source/MulensModel/htmlcov/
->>>>>>> dff8bc59e4c7148aad1209d83cde6baf53f8fba7
