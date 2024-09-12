@@ -1,9 +1,10 @@
 """
 Fits binary source model using EMCEE sampler.
 
-The code simulates binary source light curve and fits the model twice:
-with source flux ratio found via linear regression and
-with source flux ratio as a chain parameter.
+The FitBinarySource class inherits UlensModelFit from example_16 and uses
+several of its functions to check and parse inputs, setup the EMCEE fitting
+and parse the results. Additional functions to read the data, setup PSPL
+fits twice and run EMCEE with blobs are added.
 """
 from itertools import chain
 import os
@@ -11,15 +12,8 @@ import sys
 import warnings
 
 from astropy.table import Table, Column
-try:
-    import corner
-    import emcee
-except ImportError as err:
-    print(err)
-    print("\nEMCEE or corner could not be imported.")
-    print("Get it from: http://dfm.io/emcee/current/user/install/")
-    print("and re-run the script")
-    sys.exit(1)
+import corner
+import emcee
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
@@ -29,33 +23,36 @@ import scipy.optimize as op
 import yaml
 
 import MulensModel as mm
-import split_data_for_binary_lens as split
-from ulens_model_fit import UlensModelFit
+try:
+    # :: Add after UltraNest PR is merged ::
+    # ex16_path = os.path.join(mm.__path__[0], '../../examples/example_16')
+    # sys.path.append(os.path.abspath(ex16_path))
+    from ulens_model_fit import UlensModelFit
+    import split_data_for_binary_lens as split
+except ImportError as err:
+    print(err)
+    print("Please install MulensModel in editable mode from within the"
+          "directory cloned from GitHub. This will allow to import the class"
+          "UlensModelFit from example_16.")
+    sys.exit(1)
 
 
 class FitBinarySource(UlensModelFit):
     """
-    Add documentation later...
+    Class for fitting binary source models using *MulensModel* package.
+
+    Check UlensModelFit documentation for details.
+    The additional parameters are: t_peaks and some fitting_parameters
     """
 
-    def __init__(self, photometry_files, fitting_parameters,
-                 fit_method=None, starting_parameters=None,
-                 prior_limits=None, fit_constraints=None, min_values=None,
-                 max_values=None, plots=None, other_output=None):
+    def __init__(self, photometry_files, fitting_parameters, **kwargs):
 
         super().__init__(photometry_files,
                          fitting_parameters=fitting_parameters,
-                         fit_method=fit_method,
-                         starting_parameters=starting_parameters,
-                         prior_limits=prior_limits,
-                         fit_constraints=fit_constraints,
-                         min_values=min_values,
-                         max_values=max_values, plots=plots,
-                         other_output=other_output)
+                         **kwargs)
 
         self.photometry_files_orig = photometry_files
-        self.starting_parameters = starting_parameters
-
+        self.starting_parameters = self._starting_parameters_input.copy()
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
         self._check_fit_constraints()
         self._parse_fit_constraints_keys()
@@ -305,16 +302,9 @@ class FitBinarySource(UlensModelFit):
     def _ln_like(self, theta):
         """
         Get the value of the likelihood function from chi2 of event.
-        NOTE: Still adapt it to use example_16 functions!!!
 
-        Args:
-            theta (np.array): chain parameters to sample the likelihood.
-
-        Returns:
-            tuple: likelihood value (-0.5*chi2) and fluxes of the event.
+        NOTE: if flux_ratio is not needed, use function from example_16
         """
-
-        self._set_model_parameters(theta)
         # *** DISCUSS TOMORROW IF FLUX RATIO WILL EVER BE USED ***
         # event = self._event
         # for (param, theta_) in zip(self.params_to_fit, theta):
@@ -325,6 +315,8 @@ class FitBinarySource(UlensModelFit):
         #         event.fix_source_flux_ratio = {event.datasets[0]: theta_}
         #     else:
         #         setattr(event.model.parameters, param, theta_)
+
+        self._set_model_parameters(theta)
         chi2 = self._event.get_chi2()
 
         return -0.5 * chi2, self._event.fluxes[0]
@@ -456,6 +448,7 @@ class FitBinarySource(UlensModelFit):
         self._init_emcee = list(self.binary_source_start.values())
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
         self._rand_sample = rand_sample * self._sigma_emcee
+        # breakpoint()
         if len(self._init_emcee) == 5:
             self._run_quick_emcee()
         start = abs(np.array(self._init_emcee) + rand_sample)
@@ -576,6 +569,13 @@ class FitBinarySource(UlensModelFit):
         event_1L2S.get_chi2()
 
         return event_1L2S
+
+    def _parse_results(self):
+        """
+        Still work on it after adding my functions...
+        """
+        value = self._other_output["models"]
+        self._parse_other_output_parameters_models(value)
 
 
 def prefit_split_and_fit(data, settings, pdf=""):
@@ -1018,7 +1018,7 @@ def write_tables(path, settings, name, two_pspl, result,
     outputs, n_emcee = settings['other_output'], settings['fitting_parameters']
     bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
     if 'models' in outputs.keys():
-        fname = f'{path}/' + outputs['models']['file_dir'].format(name)
+        fname = f'{path}/' + outputs['models']['file name'].format(name)
         idxs_remove = list(np.arange(len(bst), len(best)))
         chains = np.delete(result[2], idxs_remove, axis=1)
         chains = Table(chains, names=list(bst.keys())+['chi2'])
