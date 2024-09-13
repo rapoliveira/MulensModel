@@ -65,9 +65,6 @@ class FitBinarySource(UlensModelFit):
             the EMCEE posteriors. If *'max_prob'*, the model with the highest
             probability is used; if *'median'*, the median values are used.
 
-            ``'clean_cplot'`` - if *True*, the corner plot is cleaned from
-            outliers. To be removed in the future...
-
             ``'yaml_files_2L1S'`` - dictionary with information about the
             input files generated for 2L1S fitting. It has the keys 't_or_f',
             'yaml_template' and 'yaml_dir_name'. If 't_or_f' is *True*, the
@@ -132,24 +129,12 @@ class FitBinarySource(UlensModelFit):
         self._parse_fitting_parameters_EMCEE()
         self._get_n_walkers()
 
-    def _get_peak_times(self):
-        """
-        Get the peak times from the input file.
-        """
-        tab_file = self.additional_inputs['t_peaks']
-        tab = Table.read(os.path.join(self.path, tab_file), format='ascii')
-
-        event = self.event_id.replace('_OGLE', '').replace('_', '.')
-        line = tab[tab['obj_id'] == event]
-        self.t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
-        self.t_peaks_orig = self.t_peaks.copy()
-
     def _check_additional_inputs(self):
         """
         Check the types of additional inputs and set the values.
         """
         dict_types = {'t_peaks': (str, bool), 'fix_blend': (float, bool),
-                      'sigmas': (list,), 'ans': (str,), 'clean_cplot': (bool,),
+                      'sigmas': (list,), 'ans': (str,),
                       'yaml_files_2L1S': (dict,)}
         msg = "Wrong type of `{}`. Expected: {}. Provided: {}"
         for (key, val) in dict_types.items():
@@ -162,7 +147,6 @@ class FitBinarySource(UlensModelFit):
         self.fix_blend = None if fix_blend is False else fix_dict
         self.sigmas_emcee = self.additional_inputs['sigmas']
         self.ans_emcee = self.additional_inputs.get('ans', 'max_prob')
-        self.clean_cplot = self.additional_inputs.get('clean_cplot', False)
 
         def_ = {'t_or_f': False, 'yaml_template': '', 'yaml_dir_name': ''}
         self.yaml_2L1S = self.additional_inputs.get('yaml_files_2L1S', def_)
@@ -170,6 +154,18 @@ class FitBinarySource(UlensModelFit):
             provided = self.yaml_2L1S[key]
             if not isinstance(provided, type(val)):
                 raise ValueError(msg.format(key, type(val), type(provided)))
+
+    def _get_peak_times(self):
+        """
+        Get the peak times from the input file.
+        """
+        tab_file = self.additional_inputs['t_peaks']
+        tab = Table.read(os.path.join(self.path, tab_file), format='ascii')
+
+        event = self.event_id.replace('_OGLE', '').replace('_', '.')
+        line = tab[tab['obj_id'] == event]
+        self.t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
+        self.t_peaks_orig = self.t_peaks.copy()
 
     def run_initial_fits(self):
         """
@@ -195,15 +191,17 @@ class FitBinarySource(UlensModelFit):
 
         self._setup_fit_emcee_binary()
         self._run_emcee()
-        output = self._fit_emcee(self.binary_source_start, self.ev_st)
-        self.event_temp = self._get_binary_source_event(output[0])
+        self._make_burn_in_and_reshape()
+        self._print_emcee_percentiles()
+        self._get_best_params_emcee()
+        self.res_pre_1L2S = self._result.copy()
+        self.ev_pre_1L2S = self._get_binary_source_event(self.res_pre_1L2S)
         breakpoint()
 
         # *** Add all the fitting routine here... calling short functions!
         # 2) EMCEE to get a first estimate for 1L2S -- OK, solved!
-        # 3) Split data and fit PSPL twice with EMCEE
+        # 3) Split data and fit PSPL twice with EMCEE -- NEXT!
         # 4) Get final 1L2S fit...
-        # 5) Check chi2 of the last fit... if not good, check first PSPL guess
 
         print("\n--------------------------------------------------")
 
@@ -318,7 +316,11 @@ class FitBinarySource(UlensModelFit):
         """
         Write...
         """
-        data = getattr(self, 'subt_data', self._datasets[0])
+        if len(model_dict) == 3 and hasattr(self, 'subt_data'):
+            data = self.subt_data
+        else:
+            data = self._datasets[0]
+        # data = getattr(self, 'subt_data', self._datasets[0])
         aux_event = mm.Event(data, model=mm.Model(model_dict))
         x0, arg = [model_dict['t_E']], (['t_E'], aux_event)
         bnds = [(0.1, None)]
@@ -443,29 +445,27 @@ class FitBinarySource(UlensModelFit):
     def _ln_prob(self, theta):
         """
         Combines likelihood value and priors for a given set of parameters.
-        #  function returning logarithm of probability.
-
-        Args:
-            theta (np.array): chain parameters to sample the likelihood+prior.
-            event (mm.Event): Event instance containing the model and datasets.
-            params_to_fit (list): name of the parameters to be fitted.
-
-        Returns:
-            tuple: value of prior+likelihood, source and blending fluxes.
+        The parameter theta is an array with the chain parameters to sample
+        the likelihood + prior.
+        Returns the logarithm of the probability and fluxes.
         """
 
         ln_like = self._ln_like(theta)
         ln_prior = self._ln_prior(theta)
         if not np.isfinite(ln_prior):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
-        source_fluxes, blending_flux = self._event.fluxes[0]
 
         # In the cases that source fluxes are negative we want to return
         # these as if they were not in priors.
         if np.isnan(ln_like):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
 
-        return ln_prior + ln_like, source_fluxes, blending_flux
+        ln_prob = ln_prior + ln_like
+        fluxes = self._get_fluxes()
+        self._update_best_model_EMCEE(ln_prob, theta, fluxes)
+        source_fluxes, blending_flux = self._event.fluxes[0]
+
+        return ln_prob, source_fluxes, blending_flux
 
     def _setup_fit_emcee_binary(self):
         """
@@ -475,8 +475,9 @@ class FitBinarySource(UlensModelFit):
         self.params_to_fit = list(self.binary_source_start.keys())
         self._n_fit_parameters = len(self.params_to_fit)
         self._sigma_emcee = self.sigmas_emcee[1]
-        self._n_burn = self._fitting_parameters['n_burn']
+        self._n_burn = self._fitting_parameters.get('n_burn', 0)
         self._set_starting_params_emcee()
+        self._init_emcee = list(self.binary_source_start.values())
 
         pre_str = '3rd ' if hasattr(self, '_sampler') else 'Pre-'
         print(f'\n\033[1m -- {pre_str}fit: 1L2S to original data...\033[0m')
@@ -490,15 +491,14 @@ class FitBinarySource(UlensModelFit):
         """
         self._event = self.ev_st
         self._model = self._event.model
-        self._init_emcee = list(self.binary_source_start.values())
         self._prior = self._fit_constraints['prior']
         self._set_n_fluxes()
+
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
         self._rand_sample = rand_sample * self._sigma_emcee
-        # breakpoint()
-        if len(self._init_emcee) == 5:
+        if self._n_fit_parameters == 5:
             self._run_quick_emcee()
-        start = abs(np.array(self._init_emcee) + rand_sample)
+        start = abs(np.array(self._init_emcee) + self._rand_sample)
         self._kwargs_EMCEE['initial_state'] = start
 
         blobs = [('source_fluxes', list), ('blend_fluxes', float)]
@@ -532,87 +532,66 @@ class FitBinarySource(UlensModelFit):
         samples = samples.reshape((-1, self._n_fit_parameters))
         self._init_emcee = np.percentile(samples, 50, axis=0)
 
-    def _fit_emcee(self, dict_start, event):
+    def _make_burn_in_and_reshape(self):
         """
-        Fit model using EMCEE (Foreman-Mackey et al. 2013) and print results.
-
-        Args:
-            dict_start (dict): dict that specifies values of these parameters.
-            event (mm.Event): Event instance containing the model and datasets.
-
-        Returns:
-            tuple: with EMCEE results (best, sampler, samples, percentiles)
+        Remove burn-in samples, reshape with the fluxes and probabilities.
         """
+        samples = self._sampler.chain[:, self._n_burn:, :]
+        samples = samples.reshape((-1, self._n_fit_parameters))
+        blobs = self._sampler.get_blobs()[self._n_burn:]
+        blobs = blobs.T.flatten()
 
-        # !!! I ONLY LEFT THE LINES THAT ARE NOT IN THE OTHER FUNCTIONS !!!
-        params_to_fit = list(dict_start.keys())  # OK!
-        n_dim = len(params_to_fit)  # OK!
-        n_emcee = self._fitting_parameters  # OK!
-        nburn = n_emcee['n_burn']  # OK!
-
-        # Removed a lot of old code from here...
-
-        # Remove burn-in samples and reshape:
-        samples = self._sampler.chain[:, nburn:, :].reshape((-1, n_dim))
-        blobs = self._sampler.get_blobs()[nburn:].T.flatten()
         source_fluxes = np.array(list(chain.from_iterable(blobs))[::2])
         blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
-        prob = self._sampler.lnprobability[:, nburn:].reshape((-1))
-        if len(params_to_fit) == 3:
-            samples = np.c_[samples, source_fluxes[:, 0], blend_flux, prob]
-        elif len(params_to_fit) == 5:
-            samples = np.c_[samples, source_fluxes[:, 0], source_fluxes[:, 1],
-                            blend_flux, prob]
-        else:
-            raise RuntimeError('Wrong number of dimensions')
+        prob = self._sampler.lnprobability[:, self._n_burn:].ravel()
+        arrays_to_stack = (samples, source_fluxes, blend_flux, prob)
+        self._samples = np.column_stack(arrays_to_stack)
 
-        # Print results from median and 1sigma-perc:
-        perc = np.percentile(samples, [16, 50, 84], axis=0)
+    def _print_emcee_percentiles(self):
+        """
+        Print the percentiles of the EMCEE samples.
+        """
+        self._perc = np.percentile(self._samples, [16, 50, 84], axis=0)
         print("Fitted parameters:")
-        for i in range(n_dim):
-            r = perc[1, i]
-            msg = params_to_fit[i] + ": {:.5f} +{:.5f} -{:.5f}"
-            print(msg.format(r, perc[2, i]-r, r-perc[0, i]))
+        for i in range(self._n_fit_parameters):
+            r = self._perc[1, i]
+            msg = self.params_to_fit[i] + ": {:.5f} +{:.5f} -{:.5f}"
+            print(msg.format(r, self._perc[2, i]-r, r-self._perc[0, i]))
 
-        # Adding fluxes to params_to_fit and setting up pars_perc
-        if samples.shape[1]-1 == len(params_to_fit) + 2:
-            params_to_fit += ['source_flux', 'blending_flux']
-        elif samples.shape[1]-1 == len(params_to_fit) + 3:
-            params_to_fit += ['source_flux_1', 'source_flux_2', 'blending_flux']
-        pars_perc = dict(zip(params_to_fit, perc.T))
+    def _get_best_params_emcee(self):
+        """
+        Get the best parameters from the EMCEE samples.
 
-        # We extract best model parameters and chi2 from event:
-        best_idx = np.argmax(prob)
-        best = samples[best_idx, :-1] if self.ans_emcee == 'max_prob' else perc[1]
-        for (key, value) in zip(params_to_fit, best):
-            if key == 'flux_ratio':
-                event.fix_source_flux_ratio = {event.datasets[0]: value}
-            else:
-                setattr(event.model.parameters, key, value)
-        print("\nSmallest chi2 model:")
-        print(*[repr(b) if isinstance(b, float) else b for b in best])
-        deg_of_freedom = event.datasets[0].n_epochs - n_dim
-        print(f"chi2 = {event.chi2:.8f}, dof = {deg_of_freedom}")
-        best = dict(zip(params_to_fit, best))
+        NOTE: if flux_ratio is needed, recover lines from _ln_prob()
+        """
+        best_idx = np.argmax(self._samples[:, -1])
+        pars_best_chi2 = self._samples[best_idx, :-1]
+        self._set_model_parameters(pars_best_chi2)
+        n_dof = self._event.datasets[0].n_epochs - self._n_fit_parameters
+        self._result_chi2 = self._event.get_chi2()
+        print(f"chi2 = {self._result_chi2:.8f}, dof = {n_dof}")
 
-        # Cleaning posterior and cplot if required by the user
-        if self.clean_cplot:
-            new_states, new_perc = clean_posterior_emcee(self._sampler, best, nburn)
-            if new_states is not None:
-                pars_perc = dict(zip(params_to_fit, new_perc.T))
-                samples = new_states
+        # Adding flux names to params_to_fit
+        # if self._samples.shape[1] - 1 == self._n_fit_parameters + 2:
+        #     self.params_to_fit += ['source_flux', 'blending_flux']
+        # elif self._samples.shape[1] - 1 == self._n_fit_parameters + 3:
+        #     self.params_to_fit += ['source_flux_1', 'source_flux_2',
+        #                            'blending_flux']
+        self.params_to_fit += self._get_fluxes_names_to_print()
 
-        # return best, pars_best, event.get_chi2(), states, sampler
-        return best, self._sampler, samples, pars_perc
+        if self.ans_emcee == 'max_prob':
+            self._result = dict(zip(self.params_to_fit, pars_best_chi2))
+        elif self.ans_emcee == 'median':
+            self._result = dict(zip(self.params_to_fit, self._perc[1]))
 
     def _get_binary_source_event(self, best):
 
         data = self._datasets[0]
         bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
-        fix_source = {data: [best[p] for p in best if 'source' in p]}
+        fix_source = {data: [best[p] for p in best if 'flux_s' in p]}
         event_1L2S = mm.Event(data, model=mm.Model(bst),
                               fix_source_flux=fix_source,
-                              fix_blend_flux={data: best['blending_flux']})
+                              fix_blend_flux={data: best['flux_b_1']})
         event_1L2S.get_chi2()
 
         return event_1L2S
@@ -621,8 +600,9 @@ class FitBinarySource(UlensModelFit):
         """
         Still work on it after adding my functions...
         """
-        value = self._other_output["models"]
-        self._parse_other_output_parameters_models(value)
+        self._parse_other_output_parameters()
+        # value = self._other_output["models"]
+        # self._parse_other_output_parameters_models(value)
 
 
 def prefit_split_and_fit(data, settings, pdf=""):
@@ -791,89 +771,8 @@ def fit_emcee(dict_start, sigmas, ln_prob, event, settings):
     print(f"chi2 = {event.chi2:.8f}, dof = {deg_of_freedom}")
     best = dict(zip(params_to_fit, best))
 
-    # Cleaning posterior and cplot if required by the user
-    if n_emcee['clean_cplot']:
-        new_states, new_perc = clean_posterior_emcee(sampler, best, nburn)
-        if new_states is not None:
-            pars_perc = dict(zip(params_to_fit, new_perc.T))
-            samples = new_states
-
     # return best, pars_best, event.get_chi2(), states, sampler
     return best, sampler, samples, pars_perc
-
-
-def clean_posterior_emcee(sampler, params, n_burn):
-    """
-    OLD: manipulate emcee chains to reject stray walkers and clean posterior.
-
-    Args:
-        sampler (emcee.EnsembleSampler): sampler that contain the chains.
-        params (...): set of best parameters from fit_emcee function.
-        n_burn (int): number of steps considered as burn-in (< n_steps).
-
-    Returns:
-        tuple: new states and 1sigma quantiles of these states.
-    """
-
-    # here I will put all the manipulation of emcee chains...
-
-    # Rejecting stray walkers (copied from King)
-    # acc = sampler.acceptance_fraction
-    # w = (abs(acc-np.median(acc)) < max(np.std(acc), 0.1))
-    # gwlk = len(acc[w])
-    #  print(gwlk,'{:4.1f}'.format(ksize.to(u.arcsec).value), \
-    #       np.median(acc),np.median(sig_den/den_kern))
-    # states = sampler.chain[w, burn_end:, :]
-    # states = np.reshape(states,[gwlk*nburn,npars])
-
-    # Rejecting stray walkers (copied from rad_profile)
-    sampler.get_autocorr_time(tol=0)
-    acc = sampler.acceptance_fraction
-    w = np.where(abs(acc-np.median(acc)) < min(0.1, 3*np.std(acc)))
-
-    if len(w[0]) == 0:
-        return None, None
-    # states = sampler.chain[w[0],burnin::thin,:].copy()  # with thinning
-    new_states = sampler.chain[w[0], n_burn::, :].copy()  # no thinning
-    gwlk, nthin, npars = np.shape(new_states)
-    new_states = np.reshape(new_states, [gwlk*nthin, npars])
-
-    # Trying to add the source_fluxes after flattening...
-    blobs = sampler.get_blobs().T  # [:10]
-    blobs = blobs[w[0], n_burn:].reshape(-1)
-    source_fluxes = np.array(list(chain.from_iterable(blobs))[::2]).T
-    blend_flux = np.array(list(chain.from_iterable(blobs))[1::2])
-    prob = sampler.lnprobability[w[0], n_burn:].reshape(-1)
-    if npars == 3:
-        new_states = np.c_[new_states, source_fluxes[0], blend_flux, prob]
-    elif npars == 5:
-        new_states = np.c_[new_states, source_fluxes[0], source_fluxes[1],
-                           blend_flux, prob]
-
-    # new_samples = samples[w[0]].copy()[npars:.]
-    # breakpoint()
-
-    n_rej, perc_rej = sampler.nwalkers-gwlk, 100*(1-gwlk/sampler.nwalkers)
-    print(f'Obs: {n_rej} walkers ({round(perc_rej)}%) were rejected')
-
-    # Finding median values and confidence intervals... FIT SKEWED GAUSSIANS!!!
-    # To-Do... [...]
-    # test = params # [...]
-    # do things here and return best only here!!! COPIED BELOW
-
-    # Getting states and reshaping: e.g. (20, 1500, 3) -> (30000, 3)
-    # states = sampler.chain[:, n_burn:, :]
-    # # states = np.reshape(states,[gwlk*n_burn,len(params_to_fit)])
-    # after_burn = n_steps-n_burn
-    # states = np.reshape(states,[n_walkers*after_burn, len(params_to_fit)])
-    # breakpoint()
-    # w = np.quantile(new_states,[0.16,0.50,0.84],axis=0)
-    # pars_best = w[1,:]
-    # perr_low  = w[0,:]-pars_best
-    # perr_high = w[2,:]-pars_best
-
-    return new_states, np.quantile(new_states, [0.16, 0.50, 0.84], axis=0)
-
 
 def make_plots(results_states, data, settings, orig_data=None, pdf=""):
     """
