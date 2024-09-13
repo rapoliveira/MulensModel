@@ -88,7 +88,7 @@ class FitBinarySource(UlensModelFit):
         self.read_data()
 
         for data, name in zip(self.data_list, self.file_names):
-            self.datasets = [data]
+            self._datasets = [data]
             self.event_id = name.split('/')[-1].split('.')[0]
             self.photometry_files = self.photometry_files_orig.copy()
             self.photometry_files[0]['file_name'] += self.event_id + '.dat'
@@ -158,7 +158,7 @@ class FitBinarySource(UlensModelFit):
                 raise ValueError(msg.format(key, str(val), type(provided)))
 
         fix_blend = self.additional_inputs.get('fix_blend', False)
-        fix_dict = {self.datasets[0]: fix_blend}
+        fix_dict = {self._datasets[0]: fix_blend}
         self.fix_blend = None if fix_blend is False else fix_dict
         self.sigmas_emcee = self.additional_inputs['sigmas']
         self.ans_emcee = self.additional_inputs.get('ans', 'max_prob')
@@ -191,7 +191,7 @@ class FitBinarySource(UlensModelFit):
         self._scipy_minimize_t_E_only(self.binary_source_start)
         self.binary_source_start['t_E'] = self.t_E_scipy
         model_start = mm.Model(self.binary_source_start)
-        self.ev_st = mm.Event(self.datasets[0], model=model_start)
+        self.ev_st = mm.Event(self._datasets[0], model=model_start)
 
         self._setup_fit_emcee_binary()
         self._run_emcee()
@@ -222,7 +222,7 @@ class FitBinarySource(UlensModelFit):
         Write later... Decide about gradient and which...
         """
         if data is None:
-            data = self.datasets[0]
+            data = self._datasets[0]
         self._guess_starting_params(self.t_peaks)
         model = mm.Model(self.start_dict)
         ev_st = mm.Event(data, model=model, fix_blend_flux=self.fix_blend)
@@ -263,8 +263,8 @@ class FitBinarySource(UlensModelFit):
         """
         Write later...
         """
-        data_time = self.datasets[0].time
-        data_mag = self.datasets[0].mag
+        data_time = self._datasets[0].time
+        data_mag = self._datasets[0].mag
         t_brightest = np.median(data_time[np.argsort(data_mag)][:9])
 
         if isinstance(t_bright, np.ndarray):
@@ -282,7 +282,7 @@ class FitBinarySource(UlensModelFit):
         """
         Write later...
         """
-        data = getattr(self, 'subt_data', self.datasets[0])
+        data = getattr(self, 'subt_data', self._datasets[0])
 
         # Starting the baseline (360d or half-data window?)
         t_diff = data.time - self.t_init
@@ -318,7 +318,7 @@ class FitBinarySource(UlensModelFit):
         """
         Write...
         """
-        data = getattr(self, 'subt_data', self.datasets[0])
+        data = getattr(self, 'subt_data', self._datasets[0])
         aux_event = mm.Event(data, model=mm.Model(model_dict))
         x0, arg = [model_dict['t_E']], (['t_E'], aux_event)
         bnds = [(0.1, None)]
@@ -331,7 +331,7 @@ class FitBinarySource(UlensModelFit):
         """
         Write later...
         """
-        data = self.datasets[0]
+        data = self._datasets[0]
         model = mm.Model(self.quick_pspl_1)
         aux_event = mm.Event(data, model=model, fix_blend_flux=self.fix_blend)
         (flux, blend) = aux_event.get_flux_for_dataset(0)
@@ -351,12 +351,47 @@ class FitBinarySource(UlensModelFit):
         self._check_starting_parameters_type()
         self._set_fit_parameters_unsorted()
         self._get_parameters_ordered()
+        self._parse_fit_constraints_fluxes()
+
+    def _check_bounds_prior(self, theta):
+        """
+        Check if the parameters are within the bounds and priors. If not,
+        it returns -np.inf. The bounds for t_0 should be a list, which sets
+        the lower and upper limits around the range of the data.
+
+        The last condition avoids that the guess for t_0_1 is higher than
+        t_0_2 (or t_0_2 > t_0_1, depending on initial parameters).
+        """
+        if not isinstance(self._max_values['t_0'], list):
+            raise ValueError('t_0 max_values should be of list type.')
+        for (idx, param) in enumerate(self.params_to_fit):
+            if param[:3] in self._min_values.keys():
+                if theta[idx] < self._min_values[param[:3]]:
+                    return -np.inf
+            if 'u_0' in param and 'u_0' in self._max_values.keys():
+                if theta[idx] > self._max_values['u_0']:
+                    return -np.inf
+            if 't_0' in param and 't_0' in self._max_values.keys():
+                data_time = self._datasets[0].time
+                t_range = data_time[::len(data_time)-1]
+                t_range = t_range + np.array(self._max_values['t_0'])
+                if not t_range[0] < theta[idx] < t_range[1]:
+                    return -np.inf
+
+        if self._event.model.n_sources == 2:
+            init_t_0_1, init_t_0_2 = self._init_emcee[:3:2]
+            if (init_t_0_1 > init_t_0_2) and (theta[0] < theta[2]):
+                return -np.inf
+            elif (init_t_0_2 > init_t_0_1) and (theta[2] < theta[0]):
+                return -np.inf
+
+        return 0.
 
     def _ln_like(self, theta):
         """
         Get the value of the likelihood function from chi2 of event.
 
-        NOTE: if flux_ratio is not needed, use function from example_16
+        NOTE: if flux_ratio is not needed, use _ln_like from example_16
         """
         # *** DISCUSS TOMORROW IF FLUX RATIO WILL EVER BE USED ***
         # event = self._event
@@ -372,58 +407,25 @@ class FitBinarySource(UlensModelFit):
         self._set_model_parameters(theta)
         chi2 = self._event.get_chi2()
 
-        return -0.5 * chi2, self._event.fluxes[0]
+        return -0.5 * chi2
 
     def _ln_prior(self, theta):
         """
-        Apply all the priors (minimum, maximum and distributions).
-
-        Args:
-            theta (np.array): chain parameters to sample the prior.
-
-        Raises:
-            ValueError: if the maximum values for t_0 are not a list.
-            ValueError: if Mróz priors for t_E are selected.
-            ValueError: if input prior is not implemented.
-
-        Returns:
-            float: -np.inf or prior value to be added on the likelihood.
+        Apply all the priors (minimum, maximum, distributions), returning
+        -np.inf if parameters are outside the bounds.
         """
-
-        event = self._event
-        stg_priors = self._fit_constraints
-        stg_min_max = [self._min_values, self._max_values]
-        if not isinstance(stg_min_max[1]['t_0'], list):
-            raise ValueError('t_0 max_values should be of list type.')
-        ln_prior_t_E, ln_prior_fluxes = 0., 0.
-
-        # Ensuring that t_0_1 < t_0_2 or t_0_1 > t_0_2
-        if event.model.n_sources == 2:
-            init_t_0_1, init_t_0_2 = self._init_emcee[:3:2]
-            if (init_t_0_1 > init_t_0_2) and (theta[0] < theta[2]):
-                return -np.inf
-            elif (init_t_0_2 > init_t_0_1) and (theta[2] < theta[0]):
-                return -np.inf
-
-        # Limiting min and max values (all minimum, then t_0 and u_0 maximum)
-        for (idx, param) in enumerate(self.params_to_fit):
-            if param[:3] in stg_min_max[0].keys():
-                if theta[idx] < stg_min_max[0][param[:3]]:
-                    return -np.inf
-            if 't_0' in param and 't_0' in stg_min_max[1].keys():
-                data_time = event.datasets[0].time
-                t_range = data_time[::len(data_time)-1]
-                t_range = t_range + np.array(stg_min_max[1]['t_0'])
-                if not t_range[0] < theta[idx] < t_range[1]:
-                    return -np.inf
-            if 'u_0' in param and 'u_0' in stg_min_max[1].keys():
-                if theta[idx] > stg_min_max[1]['u_0']:
-                    return -np.inf
+        bounds = self._check_bounds_prior(theta)
+        fluxes = self._get_fluxes()
+        ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
+        if not np.isfinite(bounds + ln_prior_flux):
+            return -np.inf
 
         # Prior in t_E (only lognormal so far, tbd: Mroz17/20)
         # OBS: Still need to remove the ignore warnings line (related to log?)
-        if 't_E' in stg_priors['prior'].keys():
-            t_E_prior = stg_priors['prior']['t_E']
+        # To-Do: Add lognormal in self._get_ln_prior_for_1_parameter()...
+        ln_prior_t_E, ln_prior_flux = 0., 0.
+        if 't_E' in self._prior.keys():
+            t_E_prior = self._prior['t_E']
             t_E_val = theta[self.params_to_fit.index('t_E')]
             if 'lognormal' in t_E_prior:
                 # if t_E >= 1.:
@@ -431,23 +433,12 @@ class FitBinarySource(UlensModelFit):
                 prior = [float(x) for x in t_E_prior.split()[1:]]
                 ln_prior_t_E = - (np.log(t_E_val) - prior[0])**2 / (2*prior[1]**2)
                 ln_prior_t_E -= np.log(t_E_val * np.sqrt(2*np.pi)*prior[1])
-            elif 'Mroz et al.' in stg_priors['ln_prior']['t_E']:
+            elif 'Mroz et al.' in self._prior['t_E']:
                 raise ValueError('Still implementing Mroz et al. priors.')
             else:
                 raise ValueError('t_E prior type not allowed.')
 
-        # Avoiding negative source/blending fluxes (Radek)
-        _ = event.get_chi2()
-        if 'negative_blending_flux_sigma_mag' in stg_priors.keys():
-            sig_ = stg_priors['negative_blending_flux_sigma_mag']
-            for flux in [*event.source_fluxes[0], event.blend_fluxes[0]]:
-                if flux < 0.:
-                    ln_prior_fluxes += -1/2 * (flux/sig_)**2  # 1000, 100 or less?
-        elif self._fit_constraints['no_negative_blending_flux']:
-            if event.blend_fluxes[0] < 0:
-                return -np.inf
-
-        return 0.0 + ln_prior_t_E + ln_prior_fluxes
+        return 0.0 + ln_prior_t_E + ln_prior_flux
 
     def _ln_prob(self, theta):
         """
@@ -463,17 +454,18 @@ class FitBinarySource(UlensModelFit):
             tuple: value of prior+likelihood, source and blending fluxes.
         """
 
-        ln_prior_ = self._ln_prior(theta)
-        if not np.isfinite(ln_prior_):
+        ln_like = self._ln_like(theta)
+        ln_prior = self._ln_prior(theta)
+        if not np.isfinite(ln_prior):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
-        ln_like_, fluxes = self._ln_like(theta)
+        source_fluxes, blending_flux = self._event.fluxes[0]
 
         # In the cases that source fluxes are negative we want to return
         # these as if they were not in priors.
-        if np.isnan(ln_like_):
+        if np.isnan(ln_like):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
 
-        return ln_prior_ + ln_like_, fluxes[0], fluxes[1]
+        return ln_prior + ln_like, source_fluxes, blending_flux
 
     def _setup_fit_emcee_binary(self):
         """
@@ -499,6 +491,8 @@ class FitBinarySource(UlensModelFit):
         self._event = self.ev_st
         self._model = self._event.model
         self._init_emcee = list(self.binary_source_start.values())
+        self._prior = self._fit_constraints['prior']
+        self._set_n_fluxes()
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
         self._rand_sample = rand_sample * self._sigma_emcee
         # breakpoint()
@@ -613,7 +607,7 @@ class FitBinarySource(UlensModelFit):
 
     def _get_binary_source_event(self, best):
 
-        data = self.datasets[0]
+        data = self._datasets[0]
         bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
         fix_source = {data: [best[p] for p in best if 'source' in p]}
         event_1L2S = mm.Event(data, model=mm.Model(bst),
