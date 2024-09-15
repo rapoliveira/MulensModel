@@ -130,6 +130,7 @@ class FitBinarySource(UlensModelFit):
 
         self._parse_fitting_parameters_EMCEE()
         self._get_n_walkers()
+        self._prior = self._fit_constraints['prior']
 
     def _check_additional_inputs(self):
         """
@@ -186,8 +187,9 @@ class FitBinarySource(UlensModelFit):
                                     'u_0_2': self.quick_pspl_2['u_0'],
                                     't_E': self.t_E_init}
 
-        self._scipy_minimize_t_E_only(self.binary_source_start)
-        self.binary_source_start['t_E'] = self.t_E_scipy
+        t_E_scipy = Utils.scipy_minimize_t_E_only(self._datasets[0],
+                                                  self.binary_source_start)
+        self.binary_source_start['t_E'] = t_E_scipy
         model_start = mm.Model(self.binary_source_start)
         self.ev_st = mm.Event(self._datasets[0], model=model_start)
 
@@ -204,141 +206,17 @@ class FitBinarySource(UlensModelFit):
         First step: quick estimate of PSPL models using scipy.minimize.
         Two fits are carried out: with original data and then with data
         subtracted from the first fit.
+        These auxiliary functions are all stored in utils.py.
         """
-        test = Utils.run_scipy_minimize(
-            self._datasets[0], self.t_peaks, self.fix_blend
-        )  # test here the difference when all the functions are in utils!
-        self.quick_pspl_1 = self._run_scipy_minimize()
-        breakpoint()
-        self._subtract_model_from_data()
-        self.quick_pspl_2 = self._run_scipy_minimize(self.subt_data)
+        t_E_prior = self._fit_constraints['prior'].get('t_E')
+        self.t_E_init = Utils.guess_initial_t_E(t_E_prior)
+        self.quick_pspl_1, self.t_peaks = Utils.run_scipy_minimize(
+            self._datasets[0], self.t_peaks, t_E_prior, self.fix_blend)
 
-    def _run_scipy_minimize(self, data=None):
-        """
-        Write later... Decide about gradient and which...
-        """
-        if data is None:
-            data = self._datasets[0]
-        self._guess_pspl_params(self.t_peaks)
-        model = mm.Model(self.start_dict)
-        ev_st = mm.Event(data, model=model, fix_blend_flux=self.fix_blend)
-
-        # Nelder-Mead (no gradient)
-        x0 = list(self.start_dict.values())
-        arg = (list(self.start_dict.keys()), ev_st)
-        bnds = [(x0[0]-50, x0[0]+50), (1e-5, 3), (1e-2, None)]
-        r_ = op.minimize(Utils.chi2_fun, x0=x0, args=arg, bounds=bnds,
-                         method='Nelder-Mead')
-        results = [{'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]}]
-
-        # Options with gradient from jacobian
-        # L-BFGS-B and TNC accept `bounds``, Newton-CG doesn't
-        r_ = op.minimize(Utils.chi2_fun, x0=x0, args=arg, method='L-BFGS-B',
-                         bounds=bnds, jac=Utils.jacobian, tol=1e-3)
-        results.append({'t_0': r_.x[0], 'u_0': r_.x[1], 't_E': r_.x[2]})
-
-        return results[1]
-
-    def _guess_pspl_params(self, t_bright=None):
-        """
-        Guess PSPL parameters: t_0 from brightest points, u_0 from the
-        flux difference between baseline and brightest point and t_E from
-        a quick Nelder-Mead minimization.
-        """
-        self._guess_initial_t_0(t_bright)
-        self._guess_initial_u_0()
-        self._guess_initial_t_E()
-        start = {'t_0': round(self.t_init, 1), 'u_0': self.u_init,
-                 't_E': self.t_E_init}
-
-        self._scipy_minimize_t_E_only(start)
-        self.start_dict = start.copy()
-        self.start_dict['t_E'] = round(self.t_E_scipy, 2)
-
-    def _guess_initial_t_0(self, t_bright=None):
-        """
-        Write later...
-        """
-        data_time = self._datasets[0].time
-        data_mag = self._datasets[0].mag
-        t_brightest = np.median(data_time[np.argsort(data_mag)][:9])
-
-        if isinstance(t_bright, np.ndarray):
-            if len(t_bright) > 0 and np.all(t_bright != 0):
-                subt = np.abs(t_bright - t_brightest + 2450000)
-                t_brightest = 2450000 + t_bright[np.argmin(subt)]
-                self.t_peaks = np.delete(t_bright, np.argmin(subt))
-        elif t_bright not in [None, False]:
-            raise ValueError('t_bright should be a list of peak times, False'
-                             ' or None.')
-
-        self.t_init = t_brightest
-
-    def _guess_initial_u_0(self):
-        """
-        Write later...
-        """
-        data = getattr(self, 'subt_data', self._datasets[0])
-
-        # Starting the baseline (360d or half-data window?)
-        t_diff = data.time - self.t_init
-        t_window = [self.t_init + min(t_diff)/2., self.t_init + max(t_diff)/2.]
-        t_mask = (data.time < t_window[0]) | (data.time > t_window[1])
-        flux_base = np.median(data.flux[t_mask])
-        # flux_mag_base = (flux_base, np.std(data.flux[t_mask]),
-        #                  np.median(data.mag[t_mask]),
-        #                  np.std(data.mag[t_mask]))
-
-        # Get the brightest flux around self.t_init (to avoid outliers)
-        idx_min = np.argmin(abs(t_diff))
-        min_, max_ = max(idx_min-5, 0), min(idx_min+6, len(data.mag))
-        # mag_peak = min(data.mag[min_:max_]) # [idx_min-5:idx_min+6]
-        flux_peak = max(data.flux[min_:max_])
-
-        # Compute magnification and corresponding u_0(A)
-        magnif_A = flux_peak / flux_base
-        self.u_init = np.sqrt(2*magnif_A / np.sqrt(magnif_A**2 - 1) - 2)
-        self.u_init = round(self.u_init, 3)
-
-    def _guess_initial_t_E(self):
-        """
-        Write later...
-        """
-        if 't_E' in self._fit_constraints['prior'].keys():
-            t_E_prior = self._fit_constraints['prior']['t_E']
-            self.t_E_init = round(np.exp(float(t_E_prior.split()[1])), 1)
-        else:
-            self.t_E_init = 25.
-
-    def _scipy_minimize_t_E_only(self, model_dict):
-        """
-        Write...
-        """
-        if len(model_dict) == 3 and hasattr(self, 'subt_data'):
-            data = self.subt_data
-        else:
-            data = self._datasets[0]
-        # data = getattr(self, 'subt_data', self._datasets[0])
-        aux_event = mm.Event(data, model=mm.Model(model_dict))
-        x0, arg = [model_dict['t_E']], (['t_E'], aux_event)
-        bnds = [(0.1, None)]
-        r_ = op.minimize(Utils.chi2_fun, x0=x0, args=arg, bounds=bnds,
-                         method='Nelder-Mead')
-
-        self.t_E_scipy = r_.x[0]
-
-    def _subtract_model_from_data(self):
-        """
-        Write later...
-        """
-        data = self._datasets[0]
-        model = mm.Model(self.quick_pspl_1)
-        aux_event = mm.Event(data, model=model, fix_blend_flux=self.fix_blend)
-        (flux, blend) = aux_event.get_flux_for_dataset(0)
-
-        fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
-        subt_data = np.c_[data.time, fsub, data.err_flux][fsub > 0]
-        self.subt_data = mm.MulensData(subt_data.T, phot_fmt='flux')
+        subt_data = Utils.subtract_model_from_data(
+            self._datasets[0], self.quick_pspl_1, self.fix_blend)
+        self.quick_pspl_2, self.t_peaks = Utils.run_scipy_minimize(
+            subt_data, self.t_peaks, t_E_prior, self.fix_blend)
 
     def _set_starting_params_emcee(self):
         """
@@ -489,7 +367,6 @@ class FitBinarySource(UlensModelFit):
         """
         self._event = self.ev_st
         self._model = self._event.model
-        self._prior = self._fit_constraints['prior']
         self._set_n_fluxes()
 
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
@@ -605,9 +482,9 @@ class FitBinarySource(UlensModelFit):
         if not hasattr(self, 't_peaks_orig'):
             t_peaks = [self.res_pre_1L2S['t_0_1'], self.res_pre_1L2S['t_0_2']]
             self.t_peaks_orig = np.array(t_peaks) - 2.45e6
-        model_between_peaks = Utils.get_model_points_between_peaks(
-            self.ev_pre_1L2S, self.res_pre_1L2S, self.t_peaks_orig
-        )
+        model_between_peaks = Utils.get_model_pts_between_peaks(
+            self.ev_pre_1L2S, self.t_peaks_orig)
+        breakpoint()
         # data_left_right, t_min = split.split_after_result(event_1L2S, output, settings)
         # self._split_data_fit_PSPL_twice()
 
