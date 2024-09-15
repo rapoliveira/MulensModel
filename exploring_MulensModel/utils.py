@@ -184,7 +184,7 @@ class Utils(object):
 
         Keywords :
             data: *MulensModel.MulensData*
-                Data for which t_0 will be guessed.
+                Data for which t_E will be optimized.
 
             model_dict: *dict*
                 Dictionary with the model parameters, including t_E.
@@ -212,7 +212,7 @@ class Utils(object):
 
         Keywords :
             data: *MulensModel.MulensData*
-                Data for which t_0 will be guessed.
+                Data for which the PSPL parameters will be guessed.
 
             t_peaks: *np.ndarray* or *None*
                 List of peak times, as given by event_finder code.
@@ -252,7 +252,7 @@ class Utils(object):
 
         Keywords :
             data: *MulensModel.MulensData*
-                Data for which t_0 will be guessed.
+                Data for which the fitting will be done.
 
             t_peaks: *np.ndarray* or *None*
                 List of peak times, as given by event_finder code.
@@ -300,7 +300,7 @@ class Utils(object):
 
         Keywords :
             data: *MulensModel.MulensData*
-                Data for which t_0 will be guessed.
+                Data from which the model will be subtracted.
 
             model_dict: *dict*
                 Dictionary with the model parameters, including t_E.
@@ -332,13 +332,14 @@ class Utils(object):
 
         Keywords :
             event: *MulensModel.Event*
-                Event which has datasets for which the data will be split.
+                Fitted binary source event, which contains the datapoints
+                that will be split in two.
 
-            t_peaks: *np.ndarray* or *None*
-                List of peak times, as given by event_finder code.
+            t_peaks: *np.ndarray*
+                List of peak times, given by event_finder code or result.
 
         Returns :
-            model_data_between_peaks: *np.ndarray*
+            model_between_peaks: *np.ndarray*
                 Model points between the two peaks, with three columns:
                 time, flux and flux error.
         """
@@ -347,132 +348,88 @@ class Utils(object):
         flux_model = event.fits[0].get_model_fluxes()
         model_data = np.c_[mm_data.time, flux_model, mm_data.err_flux]
         flag_between = (t_0_left <= mm_data.time) & (mm_data.time <= t_0_right)
-        model_data_between_peaks = model_data[flag_between]
+        model_between_peaks = model_data[flag_between]
 
         # Exclude cases where there is no data between peaks or no minimum
-        if len(model_data_between_peaks) == 0:
+        if len(model_between_peaks) == 0:
             raise ValueError('There is no data between peaks, please check.')
 
-        return model_data_between_peaks
+        return model_between_peaks
     get_model_pts_between_peaks = staticmethod(get_model_pts_between_peaks)
 
-    def split_after_result(event_1L2S, result, settings):
+    def detect_min_flux_in_model(data, t_peaks, model_between_peaks,
+                                 t_E_prior=None, fix_blend=None):
         """
-        Find the minimum between t_0_1 and t_0_2 (1L2S) and split data into two.
+        Detect and optimize the minimum flux in the model datapoints
+        between the two peaks.
 
-        Args:
-            event_1L2S (mm.Event): derived binary source event
-            result (tuple): all the results derived in binary source fit
+        NOTE :: The result is slightly different compared to old code...
 
-        Returns:
-            tuple: two mm.Data instances, to the left and right of the minimum
+        Keywords :
+            data: *MulensModel.MulensData*
+                Data for which the minimum flux will be detected.
+
+            model_between_peaks: *np.ndarray*
+                Model points between the two peaks, with three columns:
+                time, flux and flux error.
+
+            [...]
+
+        Returns :
+            time_min_flux: *float*
+                Time of the minimum flux in the model.
         """
-
-        if np.all(settings['starting_parameters']['t_peaks_list_orig'] != 0):
-            t_peaks = settings['starting_parameters']['t_peaks_list_orig'] + 2.45e6
-        else:
-            t_peaks = [result[0]['t_0_1'], result[0]['t_0_2']]
-        t_0_left, t_0_right = sorted(t_peaks)
-        mm_data = event_1L2S.datasets[0]
-        flux_model = event_1L2S.fits[0].get_model_fluxes()
-        model_data = np.c_[mm_data.time, flux_model, mm_data.err_flux]
-        between_peaks = (t_0_left <= mm_data.time) & (mm_data.time <= t_0_right)
-        model_data_between_peaks = model_data[between_peaks]
-
-        # Exclude cases where there is no data between peaks or no minimum
-        if len(model_data_between_peaks) == 0:
-            return [], []
-
-        # UP TO HERE IS DONE...
-
-        # Two functions to transfer from class to utils !!!
-        # _run_scipy_minimize
-        # _subtract_model_from_data
-
-        # Detect the minimum flux in model_data_between_peaks
-        idx_min_flux = np.argmin(model_data_between_peaks[:, 1])
-        time_min_flux = model_data_between_peaks[:, 0][idx_min_flux]
+        idx_min_flux = np.argmin(model_between_peaks[:, 1])
+        time_min_flux = model_between_peaks[:, 0][idx_min_flux]
+        t_left, t_right = model_between_peaks[0, 0], model_between_peaks[-1, 0]
         chi2_lr, chi2_dof_lr = [], []
-        if time_min_flux - 0.1 < t_0_left or time_min_flux + 0.1 > t_0_right or \
-                min(idx_min_flux, len(model_data_between_peaks)-idx_min_flux) < 3:
-            for item in model_data_between_peaks[::10]:
-                flag = mm_data.time <= item[0]
-                data_np = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
-                data_left = mm.MulensData(data_np[flag].T, phot_fmt='mag')
-                data_right = mm.MulensData(data_np[~flag].T, phot_fmt='mag')
-                model_1 = fit.fit_utils('scipy_minimize', data_left, settings)
-                data_r_subt = fit.fit_utils('subt_data', data_right, settings, model_1)
-                model_2 = fit.fit_utils('scipy_minimize', data_r_subt, settings)
-                data_l_subt = fit.fit_utils('subt_data', data_left, settings, model_2)
-                model_1 = fit.fit_utils('scipy_minimize', data_l_subt, settings)
-                ev_1 = mm.Event(data_l_subt, model=mm.Model(model_1))
-                ev_2 = mm.Event(data_r_subt, model=mm.Model(model_2))
-                chi2_lr.append([ev_1.get_chi2(), ev_2.get_chi2()])
-                chi2_dof_lr.append([ev_1.get_chi2() / (data_left.n_epochs-3),
-                                    ev_2.get_chi2() / (data_right.n_epochs-3)])
-            ### Add fine solution later, getting the 10 or 100 central...
-            # Temporary solution for BLG505.31.30585
-            chi2_dof_l, chi2_dof_r = np.array(chi2_dof_lr).T
-            idx_min = int(np.mean([np.argmin(chi2_dof_l[:-1]), np.argmin(chi2_dof_r[:-1])]))
-            time_min_flux = model_data_between_peaks[idx_min*10][0]
 
-        flag = mm_data.time <= time_min_flux
-        mm_data = np.c_[mm_data.time, mm_data.mag, mm_data.err_mag]
+        c_1 = time_min_flux - 0.1 < t_left or time_min_flux + 0.1 > t_right
+        c_2 = min(idx_min_flux, len(model_between_peaks) - idx_min_flux) < 3
+        if not c_1 and not c_2:
+            return time_min_flux
+
+        # Change ::10 to dividing into a fixed number of intervals
+        for item in model_between_peaks[::10]:  # ::10
+            flag = data.time <= item[0]
+            data_np = np.c_[data.time, data.mag, data.err_mag]
+            data_left = mm.MulensData(data_np[flag].T, phot_fmt='mag')
+            data_right = mm.MulensData(data_np[~flag].T, phot_fmt='mag')
+
+            args_ = (t_peaks, t_E_prior, fix_blend)
+            model_1 = Utils.run_scipy_minimize(data_left, *args_)[0]
+            data_r_subt = Utils.subtract_model_from_data(data_right, model_1,
+                                                         fix_blend)
+            model_2 = Utils.run_scipy_minimize(data_r_subt, *args_)[0]
+            data_l_subt = Utils.subtract_model_from_data(data_left, model_2,
+                                                         fix_blend)
+            model_1 = Utils.run_scipy_minimize(data_l_subt, *args_)[0]
+
+            ev_1 = mm.Event(data_l_subt, model=mm.Model(model_1))
+            ev_2 = mm.Event(data_r_subt, model=mm.Model(model_2))
+            chi2_lr.append([ev_1.get_chi2(), ev_2.get_chi2()])
+            chi2_dof_l = ev_1.get_chi2() / (data_left.n_epochs-3)
+            chi2_dof_r = ev_2.get_chi2() / (data_right.n_epochs-3)
+            chi2_dof_lr.append([chi2_dof_l, chi2_dof_r])
+        ### Add fine solution later, getting the 10 or 100 central...
+        # Temporary solution for BLG505.31.30585
+        chi2_dof_l, chi2_dof_r = np.array(chi2_dof_lr).T
+        idx_min = int(np.mean([np.argmin(chi2_dof_l[:-1]), np.argmin(chi2_dof_r[:-1])]))
+        time_min_flux = model_between_peaks[idx_min*10][0]
+
+        return time_min_flux
+    detect_min_flux_in_model = staticmethod(detect_min_flux_in_model)
+
+    def split_in_min_flux(data, time_min_flux):
+        """
+        Write later...
+        """
+        flag = data.time <= time_min_flux
+        mm_data = np.c_[data.time, data.mag, data.err_mag]
         data_left = mm.MulensData(mm_data[flag].T, phot_fmt='mag')
         data_right = mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
+
         if min(data_left.mag) < min(data_right.mag):
-            return (data_left, data_right), time_min_flux
-        return (data_right, data_left), time_min_flux
-
-    # def get_flux_from_mag(mag, zeropoint=None):
-    #     """
-    #     Transform magnitudes into fluxes.
-
-    #     Parameters :
-    #         mag: *np.ndarray* or *float*
-    #             Values to be transformed.
-
-    #         zeropoint: *float*
-    #             Zeropoint of magnitude scale.
-    #             Defaults to 22. - double check if you want to change this.
-
-    #     Returns :
-    #         flux: *np.ndarray* or *float*
-    #             Calculated fluxes. Type is the same as *mag* parameter.
-    #     """
-    #     if zeropoint is None:
-    #         zeropoint = MAG_ZEROPOINT
-    #     flux = 10. ** (0.4 * (zeropoint - mag))
-    #     return flux
-    # get_flux_from_mag = staticmethod(get_flux_from_mag)
-
-    # def get_flux_and_err_from_mag(mag, err_mag, zeropoint=None):
-    #     """
-    #     Transform magnitudes and their uncertainties into flux space.
-
-    #     Parameters :
-    #         mag: *np.ndarray* or *float*
-    #             Magnitude values to be transformed.
-
-    #         err_mag: *np.ndarray* or *float*
-    #             Uncertainties of magnitudes to be transformed.
-
-    #         zeropoint: *float*
-    #             Zeropoint of magnitude scale.
-    #             Defaults to 22. - double check if you want to change this.
-
-    #     Returns :
-    #         flux: *np.ndarray* or *float*
-    #             Calculated fluxes. Type is the same as *mag* parameter.
-
-    #         err_flux: *np.ndarray* or *float*
-    #             Calculated flux uncertainties. Type is *float* if both *mag*
-    #             and *err_mag* are *floats* and *np.ndarray* otherwise.
-    #     """
-    #     if zeropoint is None:
-    #         zeropoint = MAG_ZEROPOINT
-    #     flux = 10. ** (0.4 * (zeropoint - mag))
-    #     err_flux = err_mag * flux * np.log(10.) * 0.4
-    #     return (flux, err_flux)
-    # get_flux_and_err_from_mag = staticmethod(get_flux_and_err_from_mag)
-
+            return (data_left, data_right)
+        return (data_right, data_left)
+    split_in_min_flux = staticmethod(split_in_min_flux)

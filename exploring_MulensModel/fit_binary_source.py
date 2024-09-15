@@ -208,15 +208,15 @@ class FitBinarySource(UlensModelFit):
         subtracted from the first fit.
         These auxiliary functions are all stored in utils.py.
         """
-        t_E_prior = self._fit_constraints['prior'].get('t_E')
-        self.t_E_init = Utils.guess_initial_t_E(t_E_prior)
+        self.t_E_prior = self._fit_constraints['prior'].get('t_E')
+        self.t_E_init = Utils.guess_initial_t_E(self.t_E_prior)
         self.quick_pspl_1, self.t_peaks = Utils.run_scipy_minimize(
-            self._datasets[0], self.t_peaks, t_E_prior, self.fix_blend)
+            self._datasets[0], self.t_peaks, self.t_E_prior, self.fix_blend)
 
         subt_data = Utils.subtract_model_from_data(
             self._datasets[0], self.quick_pspl_1, self.fix_blend)
         self.quick_pspl_2, self.t_peaks = Utils.run_scipy_minimize(
-            subt_data, self.t_peaks, t_E_prior, self.fix_blend)
+            subt_data, self.t_peaks, self.t_E_prior, self.fix_blend)
 
     def _set_starting_params_emcee(self):
         """
@@ -440,8 +440,10 @@ class FitBinarySource(UlensModelFit):
         NOTE: if flux_ratio is needed, recover lines from _ln_prob()
         """
         best_idx = np.argmax(self._samples[:, -1])
-        pars_best_chi2 = self._samples[best_idx, :-1]
-        self._set_model_parameters(pars_best_chi2)
+        pars_best = self._samples[best_idx, :-1]
+        self._set_model_parameters(pars_best)
+        print("\nSmallest chi2 model:")
+        print(*[repr(b) if isinstance(b, float) else b for b in pars_best])
         n_dof = self._event.datasets[0].n_epochs - self._n_fit_parameters
         self._result_chi2 = self._event.get_chi2()
         print(f"chi2 = {self._result_chi2:.8f}, dof = {n_dof}")
@@ -455,7 +457,7 @@ class FitBinarySource(UlensModelFit):
         self.params_to_fit += self._get_fluxes_names_to_print()
 
         if self.ans_emcee == 'max_prob':
-            self._result = dict(zip(self.params_to_fit, pars_best_chi2))
+            self._result = dict(zip(self.params_to_fit, pars_best))
         elif self.ans_emcee == 'median':
             self._result = dict(zip(self.params_to_fit, self._perc[1]))
 
@@ -476,7 +478,7 @@ class FitBinarySource(UlensModelFit):
         _summary_
         # *** Add all the fitting routine here... calling short functions!
         # 2) EMCEE to get a first estimate for 1L2S -- OK, solved!
-        # 3) Split data and fit PSPL twice with EMCEE -- NEXT!
+        # 3) Split data and fit PSPL twice with EMCEE -- OK, check...
         # 4) Get final 1L2S fit...
         """
         if not hasattr(self, 't_peaks_orig'):
@@ -484,8 +486,14 @@ class FitBinarySource(UlensModelFit):
             self.t_peaks_orig = np.array(t_peaks) - 2.45e6
         model_between_peaks = Utils.get_model_pts_between_peaks(
             self.ev_pre_1L2S, self.t_peaks_orig)
-        breakpoint()
+        time_min_flux = Utils.detect_min_flux_in_model(
+            self._datasets[0], self.t_peaks_orig, model_between_peaks,
+            self.t_E_prior, self.fix_blend)
+        data_left_right = Utils.split_in_min_flux(
+            self._datasets[0], time_min_flux)
+        # *** OK, the comparison is identical if there is no for loop ***
         # data_left_right, t_min = split.split_after_result(event_1L2S, output, settings)
+        breakpoint()
         # self._split_data_fit_PSPL_twice()
 
         # self._run_emcee_1L2S()
