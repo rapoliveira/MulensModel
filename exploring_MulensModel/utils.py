@@ -362,8 +362,13 @@ class Utils(object):
         """
         Detect and optimize the minimum flux in the model datapoints
         between the two peaks.
+        The for loop is an optimization to get time_min_flux for cases (e.g.
+        BLG505.31.30585) where the time of the minimum flux is too close
+        (less than 0.1 day) to either of the bump times, or too close to the
+        maximum time of the data.
 
-        NOTE :: The result is slightly different compared to old code...
+        NOTE: The result is slightly different compared to old codes because
+        of the diferent models fitted in each case.
 
         Keywords :
             data: *MulensModel.MulensData*
@@ -411,10 +416,10 @@ class Utils(object):
             chi2_dof_l = ev_1.get_chi2() / (data_left.n_epochs-3)
             chi2_dof_r = ev_2.get_chi2() / (data_right.n_epochs-3)
             chi2_dof_lr.append([chi2_dof_l, chi2_dof_r])
-        ### Add fine solution later, getting the 10 or 100 central...
-        # Temporary solution for BLG505.31.30585
+
         chi2_dof_l, chi2_dof_r = np.array(chi2_dof_lr).T
-        idx_min = int(np.mean([np.argmin(chi2_dof_l[:-1]), np.argmin(chi2_dof_r[:-1])]))
+        min_args_lr = [np.argmin(chi2_dof_l[:-1]), np.argmin(chi2_dof_r[:-1])]
+        idx_min = int(np.mean(min_args_lr))
         time_min_flux = model_between_peaks[idx_min*10][0]
 
         return time_min_flux
@@ -426,8 +431,10 @@ class Utils(object):
         """
         flag = data.time <= time_min_flux
         mm_data = np.c_[data.time, data.mag, data.err_mag]
-        data_left = mm.MulensData(mm_data[flag].T, phot_fmt='mag')
-        data_right = mm.MulensData(mm_data[~flag].T, phot_fmt='mag')
+        data_left = mm.MulensData(mm_data[flag].T, phot_fmt='mag',
+                                  plot_properties={'label': "left"})
+        data_right = mm.MulensData(mm_data[~flag].T, phot_fmt='mag',
+                                   plot_properties={'label': "right"})
 
         if min(data_left.mag) < min(data_right.mag):
             return (data_left, data_right)
