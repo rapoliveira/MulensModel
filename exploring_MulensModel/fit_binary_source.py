@@ -10,12 +10,11 @@ import warnings
 from astropy.table import Table, Column
 import corner
 import emcee
-from matplotlib.backends.backend_pdf import PdfPages
+# from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 # import multiprocessing
 import numpy as np
-import scipy.optimize as op
 import yaml
 
 import MulensModel as mm
@@ -499,7 +498,6 @@ class FitBinarySource(UlensModelFit):
         self._fit_pspl_twice()
         # two_pspl, subt_data = Utils.fit_PSPL_twice(data_left_right, settings, start=start_two_pspl)
 
-
         # OLD CODE :::
         # start = get_initial_t0_u0(data, settings)[0]
         # two_pspl, subt_data = split.fit_PSPL_twice(data_left_right, settings,
@@ -537,34 +535,38 @@ class FitBinarySource(UlensModelFit):
             tuple: two PSPL dictionaries with the result parameters
         """
 
-        # 1st PSPL (data_left or brighter)
         data_1, data_2 = self._data_left_right
-        # start = self.start_two_pspl
-        n_emcee = self._fitting_parameters
-        settings['123_fits'] = '1st fit'
+        time_min, time_max = data_1.time.min(), data_1.time.max()
+        if not time_min <= self.start_two_pspl['t_0'] <= time_max:
+            data_1, data_2 = data_2, data_1  # e.g. BLG611.09.12112
 
+        # 1st PSPL (data_left or brighter)
         self.params_to_fit = list(self.start_two_pspl.keys())
         self._n_fit_parameters = len(self.params_to_fit)
         self._sigma_emcee = self.sigmas_emcee[0]
         self._set_starting_params_emcee(self.start_two_pspl)
         self._init_emcee = list(self.start_two_pspl.values())
-
-        time_min, time_max = data_1.time.min(), data_1.time.max()
-        if not time_min <= self.start_two_pspl['t_0'] <= time_max:
-            data_1, data_2 = data_2, data_1  # e.g. BLG611.09.12112
         fix_dict = {data_1: self.fix_blend_in}
         fix_1 = None if self.fix_blend_in is False else fix_dict
         model_start = mm.Model(self.start_two_pspl)
         self.ev_st = mm.Event(data_1, model=model_start, fix_blend_flux=fix_1)
 
         print('\n\033[1m -- 1st fit: PSPL to original data...\033[0m')
-
         self._run_emcee()
         self._make_burn_in_and_reshape()
         self._print_emcee_percentiles()
         self._get_best_params_emcee()
         self.res_pspl_1 = self._result.copy()
         model_1 = mm.Model(dict(list(self.res_pspl_1.items())[:3]))
+
+        # Subtract data_2 from the first fit
+        fix_dict = {data_2: self.fix_blend_in}
+        fix_2 = None if self.fix_blend_in is False else fix_dict
+        aux_ev = mm.Event(data_2, model=model_1, fix_blend_flux=fix_2)
+        (flux, blend) = aux_ev.get_flux_for_dataset(0)
+        fsub = data_2.flux - aux_ev.fits[0].get_model_fluxes() + flux + blend
+        data_2_subt = np.c_[data_2.time, fsub, data_2.err_flux][fsub > 0]
+        data_2_subt = mm.MulensData(data_2_subt.T, phot_fmt='flux')
         breakpoint()
 
         # UP TO THIS POINT :::
@@ -574,7 +576,7 @@ class FitBinarySource(UlensModelFit):
         #
         # In the following lines, the data will be subtracted and two other
         # PSPL fits will be implemented:
-        # - Subtract data_2 from the first fit
+        # - Subtract data_2 from the first fit :: OK!
         # - ADD STEP OF CHECKING IF THERE IS DATA > 3sigma above f_base...?
         # - 2nd PSPL (not to original data_2, but to data_2_subt)
         # - Subtract data_1 from the second fit
