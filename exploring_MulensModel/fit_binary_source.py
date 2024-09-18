@@ -148,7 +148,8 @@ class FitBinarySource(UlensModelFit):
         self.fix_blend_in = self.additional_inputs.get('fix_blend', False)
         fix_dict = {self._datasets[0]: self.fix_blend_in}
         self.fix_blend = None if self.fix_blend_in is False else fix_dict
-        self.sigmas_emcee = self.additional_inputs['sigmas']
+        def_ = [[0.01, 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
+        self.sigmas_emcee = self.additional_inputs.get('sigmas', def_)
         self.ans_emcee = self.additional_inputs.get('ans', 'max_prob')
 
         def_ = {'t_or_f': False, 'yaml_template': '', 'yaml_dir_name': ''}

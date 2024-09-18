@@ -43,7 +43,7 @@ try:
 except Exception:
     raise ImportError('\nYou have to install MulensModel first!\n')
 
-__version__ = '0.38.0'
+__version__ = '0.39.0'
 
 
 class UlensModelFit(object):
@@ -77,8 +77,9 @@ class UlensModelFit(object):
             Method of fitting. Currently accepted values are ``EMCEE``,
             ``MultiNest``, and ``UltraNest``. If not provided, the script
             will guess it based on other parameters: ``EMCEE`` is selected
-            if ``starting_parameters`` are provided and ``MultiNest`` is
-            selected if ``prior_limits`` are provided.
+            if ``starting_parameters`` are provided. If ``prior_limits`` are
+            provided, either ``MultiNest`` or ``UltraNest`` will be selected
+            depending on the ``fitting_parameters``.
 
             Webpage of each method:
             - EMCEE: https://emcee.readthedocs.io/en/stable/
@@ -124,8 +125,7 @@ class UlensModelFit(object):
 
         prior_limits: *dict*
             Upper and lower limits of parameters.
-            It only applies to pyMultiNest and UltraNest fitting. However,
-            if fit_method is not given, pyMultiNest will be applied.
+            It only applies to pyMultiNest and UltraNest fitting.
 
             Keys are MulensModel parameters and values are lists of two floats
             each (alternatively a string giving 2 floats can be provided - see
@@ -381,15 +381,15 @@ class UlensModelFit(object):
     """
 
     def __init__(
-            self, photometry_files, fit_method=None,
+            self, photometry_files,
             starting_parameters=None, prior_limits=None, model=None,
             fixed_parameters=None,
             min_values=None, max_values=None, fitting_parameters=None,
-            fit_constraints=None, plots=None, other_output=None
+            fit_constraints=None, plots=None, other_output=None,
+            fit_method=None
     ):
         self._check_MM_version()
         self._photometry_files = photometry_files
-        self._fit_method = fit_method
         self._starting_parameters_input = starting_parameters
         self._prior_limits = prior_limits
         self._model_parameters = model
@@ -400,6 +400,7 @@ class UlensModelFit(object):
         self._fit_constraints = fit_constraints
         self._plots = plots
         self._other_output = other_output
+        self._fit_method = fit_method
 
         self._which_task()
         self._set_default_parameters()
@@ -407,6 +408,7 @@ class UlensModelFit(object):
             if self._fit_method is None:
                 self._guess_fitting_method()
             else:
+                self._fit_method = self._fit_method.lower()
                 self._check_fitting_method()
             self._check_starting_parameters_type()
             self._set_fit_parameters_unsorted()
@@ -558,7 +560,7 @@ class UlensModelFit(object):
                     "which makes impossible to choose the fitting method. "
                     "These settings indicate EMCEE and pyMultiNest "
                     "respectively, and cannot be both set.")
-            method = "MultiNest"  # UltraNest is also supported
+            method = self._guess_MultiNest_or_UltraNest()
         if method is None:
             raise ValueError(
                 "No fitting method chosen. You can chose either 'EMCEE' or "
@@ -566,15 +568,38 @@ class UlensModelFit(object):
                 "starting_parameters or prior_limits, respectively.")
         self._fit_method = method
 
+    def _guess_MultiNest_or_UltraNest(self):
+        """
+        Guess fit_method between MultiNest or UltraNest, based on the
+        provided fitting_parameters.
+        """
+        args_MultiNest = ['basename', 'multimodal', 'evidence tolerance',
+                          'n_live_points']
+        if all([key in args_MultiNest for key in self._fitting_parameters]):
+            return "MultiNest"
+
+        args_UltraNest = ['log directory', 'derived parameter names',
+                          'show_status', 'dlogz', 'frac_remain',
+                          'max_num_improvement_loops', 'n_live_points']
+        if all([key in args_UltraNest for key in self._fitting_parameters]):
+            return "UltraNest"
+
+        raise ValueError(
+            "Cannot guess fitting method. Provide more parameters in "
+            "fitting_parameters.")
+
     def _check_fitting_method(self):
         """
         Check if fitting method is consistent with the settings.
         """
-        if self._fit_method == "EMCEE":
+        if self._fit_method == "emcee":
+            self._fit_method = "EMCEE"
             if self._starting_parameters_input is None:
                 raise ValueError(
                     "EMCEE fitting method requires starting_parameters.")
-        elif self._fit_method in ["MultiNest", "UltraNest"]:
+        elif self._fit_method in ["multinest", "ultranest"]:
+            self._fit_method = self._fit_method.capitalize()
+            self._fit_method = self._fit_method.replace("nest", "Nest")
             if self._prior_limits is None:
                 msg = "{:} fitting method requires prior_limits."
                 raise ValueError(msg.format(self._fit_method))
@@ -643,8 +668,8 @@ class UlensModelFit(object):
                 required_packages.add('emcee')
             elif self._fit_method == "MultiNest":
                 required_packages.add('pymultinest')
-            elif self._fit_method == "Ultranest":
-                required_packages.add('cython')
+            elif self._fit_method == "UltraNest":
+                required_packages.add('ultranest')
 
             if self._plots is not None and 'triangle' in self._plots:
                 required_packages.add('corner')
@@ -681,7 +706,6 @@ class UlensModelFit(object):
         self._check_ulens_model_parameters()
         self._get_parameters_ordered()
         self._get_parameters_latex()
-        self._parse_fitting_parameters()
         self._set_prior_limits()
         self._parse_fit_constraints()
         if self._fit_method == "EMCEE":
@@ -689,6 +713,7 @@ class UlensModelFit(object):
 
         self._check_fixed_parameters()
         self._make_model_and_event()
+        self._parse_fitting_parameters()
         if self._fit_method == "EMCEE":
             self._get_starting_parameters()
 
@@ -1347,11 +1372,9 @@ class UlensModelFit(object):
         if 'n_walkers' in self._fitting_parameters:
             self._n_walkers = self._fitting_parameters['n_walkers']
         else:
-            if self._starting_parameters_type == 'file':
-                self._n_walkers = None
-            elif self._starting_parameters_type == 'draw':
+            if self._starting_parameters_type == 'draw':
                 self._n_walkers = 4 * self._n_fit_parameters
-            else:
+            elif self._starting_parameters_type != 'file':
                 raise ValueError(
                     'Unexpected: ' + self._starting_parameters_type)
 
@@ -1371,12 +1394,6 @@ class UlensModelFit(object):
         strings = ['basename']
         floats = ['sampling efficiency', 'evidence tolerance']
         allowed = strings + bools + ints + floats
-
-        only_UltraNest = ['log directory', 'derived parameter names',
-                          'show status', 'dlogz', 'frac_remain',
-                          'max_num_improvement_loops']
-        for item in only_UltraNest:
-            settings.pop(item, None)
 
         self._check_required_and_allowed_parameters(required, allowed)
         self._check_parameters_types(settings, bools, ints, floats, strings)
@@ -1453,7 +1470,7 @@ class UlensModelFit(object):
         self._kwargs_UltraNest = dict()
         self._kwargs_UltraNest['viz_callback'] = False
 
-        settings = self._fitting_parameters
+        settings = self._fitting_parameters.copy()
         if settings is None:
             settings = dict()
 
@@ -1466,13 +1483,25 @@ class UlensModelFit(object):
         floats = ['dlogz', 'frac_remain']
         allowed = strings + bools + ints + floats
 
-        only_MultiNest = ['basename', 'multimodal', 'evidence tolerance']
-        for item in only_MultiNest:
-            settings.pop(item, None)
-
         self._check_required_and_allowed_parameters(required, allowed)
         self._check_parameters_types(settings, bools, ints, floats, strings)
         self._log_dir_UltraNest = settings.pop("log directory", None)
+        value = settings.pop("derived parameter names", "")
+        self._derived_param_names_UltraNest = value.split()
+        self._check_dir_and_parameter_names_Ultranest()
+
+        keys = {"n_live_points": "min_num_live_points"}
+        same_keys = ["min_num_live_points", 'max_num_improvement_loops',
+                     "show_status", "dlogz", "frac_remain"]
+        keys = {**keys, **{key: key for key in same_keys}}
+        self._set_dict_safely(self._kwargs_UltraNest, settings, keys)
+
+    def _check_dir_and_parameter_names_Ultranest(self):
+        """
+        Checks if the path to `log directory` exists and is a directory,
+        and also if the number of `derived parameter names` matches the
+        number of derived fluxes.
+        """
         if self._log_dir_UltraNest is not None:
             if not path.exists(self._log_dir_UltraNest):
                 raise ValueError("log directory value in fitting_parameters"
@@ -1480,14 +1509,12 @@ class UlensModelFit(object):
             elif not path.isdir(self._log_dir_UltraNest):
                 raise ValueError("log directory value in fitting_parameters"
                                  "exists, but it is a file.")
-        value = settings.pop("derived parameter names", "")
-        self._derived_params_UltraNest = value.split()
 
-        keys = {"n_live_points": "min_num_live_points"}
-        same_keys = ["min_num_live_points", 'max_num_improvement_loops',
-                     "show_status", "dlogz", "frac_remain"]
-        keys = {**keys, **{key: key for key in same_keys}}
-        self._set_dict_safely(self._kwargs_UltraNest, settings, keys)
+        n_datasets = len(self._datasets)
+        n_fluxes = self._n_fluxes_per_dataset
+        if len(self._derived_param_names_UltraNest) != n_datasets * n_fluxes:
+            raise ValueError("The number of `derived parameter names` must "
+                             "match the number of derived fluxes.")
 
     def _set_prior_limits(self):
         """
@@ -1580,7 +1607,6 @@ class UlensModelFit(object):
         """
         Parse the fitting constraints that are not simple limits on parameters
         """
-        self._check_fit_constraints()
         self._prior_t_E = None
         self._priors = None
 
@@ -1588,6 +1614,7 @@ class UlensModelFit(object):
             self._set_default_fit_constraints()
             return
 
+        self._check_fit_constraints()
         self._parse_fit_constraints_keys()
         self._parse_fit_constraints_fluxes()
         self._parse_fit_constraints_posterior()
@@ -1599,11 +1626,22 @@ class UlensModelFit(object):
         """
         Run checks on self._fit_constraints
         """
-        lst_check = ['MultiNest', 'UltraNest']
-        if self._fit_constraints is not None and self._fit_method in lst_check:
-            msg = "Currently no fit_constraints are implemented for {:} " + \
-                  "fit. Please contact Radek Poleski with a specific request."
-            raise NotImplementedError(msg.format(self._fit_method))
+        if self._fit_method == 'MultiNest':
+            raise NotImplementedError(
+                "Currently no fit_constraints are implemented for MultiNest "
+                "fit. Please contact Radek Poleski with a specific request.")
+
+        if self._fit_method == 'UltraNest':
+            allowed_keys = {'negative_blending_flux_sigma_mag', 'prior'}
+            used_keys = set(self._fit_constraints.keys())
+            if not used_keys.issubset(allowed_keys):
+                raise NotImplementedError(
+                    "The supported fit_constraints options for UltraNest are"
+                    " `negative_blending_flux_sigma_mag` and `prior`.")
+            if 'prior' in used_keys:
+                if set(self._fit_constraints['prior'].keys()) != {'t_E'}:
+                    raise ValueError(
+                        "Only `t_E` is allowed in fit_constraints['prior'].")
 
         if isinstance(self._fit_constraints, list):
             raise TypeError(
@@ -1774,6 +1812,7 @@ class UlensModelFit(object):
         Parse constraints on what is done with posterior.
         """
         if 'posterior parsing' not in self._fit_constraints:
+            self._parse_posterior_abs = list()
             return
 
         if self._fit_method != "EMCEE":
@@ -2218,9 +2257,12 @@ class UlensModelFit(object):
 
         NOTE: we're using np.log(), i.e., natural logarithms.
         """
-        ln_prior = self._ln_prior(theta)
-        if not np.isfinite(ln_prior):
-            return self._return_ln_prob(-np.inf)
+        if self._fit_method == "EMCEE":
+            ln_prior = self._ln_prior(theta)
+            if not np.isfinite(ln_prior):
+                return self._return_ln_prob(-np.inf)
+        elif self._fit_method == "UltraNest":
+            ln_prior = self._ln_prior_t_E() if self._prior_t_E else 0.
 
         ln_like = self._ln_like(theta)
         if not np.isfinite(ln_like):
@@ -2236,9 +2278,11 @@ class UlensModelFit(object):
 
         ln_prob += ln_prior_flux
 
-        self._update_best_model_EMCEE(ln_prob, theta, fluxes)
+        if self._fit_method == "EMCEE":
+            self._update_best_model_EMCEE(ln_prob, theta, fluxes)
+            return self._return_ln_prob(ln_prob, fluxes)
 
-        return self._return_ln_prob(ln_prob, fluxes)
+        return ln_prob
 
     def _return_ln_prob(self, value, fluxes=None):
         """
@@ -2472,7 +2516,8 @@ class UlensModelFit(object):
                 return outside
 
         inside += self._apply_negative_blending_flux_sigma_mag_prior(fluxes)
-        inside += self._apply_color_prior(fluxes)
+        if self._fit_method == "EMCEE":
+            inside += self._apply_color_prior(fluxes)
 
         return inside
 
@@ -2560,39 +2605,43 @@ class UlensModelFit(object):
         """
         Prepare UltraNest fit, declaring sampler instance.
         If the names of the derived parameters are not given, the source
-        and blending fluxes are assigned, with the former containing _1
-        and _2 in case of multiple sources.
+        and blending fluxes are assigned, with indexes depending on the
+        number of sources (s1, s2) and datasets (_1, _2).
         """
-        if self._return_fluxes and len(self._derived_params_UltraNest) == 0:
-            self._derived_params_UltraNest = ["source_flux", "blending_flux"]
-            if self._n_fluxes > 2:
-                self._derived_params_UltraNest[0] += "_1"
-                for i in range(2, self._n_fluxes):
-                    name = "source_flux_{:}".format(i)
-                    self._derived_params_UltraNest.insert(i-1, name)
+        if self._return_fluxes:
+            if len(self._derived_param_names_UltraNest) == 0:
+                if self._flux_names is None:
+                    self._flux_names = self._get_fluxes_names_to_print()
+                self._derived_param_names_UltraNest = self._flux_names
 
+        n_dims = self._n_fit_parameters
+        n_params = n_dims + self._n_fluxes_per_dataset * self._return_fluxes
+        t_kwargs = {'n_dims': n_dims, 'n_params': n_params}
         self._sampler = ultranest.ReactiveNestedSampler(
-            self._fit_parameters,
-            self._ln_like, transform=self._transform_unit_cube_UltraNest,
-            derived_param_names=self._derived_params_UltraNest,
+            self._fit_parameters, self._ln_prob,
+            transform=lambda cube: self._transform_unit_cube(cube, **t_kwargs),
+            derived_param_names=self._derived_param_names_UltraNest,
             log_dir=self._log_dir_UltraNest
         )
 
     def _transform_unit_cube(self, cube, n_dims, n_params):
         """
-        Transform MulitNest unit cube to microlensing parameters.
+        Transform MultiNest/UltraNest unit cube to microlensing parameters.
 
-        Based on SafePrior() in
+        MultiNest: based on SafePrior() in
         https://github.com/JohannesBuchner/PyMultiNest/blob/master/
         pymultinest/solve.py
+        UltraNest: based on the above and UltraNest documentation
+        https://johannesbuchner.github.io/UltraNest/example-sine-line.html
 
         NOTE: We call self._ln_like() here (and remember the result)
         because in MultiNest you can add fluxes only in "prior" function,
         not in likelihood function.
         """
         cube_out = self._min_values + cube[:n_dims] * self._range_values
-        for i in range(n_dims):
-            cube[i] = cube_out[i]
+        if self._fit_method == "MultiNest":
+            for i in range(n_dims):
+                cube[i] = cube_out[i]
 
         if "x_caustic_in" in self._model.parameters.parameters:
             self._set_model_parameters(cube_out)
@@ -2600,19 +2649,25 @@ class UlensModelFit(object):
                 self._last_ln_like = -1.e300
                 self._last_theta = cube_out
                 if self._return_fluxes:
-                    for i in range(n_dims, n_params):
-                        cube[i] = 0.
                     self._last_fluxes = np.zeros(n_params - n_dims)
-                return
+                    if self._fit_method == "MultiNest":
+                        for i in range(n_dims, n_params):
+                            cube[i] = 0.
+                        return
+                    cube_out = np.append(cube_out, self._last_fluxes)
+                    return cube_out
 
         self._last_ln_like = self._ln_like(cube_out)
         self._last_theta = cube_out
 
         if self._return_fluxes:
             fluxes = self._get_fluxes()
+            self._last_fluxes = fluxes
+            if self._fit_method == "UltraNest":
+                cube_out = np.append(cube_out, fluxes)
+                return cube_out
             for i in range(n_dims, n_params):
                 cube[i] = fluxes[i-n_dims]
-            self._last_fluxes = fluxes
 
     def _ln_like_MN(self, theta, n_dim, n_params, lnew):
         """
@@ -2640,28 +2695,6 @@ class UlensModelFit(object):
             ln_like = ln_max
 
         return ln_like
-
-    def _transform_unit_cube_UltraNest(self, cube):
-        """
-        Transform UltraNest unit cube to microlensing parameters.
-
-        Based on _transform_unit_cube() for MultiNest method and tutorials
-        from UltraNest documentation:
-        https://johannesbuchner.github.io/UltraNest/example-sine-line.html
-        """
-        n_dims = self._n_fit_parameters
-        n_params = n_dims + self._n_fluxes_per_dataset * self._return_fluxes
-        cube_out = self._min_values + cube[:n_dims] * self._range_values
-
-        # Check: are "x_caustic_in" lines needed as in line 2597?
-
-        if self._return_fluxes:
-            fluxes = self._get_fluxes()
-            for i in range(n_dims, n_params):
-                cube_out = np.append(cube_out, fluxes[i-n_dims])
-            self._last_fluxes = fluxes
-
-        return cube_out
 
     def _run_fit(self):
         """
@@ -2692,7 +2725,7 @@ class UlensModelFit(object):
         """
         Run Ultranest fit
         """
-        min_n_live = self._kwargs_UltraNest['min_num_live_points']
+        min_n_live = self._kwargs_UltraNest.get("min_num_live_points", 400)
         cluster_n_live = 40 if min_n_live >= 40 else min_n_live
         self._kwargs_UltraNest['cluster_num_live_points'] = cluster_n_live
 
