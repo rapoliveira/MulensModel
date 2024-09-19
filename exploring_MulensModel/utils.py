@@ -293,7 +293,7 @@ class Utils(object):
         return results[1], t_peaks
     run_scipy_minimize = staticmethod(run_scipy_minimize)
 
-    def subtract_model_from_data(data, model_dict, fix_blend=None):
+    def subtract_model_from_data(data, model, fix_blend=None):
         """
         Calculate the residuals of the data after subtracting the model,
         using the get_model_fluxes() method.
@@ -302,10 +302,10 @@ class Utils(object):
             data: *MulensModel.MulensData*
                 Data from which the model will be subtracted.
 
-            model_dict: *dict*
-                Dictionary with the model parameters, including t_E.
+            model: *dict* or *MulensModel.Model*
+                Dictionary or Model instance with the model parameters.
 
-            fix_blend: *bool* or *dict*
+            fix_blend: *dict*, *bool* or *float*
                 If not *False*, the blending flux will be fixed to the value
                 given in the dictionary during the fitting.
 
@@ -313,7 +313,15 @@ class Utils(object):
             subt_data: *MulensModel.MulensData*
                 Data with the model subtracted, point by point.
         """
-        model = mm.Model(model_dict)
+        if isinstance(fix_blend, dict):
+            if data not in fix_blend:
+                raise ValueError("fix_blend keys must containt the data.")
+        elif isinstance(fix_blend, (bool, float)):
+            fix_dict = {data: fix_blend}
+            fix_blend = None if fix_blend is False else fix_dict
+
+        if isinstance(model, dict):
+            model = mm.Model(model)
         aux_event = mm.Event(data, model=model, fix_blend_flux=fix_blend)
         (flux, blend) = aux_event.get_flux_for_dataset(0)
 

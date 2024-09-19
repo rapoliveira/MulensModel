@@ -181,23 +181,13 @@ class FitBinarySource(UlensModelFit):
         """
         print(f'\n\033[1m * Running fit for {self.event_id}\033[0m')
         self._quick_fits_pspl_subtract_pspl()
-        self.binary_source_start = {'t_0_1': self.quick_pspl_1['t_0'],
-                                    'u_0_1': self.quick_pspl_1['u_0'],
-                                    't_0_2': self.quick_pspl_2['t_0'],
-                                    'u_0_2': self.quick_pspl_2['u_0'],
-                                    't_E': self.t_E_init}
+        start = {'t_0_1': self.pspl_1['t_0'], 'u_0_1': self.pspl_1['u_0'],
+                 't_0_2': self.pspl_2['t_0'], 'u_0_2': self.pspl_2['u_0'],
+                 't_E': self.t_E_init}
+        t_E_scipy = Utils.scipy_minimize_t_E_only(self._datasets[0], start)
+        start['t_E'] = t_E_scipy
 
-        t_E_scipy = Utils.scipy_minimize_t_E_only(self._datasets[0],
-                                                  self.binary_source_start)
-        self.binary_source_start['t_E'] = t_E_scipy
-        model_start = mm.Model(self.binary_source_start)
-        self.ev_st = mm.Event(self._datasets[0], model=model_start)
-
-        self._setup_fit_emcee_binary()
-        self._run_emcee()
-        self._make_burn_in_and_reshape()
-        self._print_emcee_percentiles()
-        self._get_best_params_emcee()
+        self._setup_and_run_emcee(self._datasets[0], start)
         self.res_pre_1L2S = self._result.copy()
         self.ev_pre_1L2S = self._get_binary_source_event(self.res_pre_1L2S)
 
@@ -210,12 +200,12 @@ class FitBinarySource(UlensModelFit):
         """
         self.t_E_prior = self._fit_constraints['prior'].get('t_E')
         self.t_E_init = Utils.guess_initial_t_E(self.t_E_prior)
-        self.quick_pspl_1, self.t_peaks = Utils.run_scipy_minimize(
+        self.pspl_1, self.t_peaks = Utils.run_scipy_minimize(
             self._datasets[0], self.t_peaks, self.t_E_prior, self.fix_blend)
 
         subt_data = Utils.subtract_model_from_data(
-            self._datasets[0], self.quick_pspl_1, self.fix_blend)
-        self.quick_pspl_2, self.t_peaks = Utils.run_scipy_minimize(
+            self._datasets[0], self.pspl_1, self.fix_blend)
+        self.pspl_2, self.t_peaks = Utils.run_scipy_minimize(
             subt_data, self.t_peaks, self.t_E_prior, self.fix_blend)
 
     def _set_starting_params_emcee(self, dict_start):
@@ -344,20 +334,41 @@ class FitBinarySource(UlensModelFit):
 
         return ln_prob, source_fluxes, blending_flux
 
-    def _setup_fit_emcee_binary(self):
+    def _setup_and_run_emcee(self, data, dict_start):
+        """
+        Write later... repeated commands...
+        """
+        self._setup_fit_pspl_binary(data, dict_start)
+        self._run_emcee()
+        self._make_burn_in_and_reshape()
+        self._print_emcee_percentiles()
+        self._get_best_params_emcee()
+
+    def _setup_fit_pspl_binary(self, data, dict_start):
         """
         Setup EMCEE fit for binary source model...
         # sigmas (list): sigma values used to find starting values.
         """
-        self.params_to_fit = list(self.binary_source_start.keys())
+        self.params_to_fit = list(dict_start.keys())
         self._n_fit_parameters = len(self.params_to_fit)
-        self._sigma_emcee = self.sigmas_emcee[1]
         self._n_burn = self._fitting_parameters.get('n_burn', 0)
-        self._set_starting_params_emcee(self.binary_source_start)
-        self._init_emcee = list(self.binary_source_start.values())
+        self._init_emcee = list(dict_start.values())
 
-        pre_str = '3rd ' if hasattr(self, '_sampler') else 'Pre-'
-        print(f'\n\033[1m -- {pre_str}fit: 1L2S to original data...\033[0m')
+        if self._n_fit_parameters == 5:
+            self._sigma_emcee = self.sigmas_emcee[1]
+            fix = None
+            pre_str = '3rd ' if hasattr(self, '_sampler') else 'Pre-'
+            print(f'\n\033[1m -- {pre_str}fit: 1L2S to original data...\033[0m')
+        elif self._n_fit_parameters == 3:
+            self._sigma_emcee = self.sigmas_emcee[0]
+            fix_dict = {data: self.fix_blend_in}
+            fix = None if self.fix_blend_in is False else fix_dict
+        else:
+            raise ValueError("Number of fitting parameters should be 3 or 5.")
+
+        self._set_starting_params_emcee(dict_start)
+        self._model = mm.Model(dict_start)
+        self._event = mm.Event(data, model=self._model, fix_blend_flux=fix)
 
     def _run_emcee(self):
         """
@@ -366,10 +377,9 @@ class FitBinarySource(UlensModelFit):
         - Add backend=backend to sampler later!!!
         - Try multiprocessing once more...
         """
-        self._event = self.ev_st
-        self._model = self._event.model
+        # self._event = self.ev_st
+        # self._model = self._event.model
         self._set_n_fluxes()
-
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
         self._rand_sample = rand_sample * self._sigma_emcee
         if self._n_fit_parameters == 5:
@@ -494,28 +504,16 @@ class FitBinarySource(UlensModelFit):
         self._data_left_right = Utils.split_in_min_flux(
             self._datasets[0], time_min_flux)
 
-        self.start_two_pspl = Utils.guess_pspl_params(
-            self._datasets[0], t_E_prior=self.t_E_prior)[0]
-        self._fit_pspl_twice()
-
         # Make 1L2S final fit and plot (code is repeated...)
-        self.binary_source_start = {'t_0_1': self.res_pspl_1['t_0'],
-                                    'u_0_1': self.res_pspl_1['u_0'],
-                                    't_0_2': self.res_pspl_2['t_0'],
-                                    'u_0_2': self.res_pspl_2['u_0'],
-                                    't_E': self.t_E_init}
+        self._fit_pspl_twice()
+        pspl_1, pspl_2 = self.res_pspl_1, self.res_pspl_2
+        start = {'t_0_1': pspl_1['t_0'], 'u_0_1': pspl_1['u_0'],
+                 't_0_2': pspl_2['t_0'], 'u_0_2': pspl_2['u_0'],
+                 't_E': self.t_E_init}
+        t_E_scipy = Utils.scipy_minimize_t_E_only(self._datasets[0], start)
+        start['t_E'] = t_E_scipy
 
-        t_E_scipy = Utils.scipy_minimize_t_E_only(self._datasets[0],
-                                                  self.binary_source_start)
-        self.binary_source_start['t_E'] = t_E_scipy
-        model_start = mm.Model(self.binary_source_start)
-        self.ev_st = mm.Event(self._datasets[0], model=model_start)
-
-        self._setup_fit_emcee_binary()
-        self._run_emcee()
-        self._make_burn_in_and_reshape()
-        self._print_emcee_percentiles()
-        self._get_best_params_emcee()
+        self._setup_and_run_emcee(self._datasets[0], start)
         self.res_1L2S = self._result.copy()
         self.ev_1L2S = self._get_binary_source_event(self.res_1L2S)
         breakpoint()
@@ -530,90 +528,39 @@ class FitBinarySource(UlensModelFit):
         data_left_right (tuple): two mm.Data instances (left and right)
         settings (dict): all settings from yaml file
         """
-
-        # Setting up, done only once...
         data_1, data_2 = self._data_left_right
-        time_min, time_max = data_1.time.min(), data_1.time.max()
-        if not time_min <= self.start_two_pspl['t_0'] <= time_max:
+        start = Utils.guess_pspl_params(
+            self._datasets[0], t_E_prior=self.t_E_prior)[0]
+        if not data_1.time.min() <= start['t_0'] <= data_1.time.max():
             data_1, data_2 = data_2, data_1  # e.g. BLG611.09.12112
-        self.params_to_fit = list(self.start_two_pspl.keys())
-        self._n_fit_parameters = len(self.params_to_fit)
-        self._sigma_emcee = self.sigmas_emcee[0]
 
         # 1st PSPL (data_left or brighter)
-        self._set_starting_params_emcee(self.start_two_pspl)
-        self._init_emcee = list(self.start_two_pspl.values())
-        fix_dict = {data_1: self.fix_blend_in}
-        fix_1 = None if self.fix_blend_in is False else fix_dict
-        model_start = mm.Model(self.start_two_pspl)
-        self.ev_st = mm.Event(data_1, model=model_start, fix_blend_flux=fix_1)
-
         print('\n\033[1m -- 1st fit: PSPL to split data...\033[0m')
-        self._run_emcee()
-        self._make_burn_in_and_reshape()
-        self._print_emcee_percentiles()
-        self._get_best_params_emcee()
+        self._setup_and_run_emcee(data_1, start)
         res_pspl_1 = self._result.copy()
         model_1 = mm.Model(dict(list(res_pspl_1.items())[:3]))
-
-        # Subtract data_2 from the first fit
-        fix_dict = {data_2: self.fix_blend_in}
-        fix_2 = None if self.fix_blend_in is False else fix_dict
-        aux_ev = mm.Event(data_2, model=model_1, fix_blend_flux=fix_2)
-        (flux, blend) = aux_ev.get_flux_for_dataset(0)
-        fsub = data_2.flux - aux_ev.fits[0].get_model_fluxes() + flux + blend
-        data_2_subt = np.c_[data_2.time, fsub, data_2.err_flux][fsub > 0]
-        self.data_2_subt = mm.MulensData(data_2_subt.T, phot_fmt='flux')
 
         # ADD LATER ::: check if there is data > 3sigma above f_base...
 
         # 2nd PSPL (not to original data_2, but to data_2_subt)
+        self.data_2_subt = Utils.subtract_model_from_data(
+            data_2, model_1, self.fix_blend_in)
         start = Utils.guess_pspl_params(
             self.data_2_subt, None, self.t_E_prior)[0]
-        self._set_starting_params_emcee(start)
-        self._init_emcee = list(start.values())
-        fix_dict = {self.data_2_subt: self.fix_blend_in}
-        fix_2 = None if self.fix_blend_in is False else fix_dict
-        model_start = mm.Model(start)
-        self.ev_st = mm.Event(
-            self.data_2_subt, model=model_start, fix_blend_flux=fix_2)
-
         print('\n\033[1m -- 2nd fit: PSPL to split, subtracted data...\033[0m')
-        self._run_emcee()
-        self._make_burn_in_and_reshape()
-        self._print_emcee_percentiles()
-        self._get_best_params_emcee()
+        self._setup_and_run_emcee(self.data_2_subt, start)
         self.res_pspl_2 = self._result.copy()
         model_2 = mm.Model(dict(list(self.res_pspl_2.items())[:3]))
         self._sampler_pspl_2 = self._sampler
         self._samples_pspl_2 = self._samples
 
-        # Subtract data_1 from the second fit
-        fix_dict = {data_1: self.fix_blend_in}
-        fix_3 = None if self.fix_blend_in is False else fix_dict
-        aux_ev = mm.Event(data_1, model=model_2, fix_blend_flux=fix_3)
-        (flux, blend) = aux_ev.get_flux_for_dataset(0)
-        fsub = data_1.flux - aux_ev.fits[0].get_model_fluxes() + flux + blend
-        data_1_subt = np.c_[data_1.time, fsub, data_1.err_flux][fsub > 0]
-        self.data_1_subt = mm.MulensData(data_1_subt.T, phot_fmt='flux')
-
         # 3rd PSPL (to data_1_subt)
-        # start = Utils.guess_pspl_params(data_1_subt, None, self.t_E_prior)[0]
+        self.data_1_subt = Utils.subtract_model_from_data(
+            data_1, model_2, self.fix_blend_in)
         start = model_1.parameters.as_dict()
         start['t_E'] = model_1.parameters.t_E
-        self._set_starting_params_emcee(start)
-        self._init_emcee = list(start.values())
-        fix_dict = {self.data_1_subt: self.fix_blend_in}
-        fix_3 = None if self.fix_blend_in is False else fix_dict
-        model_start = mm.Model(start)
-        self.ev_st = mm.Event(
-            self.data_1_subt, model=model_start, fix_blend_flux=fix_3)
-
         print('\n\033[1m -- 1st fit: PSPL to split, subtracted data...\033[0m')
-        self._run_emcee()
-        self._make_burn_in_and_reshape()
-        self._print_emcee_percentiles()
-        self._get_best_params_emcee()
+        self._setup_and_run_emcee(self.data_1_subt, start)
         self.res_pspl_1 = self._result.copy()
         model_1 = mm.Model(dict(list(self.res_pspl_1.items())[:3]))
         self._sampler_pspl_1 = self._sampler
@@ -629,8 +576,11 @@ class FitBinarySource(UlensModelFit):
         # plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
         #                'color': 'black', 't_start': xlim[0], 't_stop': xlim[1],
         #                'zorder': 10}
+        # fix_dict = {data_1: self.fix_blend_in}
+        # fix_3 = None if self.fix_blend_in is False else fix_dict
         # event_left = mm.Event(self.data_1_subt, model=model_1, fix_blend_flux=fix_3)
         # event_left.plot_model(label='model_left', **plot_params)
+        # fix_2 = None if self.fix_blend_in is False else {data_2: self.fix_blend_in}
         # event_right = mm.Event(self.data_2_subt, model=model_2, fix_blend_flux=fix_2)
         # event_right.plot_model(label='model_right', **plot_params)
         # model_1L2S = mm.Model(dict(list(self.res_pre_1L2S.items())[:5]))
