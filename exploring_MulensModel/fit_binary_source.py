@@ -224,7 +224,6 @@ class FitBinarySource(UlensModelFit):
         self._check_starting_parameters_type()
         self._set_fit_parameters_unsorted()
         self._get_parameters_ordered()
-        self._parse_fit_constraints_fluxes()
 
     def _check_bounds_prior(self, theta):
         """
@@ -293,7 +292,7 @@ class FitBinarySource(UlensModelFit):
         if not np.isfinite(bounds + ln_prior_flux):
             return -np.inf
 
-        ln_prior_t_E = 0.  # also ln_prior_flux = 0. ???
+        ln_prior_t_E = 0.
         if self._prior_t_E is not None:
             ln_prior_t_E = self._ln_prior_t_E()
         elif self.t_E_prior is not None:
