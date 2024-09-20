@@ -206,9 +206,9 @@ class Utils(object):
     def guess_pspl_params(data, t_peaks=None, t_E_prior=None):
         """
         Call each function that guesses the initial values for the PSPL
-        model to fit the data. The keywords t_peaks and t_E_prior are
-        used to improve the initial guesses. The Einstein crossing time
-        is optimized using a Nelder-Mead minimization.
+        model to fit the data. Keywords t_peaks and t_E_prior are used to
+        improve the initial guesses. The parameter t_E is optimized using
+        a separate Nelder-Mead minimization.
 
         Keywords :
             data: *MulensModel.MulensData*
@@ -313,13 +313,7 @@ class Utils(object):
             subt_data: *MulensModel.MulensData*
                 Data with the model subtracted, point by point.
         """
-        if isinstance(fix_blend, dict):
-            if data not in fix_blend:
-                raise ValueError("fix_blend keys must containt the data.")
-        elif isinstance(fix_blend, (bool, float)):
-            fix_dict = {data: fix_blend}
-            fix_blend = None if fix_blend is False else fix_dict
-
+        fix_blend = Utils.check_blending_flux(fix_blend, data)
         if isinstance(model, dict):
             model = mm.Model(model)
         aux_event = mm.Event(data, model=model, fix_blend_flux=fix_blend)
@@ -382,11 +376,21 @@ class Utils(object):
             data: *MulensModel.MulensData*
                 Data for which the minimum flux will be detected.
 
+            t_peaks: *np.ndarray*
+                List of peak times, given by event_finder code or result.
+
             model_between_peaks: *np.ndarray*
                 Model points between the two peaks, with three columns:
                 time, flux and flux error.
 
-            [...]
+            t_E_prior: *str* or *None*
+                Prior for t_E, as given in the settings file. The string
+                must contain the type of prior (lognormal, uniform, ...),
+                the central value and width of the prior.
+
+            fix_blend: *dict* or *bool*
+                If not *False*, the blending flux will be fixed to the value
+                given in the dictionary during the fitting.
 
         Returns :
             time_min_flux: *float*
@@ -435,7 +439,10 @@ class Utils(object):
 
     def split_in_min_flux(data, time_min_flux):
         """
-        Write later...
+        Split the data in two parts, using the datapoint with the minimum
+        flux between the bumps as the separation point. An array is returned
+        with the two items, the first being the data with the largest flux
+        (or minimum magnitude).
         """
         flag = data.time <= time_min_flux
         mm_data = np.c_[data.time, data.mag, data.err_mag]
@@ -448,3 +455,35 @@ class Utils(object):
             return (data_left, data_right)
         return (data_right, data_left)
     split_in_min_flux = staticmethod(split_in_min_flux)
+
+    def check_blending_flux(fix_blend, data=None):
+        """
+        Check if the blending flux has the right format and, in case it is
+        still a float, return a dictionary with the data as key.
+
+        Keywords :
+            fix_blend: *bool*, *float* or *dict*
+                If not *False*, the blending flux will be fixed to the value
+                given in the dictionary during the fitting.
+
+            data: *MulensModel.MulensData*
+                Data for which the blending flux will be checked.
+
+        Returns :
+            fix_blend: *bool* or *NoneType*
+                If not *False*, the blending flux will be fixed to the value
+                given in the dictionary during the fitting.
+        """
+        if fix_blend is False:
+            return None
+        if data is None:
+            raise ValueError('data must be given if fix_blend is not False.')
+
+        if isinstance(fix_blend, dict):
+            if data not in fix_blend:
+                raise ValueError("fix_blend keys must containt the data.")
+        elif isinstance(fix_blend, float):
+            fix_blend = {data: fix_blend}
+
+        return fix_blend
+    check_blending_flux = staticmethod(check_blending_flux)

@@ -79,8 +79,11 @@ class FitBinarySource(UlensModelFit):
 
         self.starting_parameters = self._starting_parameters_input.copy()
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
-        self._check_fit_constraints()
-        self._parse_fit_constraints_keys()
+        self.t_E_prior = None
+        if self._fit_constraints and 'prior' in self._fit_constraints:
+            if self._fit_constraints['prior']['t_E'].startswith('lognormal'):
+                prior = self._fit_constraints.pop('prior')
+                self.t_E_prior = prior['t_E']
         self.read_data()
 
         for data, name in zip(self.data_list, self.file_names):
@@ -119,6 +122,7 @@ class FitBinarySource(UlensModelFit):
         """
         Set up the fitting parameters and additional inputs.
         """
+        self._parse_fit_constraints()  # error for sigma_blending_flux HERE!!!
         self._check_additional_inputs()
         self.t_peaks, self.t_peaks_orig = [], []
         t_peaks_in = self.additional_inputs.get('t_peaks', False)
@@ -129,7 +133,7 @@ class FitBinarySource(UlensModelFit):
 
         self._parse_fitting_parameters_EMCEE()
         self._get_n_walkers()
-        self._prior = self._fit_constraints['prior']
+        self._n_fitting = 0
 
     def _check_additional_inputs(self):
         """
@@ -145,8 +149,8 @@ class FitBinarySource(UlensModelFit):
                 raise ValueError(msg.format(key, str(val), type(provided)))
 
         self.fix_blend_in = self.additional_inputs.get('fix_blend', False)
-        fix_dict = {self._datasets[0]: self.fix_blend_in}
-        self.fix_blend = None if self.fix_blend_in is False else fix_dict
+        self.fix_blend = Utils.check_blending_flux(
+            self.fix_blend_in, self._datasets[0])
         def_ = [[0.01, 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
         self.sigmas_emcee = self.additional_inputs.get('sigmas', def_)
         self.ans_emcee = self.additional_inputs.get('ans', 'max_prob')
@@ -198,7 +202,6 @@ class FitBinarySource(UlensModelFit):
         subtracted from the first fit.
         These auxiliary functions are all stored in utils.py.
         """
-        self.t_E_prior = self._fit_constraints['prior'].get('t_E')
         self.t_E_init = Utils.guess_initial_t_E(self.t_E_prior)
         self.pspl_1, self.t_peaks = Utils.run_scipy_minimize(
             self._datasets[0], self.t_peaks, self.t_E_prior, self.fix_blend)
@@ -210,7 +213,8 @@ class FitBinarySource(UlensModelFit):
 
     def _set_starting_params_emcee(self, dict_start):
         """
-        Write docs later... ONLY AFTER STH!
+        Set starting parameters for the EMCEE fitting. The four functions
+        in the second block are from UlensModelFit class.
         """
         self._starting_parameters_input = {}
         for idx, (key, val) in enumerate(dict_start.items()):
@@ -289,17 +293,18 @@ class FitBinarySource(UlensModelFit):
         if not np.isfinite(bounds + ln_prior_flux):
             return -np.inf
 
-        # Prior in t_E (only lognormal so far, tbd: Mroz17/20)
-        # OBS: Still need to remove the ignore warnings line (related to log?)
-        # To-Do: Add lognormal in self._get_ln_prior_for_1_parameter()...
-        ln_prior_t_E, ln_prior_flux = 0., 0.
-        if 't_E' in self._prior.keys():
-            t_E_prior = self._prior['t_E']
+        ln_prior_t_E = 0.  # also ln_prior_flux = 0. ???
+        if self._prior_t_E is not None:
+            ln_prior_t_E = self._ln_prior_t_E()
+        elif self.t_E_prior is not None:
+            # Prior in t_E (only lognormal so far, tbd: Mroz17/20)
+            # OBS: Need to remove the ignore warnings line (related to log?)
+            # To-Do: Add lognormal in self._get_ln_prior_for_1_parameter()...
             t_E_val = theta[self.params_to_fit.index('t_E')]
-            if 'lognormal' in t_E_prior:
+            if 'lognormal' in self.t_E_prior:
                 # if t_E >= 1.:
                 warnings.filterwarnings("ignore", category=RuntimeWarning)  # bad!
-                prior = [float(x) for x in t_E_prior.split()[1:]]
+                prior = [float(x) for x in self.t_E_prior.split()[1:]]
                 ln_prior_t_E = - (np.log(t_E_val) - prior[0])**2 / (2*prior[1]**2)
                 ln_prior_t_E -= np.log(t_E_val * np.sqrt(2*np.pi)*prior[1])
             elif 'Mroz et al.' in self._prior['t_E']:
@@ -361,8 +366,7 @@ class FitBinarySource(UlensModelFit):
             print(f'\n\033[1m -- {pre_str}fit: 1L2S to original data...\033[0m')
         elif self._n_fit_parameters == 3:
             self._sigma_emcee = self.sigmas_emcee[0]
-            fix_dict = {data: self.fix_blend_in}
-            fix = None if self.fix_blend_in is False else fix_dict
+            fix = Utils.check_blending_flux(self.fix_blend_in, data)
         else:
             raise ValueError("Number of fitting parameters should be 3 or 5.")
 
@@ -486,12 +490,7 @@ class FitBinarySource(UlensModelFit):
 
     def run_final_fits(self):
         """
-        _summary_
-
-        # prev) Guess PSPL parameters subtracting data -- OK, solved!
-        # prev) EMCEE to get a first estimate for 1L2S -- OK, solved!
-        # 1) Split data and fit PSPL twice with EMCEE -- OK, solved!
-        # 2) Get final 1L2S fit -- OK, solved!
+        Split data and fit PSPL twice with EMCEE, then get final 1L2S fit.
         """
         if not hasattr(self, 't_peaks_orig'):
             t_peaks = [self.res_pre_1L2S['t_0_1'], self.res_pre_1L2S['t_0_2']]
@@ -504,7 +503,6 @@ class FitBinarySource(UlensModelFit):
         self._data_left_right = Utils.split_in_min_flux(
             self._datasets[0], time_min_flux)
 
-        # Make 1L2S final fit and plot (code is repeated...)
         self._fit_pspl_twice()
         pspl_1, pspl_2 = self.res_pspl_1, self.res_pspl_2
         start = {'t_0_1': pspl_1['t_0'], 'u_0_1': pspl_1['u_0'],
@@ -543,53 +541,27 @@ class FitBinarySource(UlensModelFit):
         # ADD LATER ::: check if there is data > 3sigma above f_base...
 
         # 2nd PSPL (not to original data_2, but to data_2_subt)
-        self.data_2_subt = Utils.subtract_model_from_data(
-            data_2, model_1, self.fix_blend_in)
-        start = Utils.guess_pspl_params(
-            self.data_2_subt, None, self.t_E_prior)[0]
+        fix_2 = Utils.check_blending_flux(self.fix_blend_in, data_2)
+        data_2_subt = Utils.subtract_model_from_data(data_2, model_1, fix_2)
+        start = Utils.guess_pspl_params(data_2_subt, None, self.t_E_prior)[0]
         print('\n\033[1m -- 2nd fit: PSPL to split, subtracted data...\033[0m')
-        self._setup_and_run_emcee(self.data_2_subt, start)
+        self._setup_and_run_emcee(data_2_subt, start)
         self.res_pspl_2 = self._result.copy()
         model_2 = mm.Model(dict(list(self.res_pspl_2.items())[:3]))
         self._sampler_pspl_2 = self._sampler
         self._samples_pspl_2 = self._samples
 
         # 3rd PSPL (to data_1_subt)
-        self.data_1_subt = Utils.subtract_model_from_data(
-            data_1, model_2, self.fix_blend_in)
+        fix_1 = Utils.check_blending_flux(self.fix_blend_in, data_1)
+        data_1_subt = Utils.subtract_model_from_data(data_1, model_2, fix_1)
         start = model_1.parameters.as_dict()
         start['t_E'] = model_1.parameters.t_E
         print('\n\033[1m -- 1st fit: PSPL to split, subtracted data...\033[0m')
-        self._setup_and_run_emcee(self.data_1_subt, start)
+        self._setup_and_run_emcee(data_1_subt, start)
         self.res_pspl_1 = self._result.copy()
         model_1 = mm.Model(dict(list(self.res_pspl_1.items())[:3]))
         self._sampler_pspl_1 = self._sampler
         self._samples_pspl_1 = self._samples
-
-        # *** This plot will be removed :: before, show Radek ***
-        # plt.figure(figsize=(7.5, 4.8))
-        # self.data_1_subt.plot(phot_fmt='mag', label='data_1_subt')
-        # self.data_2_subt.plot(phot_fmt='mag', label='data_2_subt')
-        # orig_data = self._datasets[0]
-        # xlim = [2456000, 2458500]
-        # plt.scatter(orig_data.time, orig_data.mag, color="#CECECE", label='orig')
-        # plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': False,
-        #                'color': 'black', 't_start': xlim[0], 't_stop': xlim[1],
-        #                'zorder': 10}
-        # fix_dict = {data_1: self.fix_blend_in}
-        # fix_3 = None if self.fix_blend_in is False else fix_dict
-        # event_left = mm.Event(self.data_1_subt, model=model_1, fix_blend_flux=fix_3)
-        # event_left.plot_model(label='model_left', **plot_params)
-        # fix_2 = None if self.fix_blend_in is False else {data_2: self.fix_blend_in}
-        # event_right = mm.Event(self.data_2_subt, model=model_2, fix_blend_flux=fix_2)
-        # event_right.plot_model(label='model_right', **plot_params)
-        # model_1L2S = mm.Model(dict(list(self.res_pre_1L2S.items())[:5]))
-        # event_1L2S = mm.Event(orig_data, model=model_1L2S)
-        # event_1L2S.plot_model(label='model_1L2S', ls='--', **plot_params)
-        # plt.xlim(xlim)
-        # plt.legend()
-        # plt.tight_layout()
-        # plt.show()
 
     def _parse_results(self):
         """
