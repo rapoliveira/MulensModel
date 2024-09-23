@@ -481,7 +481,7 @@ class Utils(object):
 
         if isinstance(fix_blend, dict):
             if data not in fix_blend:
-                raise ValueError("fix_blend keys must containt the data.")
+                raise ValueError("fix_blend keys must contain the data.")
         elif isinstance(fix_blend, float):
             fix_blend = {data: fix_blend}
 

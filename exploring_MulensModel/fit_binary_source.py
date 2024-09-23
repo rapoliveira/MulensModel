@@ -7,12 +7,12 @@ import os
 import sys
 import warnings
 
-from astropy.table import Table, Column
-import corner
+from astropy.table import Table  # , Column
+# import corner
 import emcee
 # from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.gridspec import GridSpec
-import matplotlib.pyplot as plt
+# from matplotlib.gridspec import GridSpec
+# import matplotlib.pyplot as plt
 # import multiprocessing
 import numpy as np
 import yaml
@@ -85,20 +85,11 @@ class FitBinarySource(UlensModelFit):
                 prior = self._fit_constraints.pop('prior')
                 self.t_E_prior = prior['t_E']
         self.read_data()
-
-        for data, name in zip(self.data_list, self.file_names):
-            self._datasets = [data]
-            self.event_id = name.split('/')[-1].split('.')[0]
-            self.photometry_files = self.photometry_files_orig.copy()
-            self.photometry_files[0]['file_name'] += self.event_id + '.dat'
-            self.setup_fitting_parameters()
-            self.run_initial_fits()
-            self.run_final_fits()
-            # *** ONLY PART MISSING: make plots!!! Other class?
+        self.setup_fitting_parameters()
 
     def read_data(self):
         """
-        Read catalogue or list of catalogues and creates MulensData instance.
+        Read catalogue or list of catalogues and create MulensData instance.
         """
         self.phot_fmt = self.photometry_files_orig[0]['phot_fmt']
         phot_settings_aux = self.photometry_files_orig[0].copy()
@@ -117,27 +108,21 @@ class FitBinarySource(UlensModelFit):
         for fname in self.file_names:
             data = mm.MulensData(file_name=fname, **phot_settings_aux)
             self.data_list.append(data)
+        self._datasets = [self.data_list[0]]
 
     def setup_fitting_parameters(self):
         """
         Set up the fitting parameters and additional inputs.
         """
-        self._parse_fit_constraints()  # error for sigma_blending_flux HERE!!!
-        self._check_additional_inputs()
-        self.t_peaks, self.t_peaks_orig = [], []
-        t_peaks_in = self.additional_inputs.get('t_peaks', False)
-        if isinstance(t_peaks_in, str):
-            self._get_peak_times()
-        elif t_peaks_in is not False:
-            raise ValueError('t_peaks should be a string or False.')
-
+        self._parse_fit_constraints()
+        self._check_additional_inputs_types()
+        self._check_additional_inputs_values()
         self._parse_fitting_parameters_EMCEE()
         self._get_n_walkers()
-        self._n_fitting = 0
 
-    def _check_additional_inputs(self):
+    def _check_additional_inputs_types(self):
         """
-        Check the types of additional inputs and set the values.
+        Check the types of additional inputs from YAML file.
         """
         dict_types = {'t_peaks': (str, bool), 'fix_blend': (float, bool),
                       'sigmas': (list,), 'ans': (str,),
@@ -148,13 +133,6 @@ class FitBinarySource(UlensModelFit):
             if not isinstance(provided, (*val, type(None))):
                 raise ValueError(msg.format(key, str(val), type(provided)))
 
-        self.fix_blend_in = self.additional_inputs.get('fix_blend', False)
-        self.fix_blend = Utils.check_blending_flux(
-            self.fix_blend_in, self._datasets[0])
-        def_ = [[0.01, 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
-        self.sigmas_emcee = self.additional_inputs.get('sigmas', def_)
-        self.ans_emcee = self.additional_inputs.get('ans', 'max_prob')
-
         def_ = {'t_or_f': False, 'yaml_template': '', 'yaml_dir_name': ''}
         self.yaml_2L1S = self.additional_inputs.get('yaml_files_2L1S', def_)
         for (key, val) in def_.items():
@@ -162,28 +140,34 @@ class FitBinarySource(UlensModelFit):
             if not isinstance(provided, type(val)):
                 raise ValueError(msg.format(key, type(val), type(provided)))
 
-    def _get_peak_times(self):
+    def _check_additional_inputs_values(self):
         """
-        Get the peak times from the input file.
+        Check the values of additional inputs and set to variables.
         """
-        tab_file = self.additional_inputs['t_peaks']
-        tab = Table.read(os.path.join(self.path, tab_file), format='ascii')
+        self.t_peaks_in = self.additional_inputs.get('t_peaks', False)
+        if isinstance(self.t_peaks_in, str):
+            self.t_peaks_in = os.path.join(self.path, self.t_peaks_in)
+            if not os.path.isfile(self.t_peaks_in):
+                raise ValueError('File in t_peaks does not exist.')
+        elif self.t_peaks is not False:
+            raise ValueError('t_peaks should be a string or False.')
 
-        event = self.event_id.replace('_OGLE', '').replace('_', '.')
-        line = tab[tab['obj_id'] == event]
-        self.t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
-        self.t_peaks_orig = self.t_peaks.copy()
+        self.fix_blend_in = self.additional_inputs.get('fix_blend', False)
+        def_ = [[0.01, 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
+        self.sigmas_emcee = self.additional_inputs.get('sigmas', def_)
+        self.ans_emcee = self.additional_inputs.get('ans', 'max_prob')
 
     def run_initial_fits(self):
         """
-        Run the initial fits: PSPL to original data and subtracted data
-        with scipy.minimize, then binary source with EMCEE.
-        The final fits will be done in a separate function run_fits()...
+        Run the initial fits: PSPL with scipy.minimize using original and
+        subtracted data, then binary source with EMCEE.
+        The final fits are done in run_final_fits().
 
         This function does not accept any parameters. All the settings
         are passed via __init__().
         """
-        print(f'\n\033[1m * Running fit for {self.event_id}\033[0m')
+        print(f'\n\033[1m * Running fit for {self.event_id}\033[0m\n')
+        self._get_peak_times()
         self._quick_fits_pspl_subtract_pspl()
         start = {'t_0_1': self.pspl_1['t_0'], 'u_0_1': self.pspl_1['u_0'],
                  't_0_2': self.pspl_2['t_0'], 'u_0_2': self.pspl_2['u_0'],
@@ -191,18 +175,34 @@ class FitBinarySource(UlensModelFit):
         t_E_scipy = Utils.scipy_minimize_t_E_only(self._datasets[0], start)
         start['t_E'] = t_E_scipy
 
+        self._n_fitting = 0
         self._setup_and_run_emcee(self._datasets[0], start)
         self.res_pre_1L2S = self._result.copy()
         self.ev_pre_1L2S = self._get_binary_source_event(self.res_pre_1L2S)
 
+    def _get_peak_times(self):
+        """
+        Get the peak times from the input file.
+        """
+        if self.t_peaks_in is False:
+            self.t_peaks, self.t_peaks_orig = [], []
+            return
+
+        tab = Table.read(self.t_peaks_in, format='ascii')
+        event = self.event_id.replace('_OGLE', '').replace('_', '.')
+        line = tab[tab['obj_id'] == event]
+        self.t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
+        self.t_peaks_orig = self.t_peaks.copy()
+
     def _quick_fits_pspl_subtract_pspl(self):
         """
-        First step: quick estimate of PSPL models using scipy.minimize.
-        Two fits are carried out: with original data and then with data
-        subtracted from the first fit.
+        Quick minimization of PSPL models, first with original data and
+        then with data subtracted from the first fit.
         These auxiliary functions are all stored in utils.py.
         """
         self.t_E_init = Utils.guess_initial_t_E(self.t_E_prior)
+        self.fix_blend = Utils.check_blending_flux(
+            self.fix_blend_in, self._datasets[0])
         self.pspl_1, self.t_peaks = Utils.run_scipy_minimize(
             self._datasets[0], self.t_peaks, self.t_E_prior, self.fix_blend)
 
@@ -213,7 +213,7 @@ class FitBinarySource(UlensModelFit):
 
     def _set_starting_params_emcee(self, dict_start):
         """
-        Set starting parameters for the EMCEE fitting. The four functions
+        Set starting parameters for the EMCEE fitting. The three functions
         in the second block are from UlensModelFit class.
         """
         self._starting_parameters_input = {}
@@ -265,13 +265,12 @@ class FitBinarySource(UlensModelFit):
 
         NOTE: if flux_ratio is not needed, use _ln_like from example_16
         """
-        # *** DISCUSS TOMORROW IF FLUX RATIO WILL EVER BE USED ***
         # event = self._event
         # for (param, theta_) in zip(self.params_to_fit, theta):
         #     # Here we handle fixing source flux ratio:
         #     if param == 'flux_ratio':
         #         # implemented for a single dataset
-        #         # event.fix_source_flux_ratio = {my_dataset: theta_} # original(?)
+        #         # event.fix_source_flux_ratio = {my_dataset: theta_}
         #         event.fix_source_flux_ratio = {event.datasets[0]: theta_}
         #     else:
         #         setattr(event.model.parameters, param, theta_)
@@ -296,18 +295,16 @@ class FitBinarySource(UlensModelFit):
         if self._prior_t_E is not None:
             ln_prior_t_E = self._ln_prior_t_E()
         elif self.t_E_prior is not None:
-            # Prior in t_E (only lognormal so far, tbd: Mroz17/20)
-            # OBS: Need to remove the ignore warnings line (related to log?)
+            # lognormal prior in t_E
+            # To-Do: Need to remove the ignore warnings line (related to log?)
             # To-Do: Add lognormal in self._get_ln_prior_for_1_parameter()...
-            t_E_val = theta[self.params_to_fit.index('t_E')]
+            t_E_val = self._model.parameters.t_E
             if 'lognormal' in self.t_E_prior:
                 # if t_E >= 1.:
-                warnings.filterwarnings("ignore", category=RuntimeWarning)  # bad!
-                prior = [float(x) for x in self.t_E_prior.split()[1:]]
-                ln_prior_t_E = - (np.log(t_E_val) - prior[0])**2 / (2*prior[1]**2)
-                ln_prior_t_E -= np.log(t_E_val * np.sqrt(2*np.pi)*prior[1])
-            elif 'Mroz et al.' in self._prior['t_E']:
-                raise ValueError('Still implementing Mroz et al. priors.')
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                mean, sigma = [float(x) for x in self.t_E_prior.split()[1:]]
+                ln_prior_t_E = - (np.log(t_E_val) - mean)**2 / (2*sigma**2)
+                ln_prior_t_E -= np.log(t_E_val * np.sqrt(2*np.pi)*sigma)
             else:
                 raise ValueError('t_E prior type not allowed.')
 
@@ -320,18 +317,12 @@ class FitBinarySource(UlensModelFit):
         the likelihood + prior.
         Returns the logarithm of the probability and fluxes.
         """
-
         ln_like = self._ln_like(theta)
         ln_prior = self._ln_prior(theta)
-        if not np.isfinite(ln_prior):
-            return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
-
-        # In the cases that source fluxes are negative we want to return
-        # these as if they were not in priors.
-        if np.isnan(ln_like):
-            return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
-
         ln_prob = ln_prior + ln_like
+        if not np.isfinite(ln_prob):
+            return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
+
         fluxes = self._get_fluxes()
         self._update_best_model_EMCEE(ln_prob, theta, fluxes)
         source_fluxes, blending_flux = self._event.fluxes[0]
@@ -340,7 +331,7 @@ class FitBinarySource(UlensModelFit):
 
     def _setup_and_run_emcee(self, data, dict_start):
         """
-        Write later... repeated commands...
+        Setup and run EMCEE, for given data and starting parameters.
         """
         self._setup_fit_pspl_binary(data, dict_start)
         self._run_emcee()
@@ -350,8 +341,12 @@ class FitBinarySource(UlensModelFit):
 
     def _setup_fit_pspl_binary(self, data, dict_start):
         """
-        Setup EMCEE fit for binary source model...
-        # sigmas (list): sigma values used to find starting values.
+        Setup the EMCEE fit for PSPL or binary source models.
+
+        Settings such as the names and number of the fitted parameters,
+        number of burn-in, and mean/sigmas of the starting values for the
+        parameters are set here. An instance of _model and _event are also
+        declared in order to access parameters and chi2.
         """
         self.params_to_fit = list(dict_start.keys())
         self._n_fit_parameters = len(self.params_to_fit)
@@ -361,8 +356,6 @@ class FitBinarySource(UlensModelFit):
         if self._n_fit_parameters == 5:
             self._sigma_emcee = self.sigmas_emcee[1]
             fix = None
-            pre_str = '3rd ' if hasattr(self, '_sampler') else 'Pre-'
-            print(f'\n\033[1m -- {pre_str}fit: 1L2S to original data...\033[0m')
         elif self._n_fit_parameters == 3:
             self._sigma_emcee = self.sigmas_emcee[0]
             fix = Utils.check_blending_flux(self.fix_blend_in, data)
@@ -375,13 +368,12 @@ class FitBinarySource(UlensModelFit):
 
     def _run_emcee(self):
         """
-        Setup and run EMCEE...
+        Get initial state for walkers and run EMCEE sampler.
+
         TO-DO :::
-        - Add backend=backend to sampler later!!!
+        - Add backend=backend to sampler if needed...
         - Try multiprocessing once more...
         """
-        # self._event = self.ev_st
-        # self._model = self._event.model
         self._set_n_fluxes()
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
         self._rand_sample = rand_sample * self._sigma_emcee
@@ -401,13 +393,14 @@ class FitBinarySource(UlensModelFit):
         # os.environ["OMP_NUM_THREADS"] = "1"
         # with multiprocessing.Pool() as pool:
         #     sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, pool=pool,
-        #                                     args=(event, params_to_fit, spec))
+        #                                     args=(event, params_to_fit,spec))
         #     sampler.run_mcmc(start, nstep, progress=n_emcee['progress'])
         # pool.close()
 
     def _run_quick_emcee(self):
         """
-        Write here... Only if 1L2S fit...
+        Quick EMCEE fitting, executed only for binary source, in order to
+        get more definite starting values for the walkers.
         """
         start = abs(np.array(self._init_emcee) + 10*self._rand_sample)
         self._kwargs_EMCEE['initial_state'] = start
@@ -441,7 +434,15 @@ class FitBinarySource(UlensModelFit):
         Print the percentiles of the EMCEE samples.
         """
         self._perc = np.percentile(self._samples, [16, 50, 84], axis=0)
-        print("Fitted parameters:")
+
+        prints = {0: 'pre-fit, 1L2S to original data',
+                  1: '1st fit, PSPL to split data',
+                  2: '2nd fit, PSPL to split/subtracted data',
+                  3: '1st fit, PSPL to split/subtracted data',
+                  4: 'final fit, 1L2S to original data'}
+        print(f"Fitted parameters ({prints[self._n_fitting]}):")
+        self._n_fitting += 1
+
         for i in range(self._n_fit_parameters):
             r = self._perc[1, i]
             msg = self.params_to_fit[i] + ": {:.5f} +{:.5f} -{:.5f}"
@@ -456,11 +457,11 @@ class FitBinarySource(UlensModelFit):
         best_idx = np.argmax(self._samples[:, -1])
         pars_best = self._samples[best_idx, :-1]
         self._set_model_parameters(pars_best)
-        print("\nSmallest chi2 model:")
+        print("Smallest chi2 model:")
         print(*[repr(b) if isinstance(b, float) else b for b in pars_best])
         n_dof = self._event.datasets[0].n_epochs - self._n_fit_parameters
         self._result_chi2 = self._event.get_chi2()
-        print(f"chi2 = {self._result_chi2:.8f}, dof = {n_dof}")
+        print(f"chi2 = {self._result_chi2:.8f}, dof = {n_dof}\n")
 
         # Adding flux names to params_to_fit
         # if self._samples.shape[1] - 1 == self._n_fit_parameters + 2:
@@ -476,7 +477,10 @@ class FitBinarySource(UlensModelFit):
             self._result = dict(zip(self.params_to_fit, self._perc[1]))
 
     def _get_binary_source_event(self, best):
-
+        """
+        Get an instance of mm.Event for the binary source event given
+        in the list of `best` parameters.
+        """
         data = self._datasets[0]
         bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
         fix_source = {data: [best[p] for p in best if 'flux_s' in p]}
@@ -513,17 +517,11 @@ class FitBinarySource(UlensModelFit):
         self._setup_and_run_emcee(self._datasets[0], start)
         self.res_1L2S = self._result.copy()
         self.ev_1L2S = self._get_binary_source_event(self.res_1L2S)
-        breakpoint()
-
-        print("\n--------------------------------------------------")
 
     def _fit_pspl_twice(self):
         """
-        Fit PSPL to data_left and another PSPL to the right subtracted data.
-        Adapt later...
-
-        data_left_right (tuple): two mm.Data instances (left and right)
-        settings (dict): all settings from yaml file
+        Fit PSPL to split data, then subtract and apply the PSPL fit to
+        the other part of the data twice.
         """
         data_1, data_2 = self._data_left_right
         start = Utils.guess_pspl_params(
@@ -532,7 +530,6 @@ class FitBinarySource(UlensModelFit):
             data_1, data_2 = data_2, data_1  # e.g. BLG611.09.12112
 
         # 1st PSPL (data_left or brighter)
-        print('\n\033[1m -- 1st fit: PSPL to split data...\033[0m')
         self._setup_and_run_emcee(data_1, start)
         res_pspl_1 = self._result.copy()
         model_1 = mm.Model(dict(list(res_pspl_1.items())[:3]))
@@ -543,7 +540,6 @@ class FitBinarySource(UlensModelFit):
         fix_2 = Utils.check_blending_flux(self.fix_blend_in, data_2)
         data_2_subt = Utils.subtract_model_from_data(data_2, model_1, fix_2)
         start = Utils.guess_pspl_params(data_2_subt, None, self.t_E_prior)[0]
-        print('\n\033[1m -- 2nd fit: PSPL to split, subtracted data...\033[0m')
         self._setup_and_run_emcee(data_2_subt, start)
         self.res_pspl_2 = self._result.copy()
         model_2 = mm.Model(dict(list(self.res_pspl_2.items())[:3]))
@@ -555,272 +551,11 @@ class FitBinarySource(UlensModelFit):
         data_1_subt = Utils.subtract_model_from_data(data_1, model_2, fix_1)
         start = model_1.parameters.as_dict()
         start['t_E'] = model_1.parameters.t_E
-        print('\n\033[1m -- 1st fit: PSPL to split, subtracted data...\033[0m')
         self._setup_and_run_emcee(data_1_subt, start)
         self.res_pspl_1 = self._result.copy()
         model_1 = mm.Model(dict(list(self.res_pspl_1.items())[:3]))
         self._sampler_pspl_1 = self._sampler
         self._samples_pspl_1 = self._samples
-
-    def _parse_results(self):
-        """
-        Still work on it after adding my functions...
-        """
-        self._parse_other_output_parameters()
-        # value = self._other_output["models"]
-        # self._parse_other_output_parameters_models(value)
-
-
-def make_plots(results_states, data, settings, orig_data=None, pdf=""):
-    """
-    Make three plots: tracer plot, corner plot and best model.
-
-    Args:
-        results_states (tuple): contains best results, sampler and states.
-        data (mm.MulensData): data instance of a single event.
-        settings (dict): all input settings from yaml file.
-        orig_data (list, optional): Plot with original data. Defaults to None.
-        pdf (str, optional): pdf file to save the plot. Defaults to "".
-
-    Returns:
-        tuple: mm.Event and corner plot instances, to be used later.
-    """
-
-    best, sampler, states = results_states
-    n_emcee = settings['fitting_parameters']
-    condition = (n_emcee['fix_blend'] is not False) and (len(best) != 8)
-    c_states = states[:, :-2] if condition else states[:, :-1]
-    params = list(best.keys())[:-1] if condition else list(best.keys())
-    values = list(best.values())[:-1] if condition else list(best.values())
-    tracer_plot(params, sampler, n_emcee['nburn'], pdf=pdf)
-    if len(best) == 8:
-        c_states, params, values = c_states[:, :-3], params[:5], values[:5]
-    cplot = corner.corner(c_states, quantiles=[0.16, 0.50, 0.84],
-                          labels=params, truths=values, show_titles=True)
-    if pdf:
-        pdf.savefig(cplot)
-    else:
-        plt.show()
-    event = plot_fit(best, data, settings, orig_data, pdf=pdf)
-
-    return event, cplot
-
-
-def tracer_plot(params_to_fit, sampler, nburn, pdf=""):
-    """
-    Plot tracer plots (or time series) of the walkers.
-
-    Args:
-        params_to_fit (list): name of the parameters to be fitted.
-        sampler (emcee.EnsembleSampler): sampler that contain the chains.
-        (int): number of steps considered as burn-in (< n_steps).
-        pdf (str, optional): pdf file to save the plot. Defaults to "".
-    """
-
-    npars = sampler.ndim
-    fig, axes = plt.subplots(npars, 1, sharex=True, figsize=(10, 10))
-    for i in range(npars):
-        axes[i].plot(np.array(sampler.chain[:, :, i]).T, rasterized=True)
-        axes[i].axvline(x=nburn, ls='--', color='gray', lw=1.5)
-        axes[i].set_ylabel(params_to_fit[i], fontsize=16)
-    axes[npars-1].set_xlabel(r'steps', fontsize=16)
-    plt.tight_layout()
-
-    if pdf:
-        pdf.savefig(fig)
-    else:
-        plt.show()
-
-
-def get_xlim2(best, data, n_emcee, ref=None):
-    """
-    Get the optimal range for the x-axis, considering the event results.
-
-    Args:
-        best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
-        data (mm.MulensData instance): object containing all the data.
-        n_emcee (dict): parameters relevant to emcee fitting.
-        ref (float, optional): reference for t_0. Defaults to None.
-
-    Returns:
-        list: range for the x-axis, without subtracting 2450000.
-    """
-
-    # only works for PSPL case... (A' should be considered for 1L2S)
-    # Amax = (best['u_0']**2 + 2) / (best['u_0']*np.sqrt(best['u_0']**2 + 4))
-
-    # Radek: using get_data_magnification from MulensModel
-    bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    fix = None if n_emcee['fix_blend'] is False else {data:
-                                                      n_emcee['fix_blend']}
-    event = mm.Event(data, model=mm.Model(bst), fix_blend_flux=fix)
-    event.get_flux_for_dataset(0)
-    Amax = max(event.fits[0].get_data_magnification())
-    dividend = best['source_flux']*Amax + best['blending_flux']
-    divisor = best['source_flux'] + best['blending_flux']
-    deltaI = 2.5*np.log10(dividend/divisor)  # deltaI ~ 3 for PAR-46 :: OK!
-
-    # Get the magnitude at the model peak (mag_peak ~ comp? ok)
-    idx_peak = np.argmin(abs(data.time-best['t_0']))
-    model_mag = event.fits[0].get_model_magnitudes()
-    mag_peak = model_mag[idx_peak]  # comp = data.mag[idx_peak]
-
-    # Summing 0.85*deltaI to the mag_peak, then obtain t_range (+3%)
-    mag_baseline = mag_peak + 0.85*deltaI
-    idx1 = np.argmin(abs(mag_baseline - model_mag[:idx_peak]))
-    idx2 = idx_peak + np.argmin(abs(mag_baseline - model_mag[idx_peak:]))
-    t_range = [0.97*(data.time[idx1]-2450000) + 2450000,
-               1.03*(data.time[idx2]-2450000) + 2450000]
-    t_cen = best['t_0'] if ref is None else ref
-    max_diff_t_0 = max(abs(np.array(t_range) - t_cen)) + 100
-
-    if max_diff_t_0 > 250:
-        return [t_cen-max_diff_t_0, t_cen+max_diff_t_0]
-    return [t_cen-500, t_cen+500]
-
-
-def plot_fit(best, data, settings, orig_data=None, best_50=None, pdf=""):
-    """
-    Plot the best-fitting model(s) over the light curve in mag or flux.
-
-    Args:
-        best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
-        data (mm.MulensData instance): object containing all the data.
-        settings (dict): all input settings from yaml file.
-        orig_data (list, optional): Plot with original data. Defaults to None.
-        best_50 (list, optional): Additional percentile result. Defaults to [].
-        pdf (str, optional): pdf file to save the plot. Defaults to "".
-
-    Returns:
-        mm.Event: final event containing the model and datasets.
-    """
-
-    ans, subtract = settings['fitting_parameters']['ans'], True
-    fig = plt.figure(figsize=(7.5, 5.5))
-    gs = GridSpec(3, 1, figure=fig)
-    ax1 = fig.add_subplot(gs[:-1, :])  # gs.new_subplotspec((0, 0), rowspan=2)
-    event = fit_utils('get_1L2S_event', data, settings, best=best)
-    data_label = "Original data" if not orig_data else "Subtracted data"
-    event.plot_data(subtract_2450000=subtract, label=data_label)
-    plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': subtract,
-                   'color': 'black', 't_start': settings['xlim'][0],
-                   't_stop': settings['xlim'][1], 'zorder': 10}
-    if orig_data:
-        orig_data.plot(phot_fmt='mag', color='gray', alpha=0.2,
-                       label="Original data")
-
-    txt = f'PSPL ({ans}):' if event.model.n_sources == 1 else f'1L2S ({ans}):'
-    for key, val in best.items():
-        txt += f'\n{key} = {val:.2f}' if 'flux' not in key else ""
-    event.plot_model(label=rf"{txt}", **plot_params)  # % txt
-    plt.tick_params(axis='both', direction='in')
-    ax1.xaxis.set_ticks_position('both')
-    ax1.yaxis.set_ticks_position('both')
-
-    ax2 = fig.add_subplot(gs[2:, :], sharex=ax1)
-    event.plot_residuals(subtract_2450000=True, zorder=10)
-    plt.tick_params(axis='both', direction='in')
-    ax2.xaxis.set_ticks_position('both')
-    ax2.yaxis.set_ticks_position('both')
-    plt.xlim(*np.array(settings['xlim']) - subtract*2450000)
-    plt.tight_layout()
-    plt.subplots_adjust(hspace=0)
-
-    plt.axes(ax1)
-    if best_50 is not None:
-        model_x = dict((key, best_50[i]) for i, key in enumerate(best.keys()))
-        event_x = mm.Event(model=model_x, datasets=[data])
-        plot_params['color'] = 'orange'
-        event_x.plot_model(label='50th_perc', **plot_params)
-
-    ax1.legend(loc='best')
-    if pdf:
-        pdf.savefig(fig)
-        plt.close('all')
-    else:
-        plt.show()
-    return event
-
-
-def write_tables(path, settings, name, two_pspl, result,
-                 fmt="ascii.commented_header"):
-    """
-    Save the chains, yaml results and table with results, according with the
-    paths and other informations provided in the settings file.
-
-    Args:
-        path (str): directory of the Python script and catalogues.
-        settings (dict): all input settings from yaml file.
-        name (str): name of the photometry file.
-        result (tuple): contains the EMCEE outputs and mm.Event instance.
-        fmt (str, optional): format of the ascii tables.
-    """
-
-    # saving the states to file
-    best, name = result[0], name.split('.')[0]
-    outputs, n_emcee = settings['other_output'], settings['fitting_parameters']
-    bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    if 'models' in outputs.keys():
-        fname = f'{path}/' + outputs['models']['file name'].format(name)
-        idxs_remove = list(np.arange(len(bst), len(best)))
-        chains = np.delete(result[2], idxs_remove, axis=1)
-        chains = Table(chains, names=list(bst.keys())+['chi2'])
-        chains.write(fname, format=fmt, overwrite=True)
-
-    # organizing results to be saved in yaml file (as in example16)
-    fluxes = dict(item for item in list(best.items()) if 'flux' in item[0])
-    perc = dict(item for item in result[3].items() if 'flux' not in item[0])
-    perc_fluxes = dict(item for item in result[3].items() if 'flux' in item[0])
-    print()
-    acc_fraction = np.mean(result[1].acceptance_fraction)
-    acor = result[1].get_autocorr_time(quiet=True, discard=n_emcee['nburn'])
-    deg_of_freedom = result[4].datasets[0].n_epochs - len(bst)
-    pspl_1, pspl_2 = two_pspl
-    pspl_1 = str([round(val, 7) for val in pspl_1.values()])
-    pspl_2 = str([round(val, 7) for val in pspl_2.values()])
-    xlim = str([round(val, 2) for val in settings['xlim']])
-    lst = ['', pspl_1, pspl_2, xlim, acc_fraction, np.mean(acor), '', '',
-           result[4].chi2, deg_of_freedom, '', '']
-    dict_perc_best = {6: perc, 7: perc_fluxes, 10: bst, 11: fluxes}
-
-    # filling and writing the template
-    for idx, dict_obj in dict_perc_best.items():
-        for key, val in dict_obj.items():
-            if idx in [6, 7]:
-                uncerts = f'+{val[2]-val[1]:.5f}, -{val[1]-val[0]:.5f}'
-                lst[idx] += f'    {key}: [{val[1]:.5f}, {uncerts}]\n'
-            else:
-                lst[idx] += f'    {key}: {val}\n'
-        lst[idx] = lst[idx][:-1]
-    with open(f'{path}/../1L2S-result_template.yaml') as file_:
-        template_result = file_.read()
-    if 'yaml output' in outputs.keys():
-        yaml_fname = outputs['yaml output']['file name'].format(name)
-        yaml_path = os.path.join(path, yaml_fname)
-        lst[0] = sys.argv[1]
-        with open(yaml_path, 'w') as yaml_results:
-            yaml_results.write(template_result.format(*lst))
-
-    # saving results to table with all the events (e.g. W16)
-    if 'table output' in outputs.keys():
-        fname, columns, dtypes = outputs['table output'].values()
-        if not os.path.isfile(f'{path}/{fname}'):
-            result_tab = Table()
-            for col, dtype in zip(columns, dtypes):
-                result_tab[col] = Column(name=col, dtype=dtype)
-        else:
-            result_tab = Table.read(f'{path}/{fname}', format='ascii')
-        bst_values = [round(val, 5) for val in bst.values()]
-        lst = bst_values+[0., 0.] if len(bst) == 3 else bst_values
-        lst = [name] + lst + [round(result[4].chi2, 4), deg_of_freedom]
-        if name in result_tab['id']:
-            idx_event = np.where(result_tab['id'] == name)[0]
-            if result_tab[idx_event]['chi2'] > lst[-2]:
-                result_tab[idx_event] = lst
-        else:
-            result_tab.add_row(lst)
-        result_tab.sort('id')
-        result_tab.write(f'{path}/{fname}', format=fmt, overwrite=True)
 
 
 if __name__ == '__main__':
@@ -834,39 +569,17 @@ if __name__ == '__main__':
         settings = yaml.safe_load(data)
 
     fit_binary_source = FitBinarySource(**settings)
-    # fit_binary_source.run_fit()
-    breakpoint()
 
-    # data_list, file_names = read_data(path, settings['phot_settings'][0])
-    # for data, name in zip(data_list, file_names):
+    dlist, fnames = fit_binary_source.data_list, fit_binary_source.file_names
+    for data, name in zip(dlist, fnames):
+        fit_binary_source._datasets = [data]
+        fit_binary_source.event_id = name.split('/')[-1].split('.')[0]
+        phot_files = fit_binary_source.photometry_files_orig.copy()
+        phot_files[0]['file_name'] += fit_binary_source.event_id + '.dat'
+        fit_binary_source.photometry_files = phot_files
 
-    #     name = name.split('/')[-1]
-    #     print(f'\n\033[1m * Running fit for {name}\033[0m')
-    #     breakpoint()
-    #     pdf_dir = settings['plots']['all_plots']['file_dir']
-    #     pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_result.pdf")
-    #     result, cplot = prefit_split_and_fit(data, settings, pdf=pdf)
-    #     # result, cplot = make_all_fittings(data, settings, pdf=pdf)
-    #     res_event, two_pspl = result[4], result[5]
-    #     pdf.close()
-    #     write_tables(path, settings, name, two_pspl, result)
-
-    #     pdf_dir = settings['plots']['triangle']['file_dir']
-    #     pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_cplot.pdf")
-    #     pdf.savefig(cplot)
-    #     pdf.close()
-    #     pdf_dir = settings['plots']['best model']['file_dir']
-    #     pdf = PdfPages(f"{path}/{pdf_dir}/{name.split('.')[0]}_fit.pdf")
-    #     plot_fit(result[0], data, settings, pdf=pdf)
-    #     pdf.close()
-
-    #     # Split data into two and fit PSPL to get 2L1S initial params
-    #     make_2L1S = settings['other_output']['yaml_files_2L1S']['t_or_f']
-    #     if make_2L1S and res_event.model.n_sources == 2:
-    #         # data_lr = split.split_after_result(res_event, result)[0]
-    #         # if isinstance(data_lr[0], list):  ### IMPORTANT LATER!
-    #         #     continue
-    #         # two_pspl = split.fit_PSPL_twice(data_lr, settings, result)
-    #         split.generate_2L1S_yaml_files(path, two_pspl, name, settings)
-    #     print("\n--------------------------------------------------")
-    # # breakpoint()
+        fit_binary_source.run_initial_fits()
+        fit_binary_source.run_final_fits()
+        # *** ONLY PART MISSING: make plots!!! Other class?
+        print("\n--------------------------------------------------")
+        breakpoint()
