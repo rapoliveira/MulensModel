@@ -7,17 +7,14 @@ import os
 import sys
 import warnings
 
-from astropy.table import Table  # , Column
-# import corner
+from astropy.table import Table
 import emcee
-# from matplotlib.backends.backend_pdf import PdfPages
-# from matplotlib.gridspec import GridSpec
-# import matplotlib.pyplot as plt
 # import multiprocessing
 import numpy as np
 import yaml
 
 import MulensModel as mm
+from save_results_binary_source import SaveResultsBinarySource
 try:
     # :: Add after UltraNest PR is merged ::
     # ex16_path = os.path.join(mm.__path__[0], '../../examples/example_16')
@@ -574,12 +571,19 @@ if __name__ == '__main__':
     for data, name in zip(dlist, fnames):
         fit_binary_source._datasets = [data]
         fit_binary_source.event_id = name.split('/')[-1].split('.')[0]
-        phot_files = fit_binary_source.photometry_files_orig.copy()
+        phot_files = settings['photometry_files'].copy()
         phot_files[0]['file_name'] += fit_binary_source.event_id + '.dat'
         fit_binary_source.photometry_files = phot_files
 
         fit_binary_source.run_initial_fits()
         fit_binary_source.run_final_fits()
-        # *** ONLY PART MISSING: make plots!!! Other class?
+        kwargs = {'other_output': settings['other_output'],
+                  'event_id': fit_binary_source.event_id,
+                  'res_pspl_1': fit_binary_source.res_pspl_1,
+                  'res_pspl_2': fit_binary_source.res_pspl_2,
+                  'res_1l2s': fit_binary_source.res_1L2S}
+        save_results = SaveResultsBinarySource(phot_files, settings['plots'],
+                                               **kwargs)
+
         print("\n--------------------------------------------------")
         breakpoint()
