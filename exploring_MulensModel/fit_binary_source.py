@@ -496,14 +496,14 @@ class FitBinarySource(UlensModelFit):
             self.t_peaks_orig = np.array(t_peaks) - 2.45e6
         model_between_peaks = Utils.get_model_pts_between_peaks(
             self.ev_pre_1L2S, self.t_peaks_orig)
-        time_min_flux = Utils.detect_min_flux_in_model(
+        self._time_min_flux = Utils.detect_min_flux_in_model(
             self._datasets[0], self.t_peaks_orig, model_between_peaks,
             self.t_E_prior, self.fix_blend)
         self._data_left_right = Utils.split_in_min_flux(
-            self._datasets[0], time_min_flux)
+            self._datasets[0], self._time_min_flux)
 
         self._fit_pspl_twice()
-        pspl_1, pspl_2 = self.res_pspl_1, self.res_pspl_2
+        pspl_1, pspl_2 = self.res_pspl_1[0], self.res_pspl_2[0]
         start = {'t_0_1': pspl_1['t_0'], 'u_0_1': pspl_1['u_0'],
                  't_0_2': pspl_2['t_0'], 'u_0_2': pspl_2['u_0'],
                  't_E': self.t_E_init}
@@ -511,8 +511,8 @@ class FitBinarySource(UlensModelFit):
         start['t_E'] = t_E_scipy
 
         self._setup_and_run_emcee(self._datasets[0], start)
-        self.res_1L2S = self._result.copy()
-        self.ev_1L2S = self._get_binary_source_event(self.res_1L2S)
+        self.res_1L2S = [self._result.copy(), self._sampler, self._samples]
+        self.ev_1L2S = self._get_binary_source_event(self.res_1L2S[0])
 
     def _fit_pspl_twice(self):
         """
@@ -537,10 +537,9 @@ class FitBinarySource(UlensModelFit):
         data_2_subt = Utils.subtract_model_from_data(data_2, model_1, fix_2)
         start = Utils.guess_pspl_params(data_2_subt, None, self.t_E_prior)[0]
         self._setup_and_run_emcee(data_2_subt, start)
-        self.res_pspl_2 = self._result.copy()
-        model_2 = mm.Model(dict(list(self.res_pspl_2.items())[:3]))
-        self._sampler_pspl_2 = self._sampler
-        self._samples_pspl_2 = self._samples
+        model_2 = mm.Model(dict(list(self._result.items())[:3]))
+        self.res_pspl_2 = [self._result.copy(), self._sampler, self._samples,
+                           data_2_subt]
 
         # 3rd PSPL (to data_1_subt)
         fix_1 = Utils.check_blending_flux(self.fix_blend_in, data_1)
@@ -548,10 +547,9 @@ class FitBinarySource(UlensModelFit):
         start = model_1.parameters.as_dict()
         start['t_E'] = model_1.parameters.t_E
         self._setup_and_run_emcee(data_1_subt, start)
-        self.res_pspl_1 = self._result.copy()
-        model_1 = mm.Model(dict(list(self.res_pspl_1.items())[:3]))
-        self._sampler_pspl_1 = self._sampler
-        self._samples_pspl_1 = self._samples
+        model_1 = mm.Model(dict(list(self._result.items())[:3]))
+        self.res_pspl_1 = [self._result.copy(), self._sampler, self._samples,
+                           data_1_subt]
 
 
 if __name__ == '__main__':
@@ -577,10 +575,14 @@ if __name__ == '__main__':
         fit_binary_source.run_initial_fits()
         fit_binary_source.run_final_fits()
         kwargs = {'other_output': settings['other_output'],
+                  'fitting_parameters': settings['fitting_parameters'],
+                  'additional_inputs': settings['additional_inputs'],
+                  'event_data': [data],
                   'event_id': fit_binary_source.event_id,
                   'res_pspl_1': fit_binary_source.res_pspl_1,
                   'res_pspl_2': fit_binary_source.res_pspl_2,
-                  'res_1l2s': fit_binary_source.res_1L2S}
+                  'res_1l2s': fit_binary_source.res_1L2S,
+                  'time_min_flux': fit_binary_source._time_min_flux}
         save_results = SaveResultsBinarySource(phot_files, settings['plots'],
                                                **kwargs)
 
