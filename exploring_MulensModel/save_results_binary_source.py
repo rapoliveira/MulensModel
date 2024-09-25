@@ -27,6 +27,7 @@ except ImportError as err:
           "directory cloned from GitHub. This will allow to import the class"
           "UlensModelFit from example_16.")
     sys.exit(1)
+from utils import Utils
 
 
 class SaveResultsBinarySource(UlensModelFit):
@@ -47,21 +48,24 @@ class SaveResultsBinarySource(UlensModelFit):
                  'res_pspl_2', 'res_1l2s', 'time_min_flux']
         for attr in attrs:
             setattr(self, f'_{attr}', kwargs.pop(attr))
+        for attr in ['all_plots', 'triangle']:
+            setattr(self, f'_{attr}', plots.pop(attr))
         model_1l2s = self._get_model_yaml(self._res_1l2s[0])
-        super().__init__(photometry_files, model=model_1l2s, **kwargs)
+        super().__init__(
+            photometry_files, model=model_1l2s, plots=plots, **kwargs)
 
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
-        pdf_dir = os.path.join(self.path, plots['all_plots']['file_dir'])
-        self._pdf = PdfPages(pdf_dir.format(self._event_id))
-        self._get_xlim2(ref=self._time_min_flux)
-        breakpoint()
-        # *** UP TO HERE, EVERYTHING FINE, JUST MISSING PLOT_FIT()
+        # self._get_xlim2(ref=self._time_min_flux)
+        self._xlim = self._get_time_limits_for_plot(3.0, 'best model')
 
-        # ready to call
-        self._data_1_subt = self._res_pspl_1.pop()
-        self._make_pdf_plots(self._res_pspl_1, self._data_1_subt)
-        self._data_2_subt = self._res_pspl_2.pop()
-        self._make_pdf_plots(self._res_pspl_2, self._data_2_subt)
+        if self._all_plots:
+            self.create_all_plots()
+        if self._triangle:
+            self.create_triangle()
+        if 'best model' in self._plots:
+            self.create_best_model()
+
+        # only tables missing now...
         breakpoint()
 
     def _get_model_yaml(self, model_dict):
@@ -73,13 +77,16 @@ class SaveResultsBinarySource(UlensModelFit):
         if all(key in model_dict for key in ["parameters", "values"]):
             return model_dict
 
+        dict_copy = model_dict.copy()
         try:
-            sflux = [model_dict.pop('flux_s_1')]
+            sflux = [dict_copy.pop('flux_s_1')]
         except KeyError:
-            sflux = [model_dict.pop(key) for key in ['flux_s1_1', 'flux_s2_1']]
-        bflux = model_dict.pop('flux_b_1')
-        model_params = ' '.join(model_dict.keys())
-        model_values = ' '.join(map(str, model_dict.values()))
+            sflux = [dict_copy.pop(key) for key in ['flux_s1_1', 'flux_s2_1']]
+        bflux = dict_copy.pop('flux_b_1')
+        self._model = mm.Model(dict_copy)
+
+        model_params = ' '.join(dict_copy.keys())
+        model_values = ' '.join(map(str, dict_copy.values()))
         model = {"parameters": model_params, "values": model_values,
                  "source_flux": sflux, "blending_flux": bflux}
 
@@ -104,8 +111,6 @@ class SaveResultsBinarySource(UlensModelFit):
         event = mm.Event(data, model=mm.Model(bst), fix_blend_flux=fix)
         event.get_flux_for_dataset(0)
         Amax = max(event.fits[0].get_data_magnification())
-        # dividend = best['source_flux']*Amax + best['blending_flux']
-        # divisor = best['source_flux'] + best['blending_flux']
         dividend = best['flux_s_1']*Amax + best['flux_b_1']
         divisor = best['flux_s_1'] + best['flux_b_1']
         deltaI = 2.5*np.log10(dividend/divisor)  # deltaI ~ 3 for PAR-46 :: OK!
@@ -128,6 +133,20 @@ class SaveResultsBinarySource(UlensModelFit):
             self._xlim = [t_cen-max_diff_t_0, t_cen+max_diff_t_0]
         self._xlim = [t_cen-500, t_cen+500]
 
+    def create_all_plots(self):
+        """
+        Write...
+        """
+        pdf_dir = os.path.join(self.path, self._all_plots['file_dir'])
+        self._pdf = PdfPages(pdf_dir.format(self._event_id))
+        data_1_subt = self._res_pspl_1.pop()
+        data_2_subt = self._res_pspl_2.pop()
+
+        self._make_pdf_plots(self._res_pspl_1, data_1_subt)
+        self._make_pdf_plots(self._res_pspl_2, data_2_subt)
+        self.cplot = self._make_pdf_plots(self._res_1l2s, self._event_data[0])
+        self._pdf.close()
+
     def _make_pdf_plots(self, results_states, data):
         """
         Make three plots: tracer plot, corner plot and best model.
@@ -140,6 +159,7 @@ class SaveResultsBinarySource(UlensModelFit):
             tuple: mm.Event and corner plot instances, to be used later.
         """
         best, sampler, states = results_states
+        self._fix_blend = self._additional_inputs['fix_blend']
         self._n_burn = self._fitting_parameters_in['n_burn']
 
         # Check: PSPL with blending_flux fixed or binary
@@ -147,24 +167,25 @@ class SaveResultsBinarySource(UlensModelFit):
         c_states = states[:, :-2] if pspl_fix else states[:, :-1]
         params = list(best.keys())[:-1] if pspl_fix else list(best.keys())
         values = list(best.values())[:-1] if pspl_fix else list(best.values())
-        self._tracer_plot(params, sampler)
+
+        self._plot_tracer(params, sampler)
         if len(best) == 8:
             c_states, params, values = c_states[:, :-3], params[:5], values[:5]
+        cplot = self._plot_triangle(c_states, params, values)
+        self._plot_fit(best, data)
 
-        cplot = corner.corner(c_states, quantiles=[0.16, 0.50, 0.84],
-                              labels=params, truths=values, show_titles=True)
-        self._pdf.savefig(cplot)
-        # event = plot_fit(best, data, settings, orig_data, pdf=pdf)
+        return cplot
 
-        # return event, cplot
-
-    def _tracer_plot(self, fitted_params, sampler):
+    def _plot_tracer(self, fitted_params, sampler):
         """
         Plot tracer plots (or time series) of the walkers.
 
-        Args:
-            fitted_params (list): name of the parameters to be fitted.
-            sampler (emcee.EnsembleSampler): sampler that contain the chains.
+        Keywords :
+            fitted_params: *list*
+                Names of the fitted parameters.
+
+            sampler: *emcee.ensemble.EnsembleSampler*
+                Sampler that contain the chains generated in the fits.
         """
         npars = sampler.ndim
         fig, axes = plt.subplots(npars, 1, sharex=True, figsize=(10, 10))
@@ -177,68 +198,104 @@ class SaveResultsBinarySource(UlensModelFit):
         plt.tight_layout()
         self._pdf.savefig(fig)
 
+    def _plot_triangle(self, states, labels, truths):
+        """
+        Plot triangle plots (or corner plots) of the simulated states.
 
-def plot_fit(best, data, settings, orig_data=None, best_50=None, pdf=""):
-    """
-    Plot the best-fitting model(s) over the light curve in mag or flux.
+        Keywords :
+            states: *np.ndarray*
+                States of the simulated chains from emcee, with shape
+                (n_walkers * (n_steps - n_burn), n_dim).
 
-    Args:
-        best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
-        data (mm.MulensData instance): object containing all the data.
-        settings (dict): all input settings from yaml file.
-        orig_data (list, optional): Plot with original data. Defaults to None.
-        best_50 (list, optional): Additional percentile result. Defaults to [].
-        pdf (str, optional): pdf file to save the plot. Defaults to "".
+            labels: *list*
+                Names of the fitted parameters.
 
-    Returns:
-        mm.Event: final event containing the model and datasets.
-    """
+            truths: *list*
+                Combination of parameters that maximize the likelihood.
+        """
+        cplot = corner.corner(states, quantiles=[0.16, 0.50, 0.84],
+                              labels=labels, truths=truths, show_titles=True)
+        self._pdf.savefig(cplot)
 
-    ans, subtract = settings['fitting_parameters']['ans'], True
-    fig = plt.figure(figsize=(7.5, 5.5))
-    gs = GridSpec(3, 1, figure=fig)
-    ax1 = fig.add_subplot(gs[:-1, :])  # gs.new_subplotspec((0, 0), rowspan=2)
-    event = fit_utils('get_1L2S_event', data, settings, best=best)
-    data_label = "Original data" if not orig_data else "Subtracted data"
-    event.plot_data(subtract_2450000=subtract, label=data_label)
-    plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': subtract,
-                   'color': 'black', 't_start': settings['xlim'][0],
-                   't_stop': settings['xlim'][1], 'zorder': 10}
-    if orig_data:
-        orig_data.plot(phot_fmt='mag', color='gray', alpha=0.2,
-                       label="Original data")
+        return cplot
 
-    txt = f'PSPL ({ans}):' if event.model.n_sources == 1 else f'1L2S ({ans}):'
-    for key, val in best.items():
-        txt += f'\n{key} = {val:.2f}' if 'flux' not in key else ""
-    event.plot_model(label=rf"{txt}", **plot_params)  # % txt
-    plt.tick_params(axis='both', direction='in')
-    ax1.xaxis.set_ticks_position('both')
-    ax1.yaxis.set_ticks_position('both')
+    def _plot_fit(self, best, data):
+        """
+        Plot the best-fitting model(s) over the light curve in mag or flux.
+        Update docstrings...
 
-    ax2 = fig.add_subplot(gs[2:, :], sharex=ax1)
-    event.plot_residuals(subtract_2450000=True, zorder=10)
-    plt.tick_params(axis='both', direction='in')
-    ax2.xaxis.set_ticks_position('both')
-    ax2.yaxis.set_ticks_position('both')
-    plt.xlim(*np.array(settings['xlim']) - subtract*2450000)
-    plt.tight_layout()
-    plt.subplots_adjust(hspace=0)
+        Args:
+            best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
+            data (mm.MulensData instance): object containing all the data.
 
-    plt.axes(ax1)
-    if best_50 is not None:
-        model_x = dict((key, best_50[i]) for i, key in enumerate(best.keys()))
-        event_x = mm.Event(model=model_x, datasets=[data])
-        plot_params['color'] = 'orange'
-        event_x.plot_model(label='50th_perc', **plot_params)
+        Returns:
+            mm.Event: final event containing the model and datasets.
+        """
+        fig = plt.figure(figsize=(7.5, 5.5))
+        gs = GridSpec(3, 1, figure=fig)
+        ax1 = fig.add_subplot(gs[:-1, :])
+        ans = self._additional_inputs.get('ans', 'max_prob')
 
-    ax1.legend(loc='best')
-    if pdf:
-        pdf.savefig(fig)
+        event = Utils.get_mm_event(data, best)
+        if event.model.n_sources == 1:
+            data_label = "Subtracted data"
+            self._event_data[0].plot(phot_fmt='mag', color='gray', alpha=0.2,
+                                     label="Original data")
+            txt = f'PSPL ({ans}):'
+        else:
+            data_label = "Original data"
+            txt = f'1L2S ({ans}):'
+        event.plot_data(subtract_2450000=True, label=data_label)
+
+        plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': True,
+                       't_start': self._xlim[0], 't_stop': self._xlim[1],
+                       'color': 'black', 'zorder': 10}
+        for key, val in best.items():
+            txt += f'\n{key} = {val:.2f}' if 'flux' not in key else ""
+        event.plot_model(label=rf"{txt}", **plot_params)
+        plt.tick_params(axis='both', direction='in')
+        ax1.xaxis.set_ticks_position('both')
+        ax1.yaxis.set_ticks_position('both')
+
+        ax2 = fig.add_subplot(gs[2:, :], sharex=ax1)
+        event.plot_residuals(subtract_2450000=True, zorder=10)
+        plt.tick_params(axis='both', direction='in')
+        ax2.xaxis.set_ticks_position('both')
+        ax2.yaxis.set_ticks_position('both')
+        plt.xlim(*np.array(self._xlim) - 2450000)
+        plt.tight_layout()
+        plt.subplots_adjust(hspace=0)
+        plt.axes(ax1)
+        ax1.legend(loc='best')
+        self._pdf.savefig(fig)
         plt.close('all')
-    else:
-        plt.show()
-    return event
+
+        # return event
+
+    def create_triangle(self):
+        """
+        Write...
+        """
+        pdf_dir = os.path.join(self.path, self._triangle['file_dir'])
+        self._pdf = PdfPages(pdf_dir.format(self._event_id))
+
+        if hasattr(self, 'cplot'):
+            self._pdf.savefig(self.cplot)
+        else:
+            raise NotImplementedError("to be worked on...")
+            # self._plot_triangle(self, states, labels, truths)
+        self._pdf.close()
+
+    def create_best_model(self):
+        """
+        Write...
+        """
+        pdf_dir = self._plots['best model']['file_dir']
+        pdf_dir = os.path.join(self.path, pdf_dir)
+        self._pdf = PdfPages(pdf_dir.format(self._event_id))
+
+        self._plot_fit(self._res_1l2s[0], self._event_data[0])
+        self._pdf.close()
 
 
 def write_tables(path, settings, name, two_pspl, result,

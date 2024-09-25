@@ -174,7 +174,6 @@ class FitBinarySource(UlensModelFit):
         self._n_fitting = 0
         self._setup_and_run_emcee(self._datasets[0], start)
         self.res_pre_1L2S = self._result.copy()
-        self.ev_pre_1L2S = self._get_binary_source_event(self.res_pre_1L2S)
 
     def _get_peak_times(self):
         """
@@ -472,21 +471,6 @@ class FitBinarySource(UlensModelFit):
         elif self.ans_emcee == 'median':
             self._result = dict(zip(self.params_to_fit, self._perc[1]))
 
-    def _get_binary_source_event(self, best):
-        """
-        Get an instance of mm.Event for the binary source event given
-        in the list of `best` parameters.
-        """
-        data = self._datasets[0]
-        bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
-        fix_source = {data: [best[p] for p in best if 'flux_s' in p]}
-        event_1L2S = mm.Event(data, model=mm.Model(bst),
-                              fix_source_flux=fix_source,
-                              fix_blend_flux={data: best['flux_b_1']})
-        event_1L2S.get_chi2()
-
-        return event_1L2S
-
     def run_final_fits(self):
         """
         Split data and fit PSPL twice with EMCEE, then get final 1L2S fit.
@@ -494,8 +478,10 @@ class FitBinarySource(UlensModelFit):
         if not hasattr(self, 't_peaks_orig'):
             t_peaks = [self.res_pre_1L2S['t_0_1'], self.res_pre_1L2S['t_0_2']]
             self.t_peaks_orig = np.array(t_peaks) - 2.45e6
+        pre_ev = Utils.get_mm_event(self._datasets[0], self.res_pre_1L2S)
+
         model_between_peaks = Utils.get_model_pts_between_peaks(
-            self.ev_pre_1L2S, self.t_peaks_orig)
+            pre_ev, self.t_peaks_orig)
         self._time_min_flux = Utils.detect_min_flux_in_model(
             self._datasets[0], self.t_peaks_orig, model_between_peaks,
             self.t_E_prior, self.fix_blend)
@@ -512,7 +498,7 @@ class FitBinarySource(UlensModelFit):
 
         self._setup_and_run_emcee(self._datasets[0], start)
         self.res_1L2S = [self._result.copy(), self._sampler, self._samples]
-        self.ev_1L2S = self._get_binary_source_event(self.res_1L2S[0])
+        self.ev_1L2S = Utils.get_mm_event(self._datasets[0], self.res_1L2S[0])
 
     def _fit_pspl_twice(self):
         """

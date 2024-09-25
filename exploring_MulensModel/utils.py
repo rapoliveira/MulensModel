@@ -292,6 +292,28 @@ class Utils(object):
         return results[1], t_peaks
     run_scipy_minimize = staticmethod(run_scipy_minimize)
 
+    def get_mm_event(data, best):
+        """
+        Get an instance of mm.Event for a PSPL or binary source event,
+        using the `data` and `best` parameters.
+
+        Keywords :
+            data: *MulensModel.MulensData*
+                Data that will generate the event instance.
+
+            best: *dict*
+                Combination of parameters that maximize the likelihood.
+        """
+        bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
+        fix_source = {data: [best[p] for p in best if 'flux_s' in p]}
+        event_1L2S = mm.Event(data, model=mm.Model(bst),
+                              fix_source_flux=fix_source,
+                              fix_blend_flux={data: best['flux_b_1']})
+        event_1L2S.get_chi2()
+
+        return event_1L2S
+    get_mm_event = staticmethod(get_mm_event)
+
     def subtract_model_from_data(data, model, fix_blend=None):
         """
         Calculate the residuals of the data after subtracting the model,
