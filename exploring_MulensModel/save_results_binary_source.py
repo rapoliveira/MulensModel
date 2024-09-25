@@ -9,7 +9,6 @@ import os
 import sys
 import yaml
 
-# from astropy.table import Table
 from astropy.table import Table, Column
 import corner
 from matplotlib.backends.backend_pdf import PdfPages
@@ -18,8 +17,16 @@ import matplotlib.pyplot as plt
 import MulensModel as mm
 import numpy as np
 
-
-from ulens_model_fit import UlensModelFit
+try:
+    ex16_path = os.path.join(mm.__path__[0], '../../examples/example_16')
+    sys.path.append(os.path.abspath(ex16_path))
+    from ulens_model_fit import UlensModelFit
+except ImportError as err:
+    print(err)
+    print("Please install MulensModel in editable mode (-e) from within the"
+          "directory cloned from GitHub. This will allow to import the class"
+          "UlensModelFit from example_16.")
+    sys.exit(1)
 
 
 class SaveResultsBinarySource(UlensModelFit):
@@ -40,13 +47,15 @@ class SaveResultsBinarySource(UlensModelFit):
         self._res_pspl_2 = kwargs.pop('res_pspl_2')
         self._res_1l2s = kwargs.pop('res_1l2s')
 
-        # still check case that dict is ready or PSPL (generalize fluxes)
+        # model_pspl_1 = self._get_model_yaml(self._res_pspl_1)
+        # model_pspl_2 = self._get_model_yaml(self._res_pspl_2)
         model_1l2s = self._get_model_yaml(self._res_1l2s)
         super().__init__(photometry_files, model=model_1l2s, **kwargs)
 
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
         pdf_dir = os.path.join(self.path, plots['all_plots']['file_dir'])
         self._pdf = PdfPages(pdf_dir.format(self._event_id))
+        breakpoint()
 
         # FROM PlotMultipleModels :::
         # self._plot_settings = plots['best model']
@@ -57,24 +66,26 @@ class SaveResultsBinarySource(UlensModelFit):
 
     def _get_model_yaml(self, model_dict):
         """
-        Get model instance in yaml format, passed to UlensModelFit.
+        Get model instance in yaml format, passed to UlensModelFit. The
+        keys are `parameters`, `values`, `source_flux` and `blending_flux`,
+        where the last two are optional.
         """
-        # From yaml of PlotMultipleModels :::
-        # models:
-        #     model_1:
-        #         parameters: t_0 u_0 t_E pi_E_N pi_E_E t_0_par
-        #         values: 2453816.71320 -0.53324 140.27146 0.18149 -0.09290 2453818
-        #         source_flux: [58.41293]
-        #         blending_flux: 355.12941
+        if all(key in model_dict for key in ["parameters", "values"]):
+            return model_dict
 
-        sflux = [self._res_1l2s.pop(key) for key in ['flux_s1_1', 'flux_s2_1']]
-        bflux = self._res_1l2s.pop('flux_b_1')
-        model_params = ' '.join(self._res_1l2s.keys())
-        model_values = ' '.join(map(str, self._res_1l2s.values()))
+        try:
+            sflux = [model_dict.pop('flux_s_1')]
+        except KeyError:
+            sflux = [model_dict.pop(key) for key in ['flux_s1_1', 'flux_s2_1']]
+        bflux = model_dict.pop('flux_b_1')
+        model_params = ' '.join(model_dict.keys())
+        model_values = ' '.join(map(str, model_dict.values()))
         model = {"parameters": model_params, "values": model_values,
                  "source_flux": sflux, "blending_flux": bflux}
 
         return model
+
+    # def _make_pdf_plots()
 
 
 def make_plots(results_states, data, settings, orig_data=None, pdf=""):

@@ -1,10 +1,9 @@
 """
 File with general code used in other parts of fit_binary_source.py.
 """
+import MulensModel as mm
 import numpy as np
 import scipy.optimize as op
-
-import MulensModel as mm
 
 
 class Utils(object):
