@@ -429,6 +429,7 @@ class FitBinarySource(UlensModelFit):
         Print the percentiles of the EMCEE samples.
         """
         self._perc = np.percentile(self._samples, [16, 50, 84], axis=0)
+        self._pars_perc = dict(zip(self.params_to_fit, self._perc.T))
 
         prints = {0: 'pre-fit, 1L2S to original data',
                   1: '1st fit, PSPL to split data',
@@ -497,7 +498,8 @@ class FitBinarySource(UlensModelFit):
         start['t_E'] = t_E_scipy
 
         self._setup_and_run_emcee(self._datasets[0], start)
-        self.res_1L2S = [self._result.copy(), self._sampler, self._samples]
+        self.res_1L2S = [self._result.copy(), self._sampler, self._samples,
+                         self._pars_perc]
         self.ev_1L2S = Utils.get_mm_event(self._datasets[0], self.res_1L2S[0])
 
     def _fit_pspl_twice(self):
@@ -525,7 +527,7 @@ class FitBinarySource(UlensModelFit):
         self._setup_and_run_emcee(data_2_subt, start)
         model_2 = mm.Model(dict(list(self._result.items())[:3]))
         self.res_pspl_2 = [self._result.copy(), self._sampler, self._samples,
-                           data_2_subt]
+                           self._pars_perc, data_2_subt]
 
         # 3rd PSPL (to data_1_subt)
         fix_1 = Utils.check_blending_flux(self.fix_blend_in, data_1)
@@ -535,7 +537,7 @@ class FitBinarySource(UlensModelFit):
         self._setup_and_run_emcee(data_1_subt, start)
         model_1 = mm.Model(dict(list(self._result.items())[:3]))
         self.res_pspl_1 = [self._result.copy(), self._sampler, self._samples,
-                           data_1_subt]
+                           self._pars_perc, data_1_subt]
 
 
 if __name__ == '__main__':

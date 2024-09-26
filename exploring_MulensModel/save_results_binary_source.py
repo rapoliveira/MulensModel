@@ -57,6 +57,7 @@ class SaveResultsBinarySource(UlensModelFit):
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
         # self._get_xlim2(ref=self._time_min_flux)
         self._xlim = self._get_time_limits_for_plot(3.0, 'best model')
+        self._prepare_file_names()
 
         if self._all_plots:
             self.create_all_plots()
@@ -64,6 +65,9 @@ class SaveResultsBinarySource(UlensModelFit):
             self.create_triangle()
         if 'best model' in self._plots:
             self.create_best_model()
+
+        self._parse_other_output_parameters()
+        self.create_tables()
 
         # only tables missing now...
         breakpoint()
@@ -133,12 +137,29 @@ class SaveResultsBinarySource(UlensModelFit):
             self._xlim = [t_cen-max_diff_t_0, t_cen+max_diff_t_0]
         self._xlim = [t_cen-500, t_cen+500]
 
+    def _prepare_file_names(self):
+        """
+        Add event_id to the names of `plots` and `other_output`, just in
+        the cases they contain '{}'.
+        """
+        names_dict = [
+            (self._all_plots, 'file'),
+            (self._triangle, 'file'),
+            (self._plots.get('best model'), 'file'),
+            (self._other_output.get('models'), 'file name'),
+            (self._other_output.get('yaml output'), 'file name')
+        ]
+
+        for data, key in names_dict:
+            if data and '{}' in data.get(key, ''):
+                new_name = data[key].format(self._event_id)
+                data[key] = os.path.join(self.path, new_name)
+
     def create_all_plots(self):
         """
         Write...
         """
-        pdf_dir = os.path.join(self.path, self._all_plots['file_dir'])
-        self._pdf = PdfPages(pdf_dir.format(self._event_id))
+        self._pdf = PdfPages(self._all_plots['file'])
         data_1_subt = self._res_pspl_1.pop()
         data_2_subt = self._res_pspl_2.pop()
 
@@ -158,7 +179,7 @@ class SaveResultsBinarySource(UlensModelFit):
         Returns:
             tuple: mm.Event and corner plot instances, to be used later.
         """
-        best, sampler, states = results_states
+        best, sampler, states = results_states[:-1]
         self._fix_blend = self._additional_inputs['fix_blend']
         self._n_burn = self._fitting_parameters_in['n_burn']
 
@@ -236,8 +257,8 @@ class SaveResultsBinarySource(UlensModelFit):
         ax1 = fig.add_subplot(gs[:-1, :])
         ans = self._additional_inputs.get('ans', 'max_prob')
 
-        event = Utils.get_mm_event(data, best)
-        if event.model.n_sources == 1:
+        self._event = Utils.get_mm_event(data, best)
+        if self._event.model.n_sources == 1:
             data_label = "Subtracted data"
             self._event_data[0].plot(phot_fmt='mag', color='gray', alpha=0.2,
                                      label="Original data")
@@ -245,20 +266,20 @@ class SaveResultsBinarySource(UlensModelFit):
         else:
             data_label = "Original data"
             txt = f'1L2S ({ans}):'
-        event.plot_data(subtract_2450000=True, label=data_label)
+        self._event.plot_data(subtract_2450000=True, label=data_label)
 
         plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': True,
                        't_start': self._xlim[0], 't_stop': self._xlim[1],
                        'color': 'black', 'zorder': 10}
         for key, val in best.items():
             txt += f'\n{key} = {val:.2f}' if 'flux' not in key else ""
-        event.plot_model(label=rf"{txt}", **plot_params)
+        self._event.plot_model(label=rf"{txt}", **plot_params)
         plt.tick_params(axis='both', direction='in')
         ax1.xaxis.set_ticks_position('both')
         ax1.yaxis.set_ticks_position('both')
 
         ax2 = fig.add_subplot(gs[2:, :], sharex=ax1)
-        event.plot_residuals(subtract_2450000=True, zorder=10)
+        self._event.plot_residuals(subtract_2450000=True, zorder=10)
         plt.tick_params(axis='both', direction='in')
         ax2.xaxis.set_ticks_position('both')
         ax2.yaxis.set_ticks_position('both')
@@ -270,19 +291,16 @@ class SaveResultsBinarySource(UlensModelFit):
         self._pdf.savefig(fig)
         plt.close('all')
 
-        # return event
-
     def create_triangle(self):
         """
         Write...
         """
-        pdf_dir = os.path.join(self.path, self._triangle['file_dir'])
-        self._pdf = PdfPages(pdf_dir.format(self._event_id))
+        self._pdf = PdfPages(self._triangle['file'])
 
         if hasattr(self, 'cplot'):
             self._pdf.savefig(self.cplot)
         else:
-            raise NotImplementedError("to be worked on...")
+            raise NotImplementedError("still working on it...")
             # self._plot_triangle(self, states, labels, truths)
         self._pdf.close()
 
@@ -290,93 +308,115 @@ class SaveResultsBinarySource(UlensModelFit):
         """
         Write...
         """
-        pdf_dir = self._plots['best model']['file_dir']
-        pdf_dir = os.path.join(self.path, pdf_dir)
-        self._pdf = PdfPages(pdf_dir.format(self._event_id))
+        self._pdf = PdfPages(self._plots['best model']['file'])
 
         self._plot_fit(self._res_1l2s[0], self._event_data[0])
         self._pdf.close()
 
+    def create_tables(self):
+        """
+        Central function to create all tables and call functions.
 
-def write_tables(path, settings, name, two_pspl, result,
-                 fmt="ascii.commented_header"):
-    """
-    Save the chains, yaml results and table with results, according with the
-    paths and other informations provided in the settings file.
+        OLD: Save the chains, yaml results and table with results, according
+        with the paths and other informations provided in the settings file.
 
-    Args:
-        path (str): directory of the Python script and catalogues.
-        settings (dict): all input settings from yaml file.
-        name (str): name of the photometry file.
-        result (tuple): contains the EMCEE outputs and mm.Event instance.
-        fmt (str, optional): format of the ascii tables.
-    """
+        Args:
+            path (str): directory of the Python script and catalogues.
+            settings (dict): all input settings from yaml file.
+            name (str): name of the photometry file.
+            result (tuple): contains the EMCEE outputs and mm.Event instance.
+            fmt (str, optional): format of the ascii tables.
+        """
+        if 'models' in self._other_output:
+            thetas = self._res_1l2s[2][:, :5]
+            ln_probs = self._res_1l2s[2][:, -1]
+            for (theta, ln_prob) in zip(thetas, ln_probs):
+                theta_str = " ".join([repr(x) for x in theta])
+                out = "{:.4f}  {:}".format(ln_prob, theta_str)
+                print(out, file=self._print_model_file, flush=False)
+            self._print_model_file.close()
 
-    # saving the states to file
-    best, name = result[0], name.split('.')[0]
-    outputs, n_emcee = settings['other_output'], settings['fitting_parameters']
-    bst = dict(item for item in list(best.items()) if 'flux' not in item[0])
-    if 'models' in outputs.keys():
-        fname = f'{path}/' + outputs['models']['file_dir'].format(name)
-        idxs_remove = list(np.arange(len(bst), len(best)))
-        chains = np.delete(result[2], idxs_remove, axis=1)
-        chains = Table(chains, names=list(bst.keys())+['chi2'])
-        chains.write(fname, format=fmt, overwrite=True)
+        if 'yaml output' in self._other_output:
+            lst, aux_dict = self._organizing_yaml_content()
+            self._write_yaml_output(lst, aux_dict)
 
-    # organizing results to be saved in yaml file (as in example16)
-    fluxes = dict(item for item in list(best.items()) if 'flux' in item[0])
-    perc = dict(item for item in result[3].items() if 'flux' not in item[0])
-    perc_fluxes = dict(item for item in result[3].items() if 'flux' in item[0])
-    print()
-    acc_fraction = np.mean(result[1].acceptance_fraction)
-    acor = result[1].get_autocorr_time(quiet=True, discard=n_emcee['nburn'])
-    deg_of_freedom = result[4].datasets[0].n_epochs - len(bst)
-    pspl_1, pspl_2 = two_pspl
-    pspl_1 = str([round(val, 7) for val in pspl_1.values()])
-    pspl_2 = str([round(val, 7) for val in pspl_2.values()])
-    xlim = str([round(val, 2) for val in settings['xlim']])
-    lst = ['', pspl_1, pspl_2, xlim, acc_fraction, np.mean(acor), '', '',
-           result[4].chi2, deg_of_freedom, '', '']
-    dict_perc_best = {6: perc, 7: perc_fluxes, 10: bst, 11: fluxes}
+        if 'table output' in self._additional_inputs:
+            self._write_results_table()
 
-    # filling and writing the template
-    for idx, dict_obj in dict_perc_best.items():
-        for key, val in dict_obj.items():
-            if idx in [6, 7]:
-                uncerts = f'+{val[2]-val[1]:.5f}, -{val[1]-val[0]:.5f}'
-                lst[idx] += f'    {key}: [{val[1]:.5f}, {uncerts}]\n'
-            else:
-                lst[idx] += f'    {key}: {val}\n'
-        lst[idx] = lst[idx][:-1]
-    with open(f'{path}/../1L2S-result_template.yaml') as file_:
-        template_result = file_.read()
-    if 'yaml output' in outputs.keys():
-        yaml_fname = outputs['yaml output']['file name'].format(name)
-        yaml_path = os.path.join(path, yaml_fname)
+        breakpoint()
+
+    def _organizing_yaml_content(self):
+        """
+        Write...
+        OLD: organizing results to be saved in yaml file (as in example16)
+        """
+        best_items = list(self._res_1l2s[0].items())
+        sampler = self._res_1l2s[1]
+        perc_items = list(self._res_1l2s[3].items())
+        bst = dict(item for item in best_items if 'flux' not in item[0])
+        fluxes = dict(item for item in best_items if 'flux' in item[0])
+        perc = dict(item for item in perc_items if 'flux' not in item[0])
+        perc_fluxes = dict(item for item in perc_items if 'flux' in item[0])
+
+        acc_fraction = np.mean(sampler.acceptance_fraction)
+        acor = sampler.get_autocorr_time(quiet=True, discard=self._n_burn)
+        deg_of_freedom = self._event_data[0].n_epochs - len(bst)
+        pspl_1, pspl_2 = self._res_pspl_1[0], self._res_pspl_2[0]
+        pspl_1 = str([round(val, 7) for val in pspl_1.values()])
+        pspl_2 = str([round(val, 7) for val in pspl_2.values()])
+        xlim = str([round(val, 2) for val in self._xlim])
+
+        lst = ['', pspl_1, pspl_2, xlim, acc_fraction, np.mean(acor), '', '',
+               self._event.chi2, deg_of_freedom, '', '']
+        dict_perc_best = {6: perc, 7: perc_fluxes, 10: bst, 11: fluxes}
+
+        return lst, dict_perc_best
+
+    def _write_yaml_output(self, lst, dict_perc_best):
+        """
+        Write... filling and writing the template
+        """
+        for idx, dict_obj in dict_perc_best.items():
+            for key, val in dict_obj.items():
+                if idx in [6, 7]:
+                    uncerts = f'+{val[2]-val[1]:.5f}, -{val[1]-val[0]:.5f}'
+                    lst[idx] += f'    {key}: [{val[1]:.5f}, {uncerts}]\n'
+                else:
+                    lst[idx] += f'    {key}: {val}\n'
+            lst[idx] = lst[idx][:-1]
+
+        template = os.path.join(self.path, '../1L2S-result_template.yaml')
+        with open(template) as file_:
+            template_result = file_.read()
+        yaml_fname = self._other_output['yaml output']['file name']
         lst[0] = sys.argv[1]
-        with open(yaml_path, 'w') as yaml_results:
+        with open(yaml_fname, 'w') as yaml_results:
             yaml_results.write(template_result.format(*lst))
 
-    # saving results to table with all the events (e.g. W16)
-    if 'table output' in outputs.keys():
-        fname, columns, dtypes = outputs['table output'].values()
-        if not os.path.isfile(f'{path}/{fname}'):
-            result_tab = Table()
-            for col, dtype in zip(columns, dtypes):
-                result_tab[col] = Column(name=col, dtype=dtype)
-        else:
-            result_tab = Table.read(f'{path}/{fname}', format='ascii')
-        bst_values = [round(val, 5) for val in bst.values()]
-        lst = bst_values+[0., 0.] if len(bst) == 3 else bst_values
-        lst = [name] + lst + [round(result[4].chi2, 4), deg_of_freedom]
-        if name in result_tab['id']:
-            idx_event = np.where(result_tab['id'] == name)[0]
-            if result_tab[idx_event]['chi2'] > lst[-2]:
-                result_tab[idx_event] = lst
-        else:
-            result_tab.add_row(lst)
-        result_tab.sort('id')
-        result_tab.write(f'{path}/{fname}', format=fmt, overwrite=True)
+    # def _write_results_table(self):
+    #     """
+    #     Write... saving results to table with all the events (e.g. W16)
+    #     """
+    #     input_dict = self._additional_inputs['table output']
+    #     fname, columns, dtypes = input_dict.values()
+    #     fname = os.path.join(self.path, fname)
+    #     if not os.path.isfile(fname):
+    #         result_tab = Table()
+    #         for col, dtype in zip(columns, dtypes):
+    #             result_tab[col] = Column(name=col, dtype=dtype)
+    #     else:
+    #         result_tab = Table.read(fname, format='ascii')
+    #     bst_values = [round(val, 5) for val in bst.values()]
+    #     lst = bst_values+[0., 0.] if len(bst) == 3 else bst_values
+    #     lst = [name] + lst + [round(result[4].chi2, 4), deg_of_freedom]
+    #     if name in result_tab['id']:
+    #         idx_event = np.where(result_tab['id'] == name)[0]
+    #         if result_tab[idx_event]['chi2'] > lst[-2]:
+    #             result_tab[idx_event] = lst
+    #     else:
+    #         result_tab.add_row(lst)
+    #     result_tab.sort('id')
+    #     result_tab.write(fname, format="ascii.commented_header", overwrite=True)
 
 
 if __name__ == '__main__':
