@@ -1,9 +1,6 @@
 """
-Plot several fits (PSPL, parallax, 1L2S, 2L1S) to data
-
-The code produces a plot figure containing several fits (standard is three)
-to the data in magnitudes, including a panel with the residuals and an optional
-one with the cumulative delta_chi2.
+Class and script for fitting binary source model using MulensModel.
+It just working imported from fit_binary_source.py, so far.
 """
 import os
 import sys
@@ -32,13 +29,12 @@ from utils import Utils
 
 class SaveResultsBinarySource(UlensModelFit):
     """
-    Update later...
+    Class to save figures and tables with the results of the fitting to
+    a binary source event.
+    It is a subclass of UlensModelFit, from example_16.
 
-    Class for plotting multiple models to data, including the relative
-    residuals and optional cumulative delta_chi2.
-
-    Args:
-        UlensModelFit (class): parent class from example16
+    Parameters :
+        [...]
     """
 
     def __init__(self, photometry_files, plots, **kwargs):
@@ -69,9 +65,6 @@ class SaveResultsBinarySource(UlensModelFit):
         self._parse_other_output_parameters()
         self.create_tables()
 
-        # only tables missing now...
-        breakpoint()
-
     def _get_model_yaml(self, model_dict):
         """
         Get model instance in yaml format, passed to UlensModelFit. The
@@ -101,7 +94,7 @@ class SaveResultsBinarySource(UlensModelFit):
         Get the optimal range for the x-axis, considering the event results.
         # Radek: using get_data_magnification from MulensModel
         Returns a list with range for the x-axis, without subtracting 2450000.
-        Still shorten it...
+        OBS: This function will probably be removed...
 
         Args:
             ref (float, optional): reference for t_0. Defaults to None.
@@ -157,7 +150,8 @@ class SaveResultsBinarySource(UlensModelFit):
 
     def create_all_plots(self):
         """
-        Write...
+        Create pdf for all_plots and call the functions to make tracer,
+        triangle and best model plots.
         """
         self._pdf = PdfPages(self._all_plots['file'])
         data_1_subt = self._res_pspl_1.pop()
@@ -172,12 +166,18 @@ class SaveResultsBinarySource(UlensModelFit):
         """
         Make three plots: tracer plot, corner plot and best model.
 
-        Args:
-            results_states (tuple): contains best results, sampler and states.
-            data (mm.MulensData): data instance of a single event.
+        Keywords :
+            results_states: *tuple*
+                Contains all the results, in order: an array with the best
+                combination of parameters, the sampler, the states and the
+                percentiles.
 
-        Returns:
-            tuple: mm.Event and corner plot instances, to be used later.
+            data: *mm.MulensData*
+                Data instance of a single event.
+
+        Returns :
+            cplot: *matplotlib.figure.Figure*
+                Instante of the corner plot, so it can be reused.
         """
         best, sampler, states = results_states[:-1]
         self._fix_blend = self._additional_inputs['fix_blend']
@@ -233,6 +233,10 @@ class SaveResultsBinarySource(UlensModelFit):
 
             truths: *list*
                 Combination of parameters that maximize the likelihood.
+
+        Returns :
+            cplot: *matplotlib.figure.Figure*
+                Instante of the corner plot, so it can be reused.
         """
         cplot = corner.corner(states, quantiles=[0.16, 0.50, 0.84],
                               labels=labels, truths=truths, show_titles=True)
@@ -243,14 +247,16 @@ class SaveResultsBinarySource(UlensModelFit):
     def _plot_fit(self, best, data):
         """
         Plot the best-fitting model(s) over the light curve in mag or flux.
-        Update docstrings...
+        In the case of PSPL, the original data is plotted together with
+        the subtracted one.
 
-        Args:
-            best (dict): results from PSPL (3+2 params) or 1L2S (5+3 params).
-            data (mm.MulensData instance): object containing all the data.
+        Keywords :
+            best: *np.array*
+                Contain the best combination of parameters fitted to the
+                data: for PSPL (3+2 params) or 1L2S (5+3 params).
 
-        Returns:
-            mm.Event: final event containing the model and datasets.
+            data: *mm.MulensData*
+                Data instance of a single event.
         """
         fig = plt.figure(figsize=(7.5, 5.5))
         gs = GridSpec(3, 1, figure=fig)
@@ -293,7 +299,7 @@ class SaveResultsBinarySource(UlensModelFit):
 
     def create_triangle(self):
         """
-        Write...
+        Create pdf for triangle plot and call the function to make it.
         """
         self._pdf = PdfPages(self._triangle['file'])
 
@@ -306,26 +312,16 @@ class SaveResultsBinarySource(UlensModelFit):
 
     def create_best_model(self):
         """
-        Write...
+        Create pdf for best model plot and call the function to make it.
         """
         self._pdf = PdfPages(self._plots['best model']['file'])
-
         self._plot_fit(self._res_1l2s[0], self._event_data[0])
         self._pdf.close()
 
     def create_tables(self):
         """
-        Central function to create all tables and call functions.
-
-        OLD: Save the chains, yaml results and table with results, according
-        with the paths and other informations provided in the settings file.
-
-        Args:
-            path (str): directory of the Python script and catalogues.
-            settings (dict): all input settings from yaml file.
-            name (str): name of the photometry file.
-            result (tuple): contains the EMCEE outputs and mm.Event instance.
-            fmt (str, optional): format of the ascii tables.
+        Central function to create all tables (table with all simulated
+        chains, yaml file with results and table with events).
         """
         if 'models' in self._other_output:
             thetas = self._res_1l2s[2][:, :5]
@@ -343,12 +339,10 @@ class SaveResultsBinarySource(UlensModelFit):
         if 'table output' in self._additional_inputs:
             self._write_results_table()
 
-        breakpoint()
-
     def _organizing_yaml_content(self):
         """
-        Write...
-        OLD: organizing results to be saved in yaml file (as in example16)
+        Organize the results into a list and a dictionary to be saved in a
+        in a yaml file (as in example_16).
         """
         best_items = list(self._res_1l2s[0].items())
         sampler = self._res_1l2s[1]
@@ -374,7 +368,7 @@ class SaveResultsBinarySource(UlensModelFit):
 
     def _write_yaml_output(self, lst, dict_perc_best):
         """
-        Write... filling and writing the template
+        Fill the template with the results and write the yaml file.
         """
         for idx, dict_obj in dict_perc_best.items():
             for key, val in dict_obj.items():
@@ -393,30 +387,40 @@ class SaveResultsBinarySource(UlensModelFit):
         with open(yaml_fname, 'w') as yaml_results:
             yaml_results.write(template_result.format(*lst))
 
-    # def _write_results_table(self):
-    #     """
-    #     Write... saving results to table with all the events (e.g. W16)
-    #     """
-    #     input_dict = self._additional_inputs['table output']
-    #     fname, columns, dtypes = input_dict.values()
-    #     fname = os.path.join(self.path, fname)
-    #     if not os.path.isfile(fname):
-    #         result_tab = Table()
-    #         for col, dtype in zip(columns, dtypes):
-    #             result_tab[col] = Column(name=col, dtype=dtype)
-    #     else:
-    #         result_tab = Table.read(fname, format='ascii')
-    #     bst_values = [round(val, 5) for val in bst.values()]
-    #     lst = bst_values+[0., 0.] if len(bst) == 3 else bst_values
-    #     lst = [name] + lst + [round(result[4].chi2, 4), deg_of_freedom]
-    #     if name in result_tab['id']:
-    #         idx_event = np.where(result_tab['id'] == name)[0]
-    #         if result_tab[idx_event]['chi2'] > lst[-2]:
-    #             result_tab[idx_event] = lst
-    #     else:
-    #         result_tab.add_row(lst)
-    #     result_tab.sort('id')
-    #     result_tab.write(fname, format="ascii.commented_header", overwrite=True)
+    def _write_results_table(self):
+        """
+        Write the results to a table, saving the results of the best model
+        for each event. The table is read, the data of the event is updated
+        and then written again.
+
+        NOTE: Function needs to be tested again...
+        """
+        input_dict = self._additional_inputs['table output']
+        fname, columns, dtypes = input_dict.values()
+        fname = os.path.join(self.path, fname)
+
+        if not os.path.isfile(fname):
+            res_tab = Table()
+            for col, dtype in zip(columns, dtypes):
+                res_tab[col] = Column(name=col, dtype=dtype)
+        else:
+            res_tab = Table.read(fname, format='ascii')
+
+        name = self._event_id
+        best_items = list(self._res_1l2s[0].items())
+        bst = dict(item for item in best_items if 'flux' not in item[0])
+        bst_values = [round(val, 5) for val in bst.values()]
+        lst = bst_values+[0., 0.] if len(bst) == 3 else bst_values
+        deg_of_freedom = self._event_data[0].n_epochs - len(bst)
+        lst = [name] + lst + [round(self._event.chi2, 4), deg_of_freedom]
+        if name in res_tab['id']:
+            idx_event = np.where(res_tab['id'] == name)[0]
+            if res_tab[idx_event]['chi2'] > lst[-2]:
+                res_tab[idx_event] = lst
+        else:
+            res_tab.add_row(lst)
+        res_tab.sort('id')
+        res_tab.write(fname, format="ascii.commented_header", overwrite=True)
 
 
 if __name__ == '__main__':
@@ -427,7 +431,7 @@ if __name__ == '__main__':
         all_settings = yaml.safe_load(yaml_input)
     print("Still not working as main code...")
 
-    # Still not working...
+    # NOTE: Update this part... Make it work as main code too!
     # save_results_binary_source = SaveResultsBinarySource(**all_settings)
     # fig_ = save_results_binary_source.best_model_plot_multiple()
     # save_results_binary_source.save_or_show_final_plot(fig_)
