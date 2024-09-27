@@ -27,14 +27,17 @@ except ImportError as err:
     sys.exit(1)
 from utils import Utils
 
-# To-Do list:
-# - [ ] Update the script to work as main code too.
+# To-Do list (27.sep.2024):
 # - [X] Finish calling prepare_binary_lens method.
-# - [ ] Check negative t_E for BLG501_13_138484_OGLE. ***
+# - [X] Check negative t_E for BLG501_13_138484_OGLE.
 # - [X] Check why YAML file has wrong fitted fluxes.
+# - [X] URGENT: Test names[1:] producing outputs with name of first event !!!
+# - [X] URGENT 2: WEIRD CORNER PLOT FOR SECOND EVENT...
 # - [ ] Apply priors to YAML input for 2L1S. ***
-# - [ ] Remove _get_xlim2 function.
+# - [X] Remove _get_xlim2 function.
 # - [ ] Test _write_results_table function.
+# - [ ] Speed-up the saving of the chains/models file
+# - [ ] ValueError: fix_blend keys must contain the data :: BLG501_28_123287
 
 
 class SaveResultsBinarySource(UlensModelFit):
@@ -49,20 +52,18 @@ class SaveResultsBinarySource(UlensModelFit):
 
     def __init__(self, photometry_files, plots, **kwargs):
 
-        plots_2, kwargs_2 = plots.copy(), kwargs.copy()
-        self._fitting_parameters_in = kwargs_2.pop('fitting_parameters')
+        self._fitting_parameters_in = kwargs.pop('fitting_parameters')
         attrs = ['additional_inputs', 'event_data', 'event_id', 'res_pspl_1',
                  'res_pspl_2', 'res_1l2s', 'time_min_flux']
         for attr in attrs:
-            setattr(self, f'_{attr}', kwargs_2.pop(attr))
+            setattr(self, f'_{attr}', kwargs.pop(attr))
         for attr in ['all_plots', 'triangle']:
-            setattr(self, f'_{attr}', plots_2.pop(attr))
+            setattr(self, f'_{attr}', plots.pop(attr))
         model_1l2s = self._get_model_yaml(self._res_1l2s[0])
         super().__init__(
-            photometry_files, model=model_1l2s, plots=plots_2, **kwargs_2)
+            photometry_files, model=model_1l2s, plots=plots, **kwargs)
 
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
-        # self._get_xlim2(ref=self._time_min_flux)
         self._xlim = self._get_time_limits_for_plot(3.0, 'best model')
         self._prepare_file_names()
 
@@ -100,47 +101,6 @@ class SaveResultsBinarySource(UlensModelFit):
                  "source_flux": sflux, "blending_flux": bflux}
 
         return model
-
-    def _get_xlim2(self, ref=None):
-        """
-        Get the optimal range for the x-axis, considering the event results.
-        # Radek: using get_data_magnification from MulensModel
-        Returns a list with range for the x-axis, without subtracting 2450000.
-        OBS: This function will probably be removed...
-
-        Args:
-            ref (float, optional): reference for t_0. Defaults to None.
-        """
-        best = self._res_pspl_1[0]
-        data = self._event_data[0]
-        self._fix_blend = self._additional_inputs['fix_blend']
-
-        bst = dict(itm for itm in list(best.items()) if 'flux' not in itm[0])
-        fix = None if self._fix_blend is False else {data: self._fix_blend}
-        event = mm.Event(data, model=mm.Model(bst), fix_blend_flux=fix)
-        event.get_flux_for_dataset(0)
-        Amax = max(event.fits[0].get_data_magnification())
-        dividend = best['flux_s_1']*Amax + best['flux_b_1']
-        divisor = best['flux_s_1'] + best['flux_b_1']
-        deltaI = 2.5*np.log10(dividend/divisor)  # deltaI ~ 3 for PAR-46 :: OK!
-
-        # Get the magnitude at the model peak (mag_peak ~ comp? ok)
-        idx_peak = np.argmin(abs(data.time - best['t_0']))
-        model_mag = event.fits[0].get_model_magnitudes()
-        mag_peak = model_mag[idx_peak]  # comp = data.mag[idx_peak]
-
-        # Summing 0.85*deltaI to the mag_peak, then obtain t_range (+3%)
-        mag_baseline = mag_peak + 0.85*deltaI
-        idx1 = np.argmin(abs(mag_baseline - model_mag[:idx_peak]))
-        idx2 = idx_peak + np.argmin(abs(mag_baseline - model_mag[idx_peak:]))
-        t_range = [0.97*(data.time[idx1]-2450000) + 2450000,
-                   1.03*(data.time[idx2]-2450000) + 2450000]
-        t_cen = best['t_0'] if ref is None else ref
-        max_diff_t_0 = max(abs(np.array(t_range) - t_cen)) + 100
-
-        if max_diff_t_0 > 250:
-            self._xlim = [t_cen-max_diff_t_0, t_cen+max_diff_t_0]
-        self._xlim = [t_cen-500, t_cen+500]
 
     def _prepare_file_names(self):
         """
@@ -458,9 +418,7 @@ if __name__ == '__main__':
         raise ValueError('Exactly one argument needed - YAML file')
     with open(sys.argv[1], 'r', encoding="utf-8") as yaml_input:
         all_settings = yaml.safe_load(yaml_input)
-    print("Still not working as main code...")
 
-    # NOTE: Update this part... Make it work as main code too!
-    # save_results_binary_source = SaveResultsBinarySource(**all_settings)
-    # fig_ = save_results_binary_source.best_model_plot_multiple()
-    # save_results_binary_source.save_or_show_final_plot(fig_)
+    raise NotImplementedError("This code cannot be called as main code "
+                              "because it is unlikely that someone will "
+                              "input everything necessary to save.")

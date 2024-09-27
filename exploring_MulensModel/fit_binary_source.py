@@ -2,6 +2,7 @@
 Class and script for fitting binary source model using MulensModel.
 All settings are read from a YAML file.
 """
+import copy
 from itertools import chain
 import os
 import sys
@@ -280,13 +281,14 @@ class FitBinarySource(UlensModelFit):
         Apply all the priors (minimum, maximum, distributions), returning
         -np.inf if parameters are outside the bounds.
         """
+        ln_prior_flux, ln_prior_t_E = 0., 0.
         bounds = self._check_bounds_prior(theta)
         fluxes = self._get_fluxes()
-        ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
+        if not self._skip_blending_flux:
+            ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
         if not np.isfinite(bounds + ln_prior_flux):
             return -np.inf
 
-        ln_prior_t_E = 0.
         if self._prior_t_E is not None:
             ln_prior_t_E = self._ln_prior_t_E()
         elif self.t_E_prior is not None:
@@ -312,12 +314,14 @@ class FitBinarySource(UlensModelFit):
         the likelihood + prior.
         Returns the logarithm of the probability and fluxes.
         """
-        ln_like = self._ln_like(theta)
         ln_prior = self._ln_prior(theta)
-        ln_prob = ln_prior + ln_like
-        if not np.isfinite(ln_prob):
+        if not np.isfinite(ln_prior):
+            return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
+        ln_like = self._ln_like(theta)
+        if not np.isfinite(ln_like):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
 
+        ln_prob = ln_prior + ln_like
         fluxes = self._get_fluxes()
         self._update_best_model_EMCEE(ln_prob, theta, fluxes)
         source_fluxes, blending_flux = self._event.fluxes[0]
@@ -378,6 +382,7 @@ class FitBinarySource(UlensModelFit):
         self._kwargs_EMCEE['initial_state'] = start
 
         blobs = [('source_fluxes', list), ('blend_fluxes', float)]
+        self._skip_blending_flux = False
         self._sampler = emcee.EnsembleSampler(
             self._n_walkers, self._n_fit_parameters, self._ln_prob,
             blobs_dtype=blobs)
@@ -399,6 +404,8 @@ class FitBinarySource(UlensModelFit):
         """
         start = abs(np.array(self._init_emcee) + 10*self._rand_sample)
         self._kwargs_EMCEE['initial_state'] = start
+        self._skip_blending_flux = True
+
         sampler = emcee.EnsembleSampler(
             self._n_walkers, self._n_fit_parameters, self._ln_prob)
         nsteps_temp = int(self._kwargs_EMCEE['nsteps'] / 2)
@@ -543,29 +550,28 @@ if __name__ == '__main__':
     input_file = sys.argv[1]
     with open(input_file, 'r', encoding='utf-8') as data:
         settings = yaml.safe_load(data)
-
     fit_binary_source = FitBinarySource(**settings)
 
     dlist, fnames = fit_binary_source.data_list, fit_binary_source.file_names
     for data, name in zip(dlist, fnames):
         fit_binary_source._datasets = [data]
         fit_binary_source.event_id = name.split('/')[-1].split('.')[0]
-        phot_files = settings['photometry_files'].copy()
+        stg_copy = copy.deepcopy(settings)
+        phot_files = stg_copy.pop('photometry_files')
         phot_files[0]['file_name'] += fit_binary_source.event_id + '.dat'
         fit_binary_source.photometry_files = phot_files
-
         fit_binary_source.run_initial_fits()
         fit_binary_source.run_final_fits()
-        kwargs = {'other_output': settings['other_output'],
-                  'fitting_parameters': settings['fitting_parameters'],
-                  'additional_inputs': settings['additional_inputs'],
+
+        del_keys = ['starting_parameters', 'min_values', 'max_values']
+        stg_copy = {k: v for k, v in stg_copy.items() if k not in del_keys}
+        kwargs = {**stg_copy,
                   'event_data': [data],
                   'event_id': fit_binary_source.event_id,
                   'res_pspl_1': fit_binary_source.res_pspl_1,
                   'res_pspl_2': fit_binary_source.res_pspl_2,
                   'res_1l2s': fit_binary_source.res_1L2S,
                   'time_min_flux': fit_binary_source._time_min_flux}
-        save_results = SaveResultsBinarySource(phot_files, settings['plots'],
-                                               **kwargs)
+        save_results = SaveResultsBinarySource(phot_files, **kwargs)
 
         print("\n--------------------------------------------------")
