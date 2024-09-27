@@ -486,7 +486,7 @@ class FitBinarySource(UlensModelFit):
             pre_ev, self.t_peaks_orig)
         self._time_min_flux = Utils.detect_min_flux_in_model(
             self._datasets[0], self.t_peaks_orig, model_between_peaks,
-            self.t_E_prior, self.fix_blend)
+            self.t_E_prior, self.fix_blend_in)
         self._data_left_right = Utils.split_in_min_flux(
             self._datasets[0], self._time_min_flux)
 

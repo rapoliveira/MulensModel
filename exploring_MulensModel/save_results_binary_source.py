@@ -37,7 +37,7 @@ from utils import Utils
 # - [X] Remove _get_xlim2 function.
 # - [ ] Test _write_results_table function.
 # - [ ] Speed-up the saving of the chains/models file
-# - [ ] ValueError: fix_blend keys must contain the data :: BLG501_28_123287
+# - [X] ValueError: fix_blend keys must contain the data :: BLG501_28_123287
 
 
 class SaveResultsBinarySource(UlensModelFit):

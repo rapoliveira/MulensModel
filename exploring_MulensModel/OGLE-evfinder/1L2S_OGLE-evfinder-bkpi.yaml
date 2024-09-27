@@ -1,0 +1,47 @@
+phot_settings:
+    - {name: phot/phot_obvious/, add_2450000: True, phot_fmt: mag}
+starting_parameters:
+    t_peaks: t_peak-obvious-evfinder.dat  # file or False
+fit_constraints:
+    negative_blending_flux_sigma_mag: 5. # 3. # 20.
+    # no_negative_blending_flux: True # sharp alternative
+    ln_prior:
+        t_E: lognormal 2.70 2.50 # 0.99-1.20  # 1.172 0.5 (wrong log10)  # TBD: Mroz et al. 2017 (free-floating), Mroz et al. 2020***
+min_values:
+    t_E: 0.
+    u_0: 0.
+max_values:
+    u_0: 5.  # or 6.
+    t_0: [-100., 100.]  # above and below the time range of the data
+fitting_parameters:
+    nwlk: 20
+    nstep: 1000
+    nburn: 500
+    clean_cplot: False
+    ans: max_prob
+    progress: True
+    fix_blend: 0.  # float (0. for 2L1S initial params) or False
+    sigmas: [[1., 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
+    # sigmas: [[1., 0.05, 1.], [0.01, 0.01, 0.01, 0.01, 0.1]]
+plots:
+    all_plots:
+        file_dir: TEMP_results_1L2S/all_plots/     # add name later...
+    best model:
+        file_dir: TEMP_results_1L2S/
+        # time range: 2452700 2454640
+    triangle:
+        file_dir: TEMP_results_1L2S/
+        # shift t_0: False
+other_output:
+    models:
+        file_dir: TEMP_results_1L2S/chains/{}_all_chains.txt
+    yaml output:
+        file name: TEMP_results_1L2S/yaml_results/{}_results.yaml
+    # table output:
+    #     file name: results-1L2S-withoutprior.txt
+    #     columns: [id, param1, param2, param3, param4, param5, chi2, dof]
+    #     dtypes: ['<U6', '<f8', '<f8', '<f8', '<f8', '<f8', '<f8', '<i8']
+    yaml_files_2L1S:
+        t_or_f: True
+        yaml_template: ../1L2S-to-2L1S_template.yaml
+        yaml_dir_name: yaml_files_2L1S/{}-2L1S.yaml

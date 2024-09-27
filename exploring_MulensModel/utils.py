@@ -140,7 +140,10 @@ class Utils(object):
 
         # Compute magnification and corresponding u_0(A)
         magnif_A = flux_peak / flux_base
-        initial_u_0 = np.sqrt(2*magnif_A / np.sqrt(magnif_A**2 - 1) - 2)
+        if magnif_A >= 1:
+            initial_u_0 = np.sqrt(2*magnif_A / np.sqrt(magnif_A**2 - 1) - 2)
+        else:
+            initial_u_0 = 3.
         initial_u_0 = round(initial_u_0, 3)
 
         return initial_u_0
@@ -441,13 +444,18 @@ class Utils(object):
             data_left = mm.MulensData(data_np[flag].T, phot_fmt='mag')
             data_right = mm.MulensData(data_np[~flag].T, phot_fmt='mag')
 
-            args_ = (t_peaks, t_E_prior, fix_blend)
+            fix = Utils.check_blending_flux(fix_blend, data_left)
+            args_ = (t_peaks, t_E_prior, fix)
             model_1 = Utils.run_scipy_minimize(data_left, *args_)[0]
+            fix = Utils.check_blending_flux(fix_blend, data_right)
             data_r_subt = Utils.subtract_model_from_data(data_right, model_1,
-                                                         fix_blend)
+                                                         fix)
+            args_ = (t_peaks, t_E_prior, fix)
             model_2 = Utils.run_scipy_minimize(data_r_subt, *args_)[0]
+            fix = Utils.check_blending_flux(fix_blend, data_left)
             data_l_subt = Utils.subtract_model_from_data(data_left, model_2,
-                                                         fix_blend)
+                                                         fix)
+            args_ = (t_peaks, t_E_prior, fix)
             model_1 = Utils.run_scipy_minimize(data_l_subt, *args_)[0]
 
             ev_1 = mm.Event(data_l_subt, model=mm.Model(model_1))
