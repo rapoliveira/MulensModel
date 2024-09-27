@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import MulensModel as mm
 import numpy as np
 
+from prepare_binary_lens import PrepareBinaryLens
 try:
     ex16_path = os.path.join(mm.__path__[0], '../../examples/example_16')
     sys.path.append(os.path.abspath(ex16_path))
@@ -25,6 +26,15 @@ except ImportError as err:
           "UlensModelFit from example_16.")
     sys.exit(1)
 from utils import Utils
+
+# To-Do list:
+# - [ ] Update the script to work as main code too.
+# - [X] Finish calling prepare_binary_lens method.
+# - [ ] Check negative t_E for BLG501_13_138484_OGLE. ***
+# - [X] Check why YAML file has wrong fitted fluxes.
+# - [ ] Apply priors to YAML input for 2L1S. ***
+# - [ ] Remove _get_xlim2 function.
+# - [ ] Test _write_results_table function.
 
 
 class SaveResultsBinarySource(UlensModelFit):
@@ -39,16 +49,17 @@ class SaveResultsBinarySource(UlensModelFit):
 
     def __init__(self, photometry_files, plots, **kwargs):
 
-        self._fitting_parameters_in = kwargs.pop('fitting_parameters')
+        plots_2, kwargs_2 = plots.copy(), kwargs.copy()
+        self._fitting_parameters_in = kwargs_2.pop('fitting_parameters')
         attrs = ['additional_inputs', 'event_data', 'event_id', 'res_pspl_1',
                  'res_pspl_2', 'res_1l2s', 'time_min_flux']
         for attr in attrs:
-            setattr(self, f'_{attr}', kwargs.pop(attr))
+            setattr(self, f'_{attr}', kwargs_2.pop(attr))
         for attr in ['all_plots', 'triangle']:
-            setattr(self, f'_{attr}', plots.pop(attr))
+            setattr(self, f'_{attr}', plots_2.pop(attr))
         model_1l2s = self._get_model_yaml(self._res_1l2s[0])
         super().__init__(
-            photometry_files, model=model_1l2s, plots=plots, **kwargs)
+            photometry_files, model=model_1l2s, plots=plots_2, **kwargs_2)
 
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
         # self._get_xlim2(ref=self._time_min_flux)
@@ -64,6 +75,7 @@ class SaveResultsBinarySource(UlensModelFit):
 
         self._parse_other_output_parameters()
         self.create_tables()
+        self.call_prepare_binary_lens()
 
     def _get_model_yaml(self, model_dict):
         """
@@ -360,9 +372,9 @@ class SaveResultsBinarySource(UlensModelFit):
         pspl_2 = str([round(val, 7) for val in pspl_2.values()])
         xlim = str([round(val, 2) for val in self._xlim])
 
-        lst = ['', pspl_1, pspl_2, xlim, acc_fraction, np.mean(acor), '', '',
-               self._event.chi2, deg_of_freedom, '', '']
-        dict_perc_best = {6: perc, 7: perc_fluxes, 10: bst, 11: fluxes}
+        lst = ['', '', pspl_1, pspl_2, xlim, acc_fraction, np.mean(acor),
+               '', '', self._event.chi2, deg_of_freedom, '', '']
+        dict_perc_best = {7: perc, 8: perc_fluxes, 11: bst, 12: fluxes}
 
         return lst, dict_perc_best
 
@@ -370,9 +382,10 @@ class SaveResultsBinarySource(UlensModelFit):
         """
         Fill the template with the results and write the yaml file.
         """
+        lst[0], lst[1] = sys.argv[1], self._event_id
         for idx, dict_obj in dict_perc_best.items():
             for key, val in dict_obj.items():
-                if idx in [6, 7]:
+                if idx in [7, 8]:
                     uncerts = f'+{val[2]-val[1]:.5f}, -{val[1]-val[0]:.5f}'
                     lst[idx] += f'    {key}: [{val[1]:.5f}, {uncerts}]\n'
                 else:
@@ -382,10 +395,10 @@ class SaveResultsBinarySource(UlensModelFit):
         template = os.path.join(self.path, '../1L2S-result_template.yaml')
         with open(template) as file_:
             template_result = file_.read()
+        self._template_result = template_result.format(*lst)
         yaml_fname = self._other_output['yaml output']['file name']
-        lst[0] = sys.argv[1]
         with open(yaml_fname, 'w') as yaml_results:
-            yaml_results.write(template_result.format(*lst))
+            yaml_results.write(self._template_result)
 
     def _write_results_table(self):
         """
@@ -421,6 +434,22 @@ class SaveResultsBinarySource(UlensModelFit):
             res_tab.add_row(lst)
         res_tab.sort('id')
         res_tab.write(fname, format="ascii.commented_header", overwrite=True)
+
+    def call_prepare_binary_lens(self):
+        """
+        Call class that prepares the binary lens model, using the results
+        from the fitting.
+        """
+        if self._additional_inputs['yaml_files_2L1S']['t_or_f'] is False:
+            return
+        if not hasattr(self, '_template_result'):
+            raise NotImplementedError('Still working on it...')
+
+        stg = yaml.safe_load(self._template_result)
+        stg.pop("Mean acceptance fraction")
+        stg.pop("Mean autocorrelation time [steps]")
+        new_stg = {k.lower().replace(' ', '_'): v for k, v in stg.items()}
+        PrepareBinaryLens(**new_stg)
 
 
 if __name__ == '__main__':

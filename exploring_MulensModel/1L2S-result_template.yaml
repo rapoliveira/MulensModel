@@ -1,19 +1,20 @@
 path_orig_settings: {0:}
-pspl_1: {1:}
-pspl_2: {2:}
-xlim: {3:}
-Mean acceptance fraction: {4:.3f}
-Mean autocorrelation time [steps]: {5:.1f}
+event_id: {1:}
+pspl_1: {2:}
+pspl_2: {3:}
+xlim: {4:}
+Mean acceptance fraction: {5:.3f}
+Mean autocorrelation time [steps]: {6:.1f}
 Fitted parameters:
 # [median, sigma+, sigma-]
-{6:}
+{7:}
 Fitted fluxes: # (source and blending)
 # [median, sigma+, sigma-]
-{7:}
+{8:}
 Best model:
-  chi2: {8:.4f}
-  dof: {9:}
+  chi2: {9:.4f}
+  dof: {10:}
   Parameters:
-{10:}
-  Fluxes:
 {11:}
+  Fluxes:
+{12:}

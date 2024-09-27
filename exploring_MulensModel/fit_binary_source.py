@@ -427,8 +427,10 @@ class FitBinarySource(UlensModelFit):
     def _print_emcee_percentiles(self):
         """
         Print the percentiles of the EMCEE samples.
+        The fluxes names are added to the list params_to_fit here.
         """
         self._perc = np.percentile(self._samples, [16, 50, 84], axis=0)
+        self.params_to_fit += self._get_fluxes_names_to_print()
         self._pars_perc = dict(zip(self.params_to_fit, self._perc.T))
 
         prints = {0: 'pre-fit, 1L2S to original data',
@@ -458,14 +460,6 @@ class FitBinarySource(UlensModelFit):
         n_dof = self._event.datasets[0].n_epochs - self._n_fit_parameters
         self._result_chi2 = self._event.get_chi2()
         print(f"chi2 = {self._result_chi2:.8f}, dof = {n_dof}\n")
-
-        # Adding flux names to params_to_fit
-        # if self._samples.shape[1] - 1 == self._n_fit_parameters + 2:
-        #     self.params_to_fit += ['source_flux', 'blending_flux']
-        # elif self._samples.shape[1] - 1 == self._n_fit_parameters + 3:
-        #     self.params_to_fit += ['source_flux_1', 'source_flux_2',
-        #                            'blending_flux']
-        self.params_to_fit += self._get_fluxes_names_to_print()
 
         if self.ans_emcee == 'max_prob':
             self._result = dict(zip(self.params_to_fit, pars_best))
@@ -575,4 +569,3 @@ if __name__ == '__main__':
                                                **kwargs)
 
         print("\n--------------------------------------------------")
-        breakpoint()

@@ -6,6 +6,7 @@ import numpy as np
 
 import MulensModel as mm
 from ulens_model_fit import UlensModelFit
+from utils import Utils
 
 
 class PrepareBinaryLens(object):
@@ -45,13 +46,13 @@ class PrepareBinaryLens(object):
             should contain chi2, dof, Parameters and Fluxes
     """
 
-    def __init__(self, path_orig_settings, pspl_1, pspl_2, xlim,
+    def __init__(self, path_orig_settings, event_id, pspl_1, pspl_2, xlim,
                  fitted_parameters, fitted_fluxes, best_model):
 
         self.path_orig_settings = path_orig_settings
         self.get_paths_and_orig_settings()
-        self.event_id = os.path.basename(sys.argv[1]).split('_results')[0]
 
+        self.event_id = event_id
         self.pspl_1 = pspl_1
         self.pspl_2 = pspl_2
         self.xlim_str = [str(int(item))+'.' for item in xlim]
@@ -81,8 +82,8 @@ class PrepareBinaryLens(object):
         fname = os.path.join(self.path, self.path_orig_settings)
         with open(fname, 'r', encoding='utf-8') as data:
             self.settings = yaml.safe_load(data)
-        self.phot_settings = self.settings['phot_settings'][0]
-        self.phot_name = self.phot_settings['name']
+        self.phot_settings = self.settings['photometry_files'][0]
+        self.phot_name = self.phot_settings['file_name']
         self.add_2450000 = self.phot_settings['add_2450000']
 
     def check_input_types(self):
@@ -108,18 +109,12 @@ class PrepareBinaryLens(object):
         Check if the chi2 of the binary source model is consistent.
         """
         filename = os.path.join(self.base_path, self.phot_name, self.event_id)
-        self.phot_settings.pop('name')
         self.phot_settings['file_name'] = filename + '.dat'
         data = mm.MulensData(**self.phot_settings)
+        best = dict(self.best_params, **self.best_fluxes)
+        event_1l2s = Utils.get_mm_event(data, best)
 
-        fluxes = self.best_fluxes
-        fix_source = {data: [fluxes[p] for p in fluxes if 'source' in p]}
-        event_1L2S = mm.Event(data, model=mm.Model(self.best_params),
-                              fix_source_flux=fix_source,
-                              fix_blend_flux={data: fluxes['blending_flux']})
-        chi2 = event_1L2S.get_chi2()
-
-        if abs(chi2 - self.best_chi2) > 2e-4:
+        if abs(event_1l2s.chi2 - self.best_chi2) > 2e-4:
             raise ValueError('Chi2 of the best model is not consistent.')
 
     def get_filenames_and_templates(self):
@@ -128,7 +123,7 @@ class PrepareBinaryLens(object):
         between and beyond the lenses. A template to obtain the plots (using
         UlensModelFit) is also recorded.
         """
-        yaml_2L1S = self.settings['other_output']['yaml_files_2L1S']
+        yaml_2L1S = self.settings['additional_inputs']['yaml_files_2L1S']
         yaml_dir = yaml_2L1S['yaml_dir_name']
         yaml_dir = yaml_dir.format(self.event_id)
         yaml_dir = yaml_dir.replace('.yaml', '_traj_between.yaml')

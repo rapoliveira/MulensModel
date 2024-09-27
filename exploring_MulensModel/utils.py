@@ -1,5 +1,7 @@
 """
-File with general code used in other parts of fit_binary_source.py.
+File with general code used in the class FitBinarySource.
+The auxiliary classes SaveResultsBinarySource and PrepareBinaryLens also
+use one of the functions, namely get_mm_event().
 """
 import MulensModel as mm
 import numpy as np
@@ -302,7 +304,12 @@ class Utils(object):
                 Data that will generate the event instance.
 
             best: *dict*
-                Combination of parameters that maximize the likelihood.
+                Combination of parameters that maximize the likelihood,
+                including the source and blending fluxes.
+
+        Returns :
+            event_1L2S: *MulensModel.event.Event*
+                Data with the model subtracted, point by point.
         """
         bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
         fix_source = {data: [best[p] for p in best if 'flux_s' in p]}
@@ -464,6 +471,18 @@ class Utils(object):
         flux between the bumps as the separation point. An array is returned
         with the two items, the first being the data with the largest flux
         (or minimum magnitude).
+
+        Keywords :
+            data: *MulensModel.MulensData*
+                Data for which the blending flux will be checked.
+
+            time_min_flux: *float*
+                Time of the minimum flux in the model.
+
+        Returns :
+            data_left, data_right: *MulensModel.MulensData*
+                Data instances separated in two parts, to the left and
+                right of the time of minimum flux.
         """
         flag = data.time <= time_min_flux
         mm_data = np.c_[data.time, data.mag, data.err_mag]

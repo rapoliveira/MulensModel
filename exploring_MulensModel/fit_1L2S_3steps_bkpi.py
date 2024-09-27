@@ -313,7 +313,6 @@ def prefit_split_and_fit(data, settings, pdf=""):
     t_E_optimal = fit_utils('get_t_E_1L2S', data, settings, start)
     start['t_E'] = round(t_E_optimal[4], 2)
     ev_st = mm.Event(data, model=mm.Model(start))
-    breakpoint()
     output = fit_emcee(start, n_emcee['sigmas'][1], ln_prob, ev_st, settings)
     event_1L2S = fit_utils('get_1L2S_event', data, settings, best=output[0])
     data_left_right, t_min = split.split_after_result(event_1L2S, output, settings)
@@ -879,14 +878,14 @@ def write_tables(path, settings, name, two_pspl, result,
     pspl_1 = str([round(val, 7) for val in pspl_1.values()])
     pspl_2 = str([round(val, 7) for val in pspl_2.values()])
     xlim = str([round(val, 2) for val in settings['xlim']])
-    lst = ['', pspl_1, pspl_2, xlim, acc_fraction, np.mean(acor), '', '',
+    lst = ['', '', pspl_1, pspl_2, xlim, acc_fraction, np.mean(acor), '', '',
            result[4].chi2, deg_of_freedom, '', '']
-    dict_perc_best = {6: perc, 7: perc_fluxes, 10: bst, 11: fluxes}
+    dict_perc_best = {7: perc, 8: perc_fluxes, 11: bst, 12: fluxes}
 
     # filling and writing the template
     for idx, dict_obj in dict_perc_best.items():
         for key, val in dict_obj.items():
-            if idx in [6, 7]:
+            if idx in [7, 8]:
                 uncerts = f'+{val[2]-val[1]:.5f}, -{val[1]-val[0]:.5f}'
                 lst[idx] += f'    {key}: [{val[1]:.5f}, {uncerts}]\n'
             else:
@@ -897,7 +896,7 @@ def write_tables(path, settings, name, two_pspl, result,
     if 'yaml output' in outputs.keys():
         yaml_fname = outputs['yaml output']['file name'].format(name)
         yaml_path = os.path.join(path, yaml_fname)
-        lst[0] = sys.argv[1]
+        lst[0], lst[1] = sys.argv[1], name
         with open(yaml_path, 'w') as yaml_results:
             yaml_results.write(template_result.format(*lst))
 
