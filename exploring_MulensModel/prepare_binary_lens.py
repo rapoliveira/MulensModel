@@ -2,10 +2,19 @@ import os
 import sys
 import yaml
 
+import MulensModel as mm
 import numpy as np
 
-import MulensModel as mm
-from ulens_model_fit import UlensModelFit
+try:
+    ex16_path = os.path.join(mm.__path__[0], '../../examples/example_16')
+    sys.path.append(os.path.abspath(ex16_path))
+    from ulens_model_fit import UlensModelFit
+except ImportError as err:
+    print(err)
+    print("Please install MulensModel in editable mode (-e) from within the"
+          "directory cloned from GitHub. This will allow to import the class"
+          "UlensModelFit from example_16.")
+    sys.exit(1)
 from utils import Utils
 
 
