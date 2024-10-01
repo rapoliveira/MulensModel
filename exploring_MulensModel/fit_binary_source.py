@@ -284,8 +284,9 @@ class FitBinarySource(UlensModelFit):
         ln_prior_flux, ln_prior_t_E = 0., 0.
         bounds = self._check_bounds_prior(theta)
         fluxes = self._get_fluxes()
-        if not self._skip_blending_flux:
-            ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
+        ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
+        # if not self._skip_blending_flux:
+        #     ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
         if not np.isfinite(bounds + ln_prior_flux):
             return -np.inf
 

@@ -83,7 +83,10 @@ class PrepareBinaryLens(object):
         with open(fname, 'r', encoding='utf-8') as data:
             self.settings = yaml.safe_load(data)
         self.phot_settings = self.settings['photometry_files'][0]
-        self.phot_name = self.phot_settings['file_name']
+        self.phot_dir = self.phot_settings['file_name']
+        test_name = os.path.join(self.base_path, self.phot_dir)
+        if not os.path.isdir(test_name):
+            self.phot_dir = os.path.dirname(self.phot_dir)
         self.add_2450000 = self.phot_settings['add_2450000']
 
     def check_input_types(self):
@@ -108,7 +111,7 @@ class PrepareBinaryLens(object):
         """
         Check if the chi2 of the binary source model is consistent.
         """
-        filename = os.path.join(self.base_path, self.phot_name, self.event_id)
+        filename = os.path.join(self.base_path, self.phot_dir, self.event_id)
         self.phot_settings['file_name'] = filename + '.dat'
         data = mm.MulensData(**self.phot_settings)
         best = dict(self.best_params, **self.best_fluxes)
@@ -197,7 +200,7 @@ class PrepareBinaryLens(object):
         """
         round_dec = (2, 5, 2, 5, 5, 5)
         lst = [round(param, round_dec[i]) for i, param in enumerate(params)]
-        phot_params = [self.base_path, self.phot_name, self.event_id,
+        phot_params = [self.base_path, self.phot_dir, self.event_id,
                        self.add_2450000]
         max_t_E = round(max(3, lst[2]/5.), 3)
         lst = phot_params + lst + self.xlim_str + [max_t_E, between_or_beyond]

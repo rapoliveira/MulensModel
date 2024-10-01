@@ -38,7 +38,8 @@ The rest of the YAML file is formatted as in example_16 except for the key `addi
 - [X] Add degree of freedom to the table with all results and the results yaml file
 - [X] Correct issues on generating 2L1S yaml files. Plus: plot the 2L1S model (saved in same folder)
 - [X] Convert the entire fit_1L2S_3steps.py code to 2450000 system, in agreement with 2L1S codes (26.dec)
-- [X] Classes: FitBinarySource, Utils, PrepareBinaryLens...
+- [X] Classes: FitBinarySource, SaveResultsBinarySource, Utils, PrepareBinaryLens...
+- [ ] **URGENT:** Solve stuck EMCEE chains using blending flux...
 - [ ] Add unit tests? How?
 - [ ] Facilitate the addition of new data: different folders in [OGLE-evfinder/phot](https://github.com/rapoliveira/MulensModel/tree/develop/exploring_MulensModel/OGLE-evfinder/phot)?
 - [ ] [...]
