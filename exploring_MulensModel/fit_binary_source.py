@@ -271,8 +271,8 @@ class FitBinarySource(UlensModelFit):
         #     else:
         #         setattr(event.model.parameters, param, theta_)
 
-        self._set_model_parameters(theta)
-        chi2 = self._event.get_chi2()
+        # self._set_model_parameters(theta)
+        chi2 = self._event.chi2
 
         return -0.5 * chi2
 
@@ -315,6 +315,8 @@ class FitBinarySource(UlensModelFit):
         the likelihood + prior.
         Returns the logarithm of the probability and fluxes.
         """
+        self._set_model_parameters(theta)
+        self._event.get_chi2()
         ln_prior = self._ln_prior(theta)
         if not np.isfinite(ln_prior):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
