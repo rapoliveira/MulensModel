@@ -116,6 +116,7 @@ class FitBinarySource(UlensModelFit):
         self._check_additional_inputs_values()
         self._parse_fitting_parameters_EMCEE()
         self._get_n_walkers()
+        self._n_burn = self._fitting_parameters.get('n_burn', 0)
 
     def _check_additional_inputs_types(self):
         """
@@ -255,7 +256,7 @@ class FitBinarySource(UlensModelFit):
 
         return 0.
 
-    def _ln_like(self, theta):
+    def _ln_like_2(self, theta):
         """
         Get the value of the likelihood function from chi2 of event.
 
@@ -271,10 +272,26 @@ class FitBinarySource(UlensModelFit):
         #     else:
         #         setattr(event.model.parameters, param, theta_)
 
-        self._set_model_parameters(theta)
+        # self._set_model_parameters(theta)
         chi2 = self._event.get_chi2()
 
         return -0.5 * chi2
+
+    def _ln_prior_flux(self, blend_flux):
+        """
+        Still working on it...
+        """
+        inside = 0.0
+        key = "negative_blending_flux_sigma_mag"
+
+        if key in self._fit_constraints:
+            sigma, datasets = self._fit_constraints[key]
+            for i, dataset in enumerate(self._datasets):
+                if i in datasets:
+                    if blend_flux < 0.0:
+                        inside += -0.5 * (blend_flux / sigma) ** 2
+
+        return inside
 
     def _ln_prior(self, theta):
         """
@@ -283,10 +300,11 @@ class FitBinarySource(UlensModelFit):
         """
         ln_prior_flux, ln_prior_t_E = 0., 0.
         bounds = self._check_bounds_prior(theta)
-        fluxes = self._get_fluxes()
-        ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
+        # fluxes = self._get_fluxes()
+        # ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
         # if not self._skip_blending_flux:
         #     ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
+        ln_prior_flux = self._ln_prior_flux(theta[-1])
         if not np.isfinite(bounds + ln_prior_flux):
             return -np.inf
 
@@ -315,17 +333,23 @@ class FitBinarySource(UlensModelFit):
         the likelihood + prior.
         Returns the logarithm of the probability and fluxes.
         """
+        self._set_model_parameters(theta[:-1])
+        theta[-1] = self._event.blend_fluxes[0]
+        breakpoint()
         ln_prior = self._ln_prior(theta)
         if not np.isfinite(ln_prior):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
-        ln_like = self._ln_like(theta)
+        ln_like = self._ln_like_2(theta)
         if not np.isfinite(ln_like):
             return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
 
+        # event is getting changed somewhere...
         ln_prob = ln_prior + ln_like
         fluxes = self._get_fluxes()
-        self._update_best_model_EMCEE(ln_prob, theta, fluxes)
+        breakpoint()
+        self._update_best_model_EMCEE(ln_prob, theta[:-1], fluxes)
         source_fluxes, blending_flux = self._event.fluxes[0]
+        breakpoint()
 
         return ln_prob, source_fluxes, blending_flux
 
@@ -338,6 +362,7 @@ class FitBinarySource(UlensModelFit):
         self._make_burn_in_and_reshape()
         self._print_emcee_percentiles()
         self._get_best_params_emcee()
+        breakpoint()
 
     def _setup_fit_pspl_binary(self, data, dict_start):
         """
@@ -349,14 +374,12 @@ class FitBinarySource(UlensModelFit):
         declared in order to access parameters and chi2.
         """
         self.params_to_fit = list(dict_start.keys())
-        self._n_fit_parameters = len(self.params_to_fit)
-        self._n_burn = self._fitting_parameters.get('n_burn', 0)
         self._init_emcee = list(dict_start.values())
 
-        if self._n_fit_parameters == 5:
+        if len(self.params_to_fit) == 5:
             self._sigma_emcee = self.sigmas_emcee[1]
             fix = None
-        elif self._n_fit_parameters == 3:
+        elif len(self.params_to_fit) == 3:
             self._sigma_emcee = self.sigmas_emcee[0]
             fix = Utils.check_blending_flux(self.fix_blend_in, data)
         else:
@@ -365,6 +388,12 @@ class FitBinarySource(UlensModelFit):
         self._set_starting_params_emcee(dict_start)
         self._model = mm.Model(dict_start)
         self._event = mm.Event(data, model=self._model, fix_blend_flux=fix)
+        if len(self.params_to_fit) == 5:
+            self.params_to_fit += ["flux_b_1"]
+            self._event.fit_fluxes()
+            self._init_emcee += self._event.blend_fluxes
+            self._sigma_emcee += [abs(self._init_emcee[-1]) * 0.05]
+        self._n_fit_parameters = len(self.params_to_fit)
 
     def _run_emcee(self):
         """
@@ -377,13 +406,13 @@ class FitBinarySource(UlensModelFit):
         self._set_n_fluxes()
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
         self._rand_sample = rand_sample * self._sigma_emcee
-        if self._n_fit_parameters == 5:
+        if self._n_fit_parameters == 6:
             self._run_quick_emcee()
         start = abs(np.array(self._init_emcee) + self._rand_sample)
         self._kwargs_EMCEE['initial_state'] = start
 
         blobs = [('source_fluxes', list), ('blend_fluxes', float)]
-        self._skip_blending_flux = False
+        # self._skip_blending_flux = False
         self._sampler = emcee.EnsembleSampler(
             self._n_walkers, self._n_fit_parameters, self._ln_prob,
             blobs_dtype=blobs)
@@ -404,8 +433,11 @@ class FitBinarySource(UlensModelFit):
         get more definite starting values for the walkers.
         """
         start = abs(np.array(self._init_emcee) + 10*self._rand_sample)
+        if 'flux_b_1' in self.params_to_fit:
+            val_cen = np.array(self._init_emcee[-1])
+            start[:, -1] = val_cen + 10*self._rand_sample[:, -1]
         self._kwargs_EMCEE['initial_state'] = start
-        self._skip_blending_flux = True
+        # self._skip_blending_flux = True
 
         sampler = emcee.EnsembleSampler(
             self._n_walkers, self._n_fit_parameters, self._ln_prob)
