@@ -38,10 +38,13 @@ The rest of the YAML file is formatted as in example_16 except for the key `addi
 - [X] Add degree of freedom to the table with all results and the results yaml file
 - [X] Correct issues on generating 2L1S yaml files. Plus: plot the 2L1S model (saved in same folder)
 - [X] Convert the entire fit_1L2S_3steps.py code to 2450000 system, in agreement with 2L1S codes (26.dec)
-- [X] Classes: FitBinarySource, SaveResultsBinarySource, Utils, PrepareBinaryLens...
-- [ ] **URGENT:** Solve stuck EMCEE chains using blending flux...
+- [X] Classes: FitBinarySource, SaveResultsBinarySource, Utils and PrepareBinaryLens.
 - [ ] Add unit tests? How?
 - [ ] Facilitate the addition of new data: different folders in [OGLE-evfinder/phot](https://github.com/rapoliveira/MulensModel/tree/develop/exploring_MulensModel/OGLE-evfinder/phot)?
+- [X] **URGENT:** Solve stuck EMCEE chains using blending flux...
+- [ ] Write priors setup to yaml input file for 2L1S
+- [ ] Speed-up the saving of the chains with backend, h5py
+- [ ] Write instructions to run and improve README
 - [ ] [...]
 
 ### New script for 2xPSPL fits: split and subtract data from the beginning
@@ -53,4 +56,4 @@ The rest of the YAML file is formatted as in example_16 except for the key `addi
 - [ ] Check if there is a second peak above 3 sigma to go for 1L2S...
 - [ ] Include and test all cases, including those with a single peak or skewed(?)
 
-Last updated: 18 Sep 2024
+Last updated: 03 Oct 2024

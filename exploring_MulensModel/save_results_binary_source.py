@@ -27,18 +27,6 @@ except ImportError as err:
     sys.exit(1)
 from utils import Utils
 
-# To-Do list (27.sep.2024):
-# - [X] Finish calling prepare_binary_lens method.
-# - [X] Check negative t_E for BLG501_13_138484_OGLE.
-# - [X] Check why YAML file has wrong fitted fluxes.
-# - [X] URGENT: Test names[1:] producing outputs with name of first event !!!
-# - [X] URGENT 2: WEIRD CORNER PLOT FOR SECOND EVENT...
-# - [ ] Apply priors to YAML input for 2L1S. ***
-# - [X] Remove _get_xlim2 function.
-# - [ ] Test _write_results_table function.
-# - [ ] Speed-up the saving of the chains/models file
-# - [X] ValueError: fix_blend keys must contain the data :: BLG501_28_123287
-
 
 class SaveResultsBinarySource(UlensModelFit):
     """
@@ -366,7 +354,7 @@ class SaveResultsBinarySource(UlensModelFit):
         for each event. The table is read, the data of the event is updated
         and then written again.
 
-        NOTE: Function needs to be tested again...
+        NOTE: This function still needs to be tested...
         """
         input_dict = self._additional_inputs['table output']
         fname, columns, dtypes = input_dict.values()

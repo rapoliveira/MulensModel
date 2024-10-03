@@ -4,7 +4,7 @@ fit_method: EMCEE
 starting_parameters: {}
 fit_constraints:
     negative_blending_flux_sigma_mag: 20.  # 5. (old code, equals 20.25)
-    # no_negative_blending_flux: True  # sharp alternative
+    # no_negative_blending_flux: True  # sharp alternative (not working!)
     prior:
         # t_E: lognormal 2.70 2.50 # 0.99-1.20  # 1.172 0.5 (wrong log10)
         t_E: Mroz et al. 2020  # Mroz et al. 2017 (free-floating) or 2020

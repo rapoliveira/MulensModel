@@ -116,6 +116,7 @@ class FitBinarySource(UlensModelFit):
         self._check_additional_inputs_values()
         self._parse_fitting_parameters_EMCEE()
         self._get_n_walkers()
+        self._n_burn = self._fitting_parameters.get('n_burn', 0)
 
     def _check_additional_inputs_types(self):
         """
@@ -255,11 +256,12 @@ class FitBinarySource(UlensModelFit):
 
         return 0.
 
-    def _ln_like(self, theta):
+    def _ln_like(self):
         """
         Get the value of the likelihood function from chi2 of event.
 
-        NOTE: if flux_ratio is not needed, use _ln_like from example_16
+        NOTE: if flux_ratio is not needed, use _ln_like from example_16.
+        Using this one is 2x faster, leave it...
         """
         # event = self._event
         # for (param, theta_) in zip(self.params_to_fit, theta):
@@ -271,7 +273,6 @@ class FitBinarySource(UlensModelFit):
         #     else:
         #         setattr(event.model.parameters, param, theta_)
 
-        # self._set_model_parameters(theta)
         chi2 = self._event.chi2
 
         return -0.5 * chi2
@@ -280,21 +281,26 @@ class FitBinarySource(UlensModelFit):
         """
         Apply all the priors (minimum, maximum, distributions), returning
         -np.inf if parameters are outside the bounds.
+        The model parameters are set here, after a check if the proposed
+        values are inside the bounds. The function get_chi2() calculates
+        both chi2 (used in _ln_like) and fluxes.
         """
         ln_prior_flux, ln_prior_t_E = 0., 0.
         bounds = self._check_bounds_prior(theta)
-        fluxes = self._get_fluxes()
-        ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
-        # if not self._skip_blending_flux:
-        #     ln_prior_flux = self._run_flux_checks_ln_prior(fluxes)
-        if not np.isfinite(bounds + ln_prior_flux):
+        if not np.isfinite(bounds):
+            return -np.inf
+
+        self._set_model_parameters(theta)
+        self._event.get_chi2()
+        self._fluxes_flat = self._get_fluxes()
+        ln_prior_flux = self._run_flux_checks_ln_prior(self._fluxes_flat)
+        if not np.isfinite(ln_prior_flux):
             return -np.inf
 
         if self._prior_t_E is not None:
             ln_prior_t_E = self._ln_prior_t_E()
         elif self.t_E_prior is not None:
-            # lognormal prior in t_E
-            # To-Do: Need to remove the ignore warnings line (related to log?)
+            # lognormal prior in t_E (check log warnings...)
             # To-Do: Add lognormal in self._get_ln_prior_for_1_parameter()...
             t_E_val = self._model.parameters.t_E
             if 'lognormal' in self.t_E_prior:
@@ -306,7 +312,7 @@ class FitBinarySource(UlensModelFit):
             else:
                 raise ValueError('t_E prior type not allowed.')
 
-        return 0.0 + ln_prior_t_E + ln_prior_flux
+        return ln_prior_t_E + ln_prior_flux
 
     def _ln_prob(self, theta):
         """
@@ -315,18 +321,15 @@ class FitBinarySource(UlensModelFit):
         the likelihood + prior.
         Returns the logarithm of the probability and fluxes.
         """
-        self._set_model_parameters(theta)
-        self._event.get_chi2()
         ln_prior = self._ln_prior(theta)
         if not np.isfinite(ln_prior):
-            return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
-        ln_like = self._ln_like(theta)
+            return self._return_inf
+        ln_like = self._ln_like()
         if not np.isfinite(ln_like):
-            return -np.inf, np.array([-np.inf, -np.inf]), -np.inf
+            return self._return_inf
 
         ln_prob = ln_prior + ln_like
-        fluxes = self._get_fluxes()
-        self._update_best_model_EMCEE(ln_prob, theta, fluxes)
+        self._update_best_model_EMCEE(ln_prob, theta, self._fluxes_flat)
         source_fluxes, blending_flux = self._event.fluxes[0]
 
         return ln_prob, source_fluxes, blending_flux
@@ -352,15 +355,16 @@ class FitBinarySource(UlensModelFit):
         """
         self.params_to_fit = list(dict_start.keys())
         self._n_fit_parameters = len(self.params_to_fit)
-        self._n_burn = self._fitting_parameters.get('n_burn', 0)
         self._init_emcee = list(dict_start.values())
 
-        if self._n_fit_parameters == 5:
-            self._sigma_emcee = self.sigmas_emcee[1]
-            fix = None
-        elif self._n_fit_parameters == 3:
+        if self._n_fit_parameters == 3:
             self._sigma_emcee = self.sigmas_emcee[0]
             fix = Utils.check_blending_flux(self.fix_blend_in, data)
+            self._return_inf = -np.inf, np.array([-np.inf]), -np.inf
+        elif self._n_fit_parameters == 5:
+            self._sigma_emcee = self.sigmas_emcee[1]
+            fix = None
+            self._return_inf = -np.inf, np.array([-np.inf, -np.inf]), -np.inf
         else:
             raise ValueError("Number of fitting parameters should be 3 or 5.")
 
