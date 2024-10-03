@@ -1,5 +1,6 @@
 photometry_files:
     - {{file_name: {0:}/{1:}/{2:}.dat, add_2450000: {3:}}}
+fit_method: EMCEE
 starting_parameters:
     t_0: gauss {4:} 0.01
     u_0: gauss {5:} 0.001
@@ -10,6 +11,13 @@ starting_parameters:
 model:
     methods: {10:} point_source {11:}
     default method: point_source_point_lens
+### ADD FALSE OPTION TO EXAMPLE_16 ???
+# fit_constraints:
+#     # {{}}  # my first try...
+#     negative_blending_flux_sigma_mag: {:10}
+#     prior:
+#         # t_E: lognormal 2.70 2.50 # 0.99-1.20  # 1.172 0.5 (wrong log10)
+#         t_E: False  # Mroz et al. 2017 (free-floating) or 2020
 min_values:
     # u_0: 0.
     t_E: {12:}  # 3. # 1.
@@ -28,20 +36,20 @@ fitting_parameters:
     progress: True
 plots:
     best model:
-        file: {0:}/TEMP_results_2L1S/{2:}_2L1S_model_{13:}.png
+        file: {0:}/results_2L1S/{2:}_2L1S_model_{13:}.png
         time range: {10:} {11:}
         second Y scale:
-            magnifications: optimal  # [1, 1.5, 2, 2.5, 3]
+            magnifications: optimal
     trajectory:
-        file: {0:}/TEMP_results_2L1S/{2:}_2L1S_trajectory_{13:}.png
+        file: {0:}/results_2L1S/{2:}_2L1S_trajectory_{13:}.png
         time range: {10:} {11:}
     triangle:
-        file: {0:}/TEMP_results_2L1S/{2:}_2L1S_triangle_{13:}.png
+        file: {0:}/results_2L1S/{2:}_2L1S_triangle_{13:}.png
         shift t_0: False
     trace:
-        file: {0:}/TEMP_results_2L1S/{2:}_2L1S_trace_{13:}.png
+        file: {0:}/results_2L1S/{2:}_2L1S_trace_{13:}.png
 other_output:
     models:
-        file name: {0:}/TEMP_results_2L1S/{2:}_2L1S_all_models_{13:}.txt
+        file name: {0:}/results_2L1S/{2:}_2L1S_all_models_{13:}.txt
     yaml output:
-        file name: {0:}/TEMP_results_2L1S/{2:}_2L1S_all_results_{13:}.yaml
+        file name: {0:}/results_2L1S/{2:}_2L1S_all_results_{13:}.yaml

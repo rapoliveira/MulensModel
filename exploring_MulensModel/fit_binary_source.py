@@ -557,16 +557,20 @@ if __name__ == '__main__':
     input_file = sys.argv[1]
     with open(input_file, 'r', encoding='utf-8') as data:
         settings = yaml.safe_load(data)
+    stg_copy = copy.deepcopy(settings)
+    phot_files = stg_copy.pop('photometry_files')
     fit_binary_source = FitBinarySource(**settings)
 
     dlist, fnames = fit_binary_source.data_list, fit_binary_source.file_names
     for data, name in zip(dlist, fnames):
         fit_binary_source._datasets = [data]
         fit_binary_source.event_id = name.split('/')[-1].split('.')[0]
-        stg_copy = copy.deepcopy(settings)
-        phot_files = stg_copy.pop('photometry_files')
-        phot_files[0]['file_name'] += fit_binary_source.event_id + '.dat'
-        fit_binary_source.photometry_files = phot_files
+        dir_name = phot_files[0]['file_name']
+        if dir_name.endswith('.dat'):
+            dir_name = os.path.dirname(phot_files[0]['file_name'])
+        phot_files[0]['file_name'] = os.path.join(
+            dir_name, fit_binary_source.event_id + '.dat')
+        fit_binary_source._photometry_files = phot_files
         fit_binary_source.run_initial_fits()
         fit_binary_source.run_final_fits()
 

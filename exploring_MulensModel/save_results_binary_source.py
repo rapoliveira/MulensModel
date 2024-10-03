@@ -50,6 +50,8 @@ class SaveResultsBinarySource(UlensModelFit):
         model_1l2s = self._get_model_yaml(self._res_1l2s[0])
         super().__init__(
             photometry_files, model=model_1l2s, plots=plots, **kwargs)
+        # self._fit_constraints works here, after the super_init...
+        breakpoint()
 
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
         self._xlim = self._get_time_limits_for_plot(3.0, 'best model')

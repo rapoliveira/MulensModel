@@ -74,6 +74,7 @@ class PrepareBinaryLens(object):
         self.check_input_types()
         self.check_binary_source_chi2()
         self.get_filenames_and_templates()
+        self.add_lines_for_fit_constraints()
         params_between = self.get_initial_params_traj_between()
         params_beyond = self.get_initial_params_traj_beyond(params_between)
         self.round_params_and_save(params_between, 'between')
@@ -148,6 +149,15 @@ class PrepareBinaryLens(object):
             self.template = data.read()
         with open(plot_template, 'r', encoding='utf-8') as data:
             self.template_plot = data.read()
+
+    def add_lines_for_fit_constraints(self):
+        """
+        Check which priors are used and then write to the yaml...
+        """
+        test_2 = self.template
+        repl = 'fit_constraints:\n    negative_blending_flux_sigma_mag: 20.\n'
+        test_2 = test_2.replace('min_values:', repl + 'min_values:')
+        breakpoint()
 
     def get_initial_params_traj_between(self):
         """
