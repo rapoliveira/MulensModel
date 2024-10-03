@@ -11,13 +11,6 @@ starting_parameters:
 model:
     methods: {10:} point_source {11:}
     default method: point_source_point_lens
-### ADD FALSE OPTION TO EXAMPLE_16 ???
-# fit_constraints:
-#     # {{}}  # my first try...
-#     negative_blending_flux_sigma_mag: {:10}
-#     prior:
-#         # t_E: lognormal 2.70 2.50 # 0.99-1.20  # 1.172 0.5 (wrong log10)
-#         t_E: False  # Mroz et al. 2017 (free-floating) or 2020
 min_values:
     # u_0: 0.
     t_E: {12:}  # 3. # 1.

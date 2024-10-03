@@ -155,6 +155,20 @@ class FitBinarySource(UlensModelFit):
         self.sigmas_emcee = self.additional_inputs.get('sigmas', def_)
         self.ans_emcee = self.additional_inputs.get('ans', 'max_prob')
 
+    def setup_datasets(self, data, name, phot_files):
+        """
+        Setup the variables for datasets, event_id and photometry files.
+        """
+        self._datasets = [data]
+        self.event_id = name.split('/')[-1].split('.')[0]
+        dir_name = phot_files[0]['file_name']
+        if dir_name.endswith('.dat'):
+            dir_name = os.path.dirname(phot_files[0]['file_name'])
+
+        file_name = self.event_id + '.dat'
+        phot_files[0]['file_name'] = os.path.join(dir_name, file_name)
+        self._photometry_files = phot_files
+
     def run_initial_fits(self):
         """
         Run the initial fits: PSPL with scipy.minimize using original and
@@ -558,24 +572,18 @@ if __name__ == '__main__':
     with open(input_file, 'r', encoding='utf-8') as data:
         settings = yaml.safe_load(data)
     stg_copy = copy.deepcopy(settings)
-    phot_files = stg_copy.pop('photometry_files')
     fit_binary_source = FitBinarySource(**settings)
 
+    phot_files = stg_copy.pop('photometry_files')
+    del_keys = ['starting_parameters', 'min_values', 'max_values']
+    stg_copy = {k: v for k, v in stg_copy.items() if k not in del_keys}
     dlist, fnames = fit_binary_source.data_list, fit_binary_source.file_names
+
     for data, name in zip(dlist, fnames):
-        fit_binary_source._datasets = [data]
-        fit_binary_source.event_id = name.split('/')[-1].split('.')[0]
-        dir_name = phot_files[0]['file_name']
-        if dir_name.endswith('.dat'):
-            dir_name = os.path.dirname(phot_files[0]['file_name'])
-        phot_files[0]['file_name'] = os.path.join(
-            dir_name, fit_binary_source.event_id + '.dat')
-        fit_binary_source._photometry_files = phot_files
+        fit_binary_source.setup_datasets(data, name, phot_files)
         fit_binary_source.run_initial_fits()
         fit_binary_source.run_final_fits()
 
-        del_keys = ['starting_parameters', 'min_values', 'max_values']
-        stg_copy = {k: v for k, v in stg_copy.items() if k not in del_keys}
         kwargs = {**stg_copy,
                   'event_data': [data],
                   'event_id': fit_binary_source.event_id,

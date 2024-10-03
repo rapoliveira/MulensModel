@@ -50,8 +50,6 @@ class SaveResultsBinarySource(UlensModelFit):
         model_1l2s = self._get_model_yaml(self._res_1l2s[0])
         super().__init__(
             photometry_files, model=model_1l2s, plots=plots, **kwargs)
-        # self._fit_constraints works here, after the super_init...
-        breakpoint()
 
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
         self._xlim = self._get_time_limits_for_plot(3.0, 'best model')
@@ -346,9 +344,32 @@ class SaveResultsBinarySource(UlensModelFit):
         with open(template) as file_:
             template_result = file_.read()
         self._template_result = template_result.format(*lst)
+        self._add_prior_info_to_yaml()
+
         yaml_fname = self._other_output['yaml output']['file name']
         with open(yaml_fname, 'w') as yaml_results:
             yaml_results.write(self._template_result)
+
+    def _add_prior_info_to_yaml(self):
+        """
+        Add prior information to the yaml file. MAKE IT STATIC???
+        """
+        if self._fit_constraints is None:
+            return
+
+        str_to_add = "fit_constraints:\n    "
+        bflux = self._fit_constraints.get('negative_blending_flux_sigma_mag')
+        if bflux is not None:
+            str_to_add += f"negative_blending_flux_sigma_mag: {bflux}\n"
+
+        prior = self._fit_constraints.get('prior')
+        if prior is not None:
+            str_to_add += "    prior:\n"
+            for key, val in prior.items():
+                str_to_add += f"        {key}: {val}\n"
+
+        self._template_result = self._template_result.replace(
+            'pspl_1:', str_to_add + 'pspl_1:')
 
     def _write_results_table(self):
         """

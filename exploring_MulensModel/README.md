@@ -42,7 +42,7 @@ The rest of the YAML file is formatted as in example_16 except for the key `addi
 - [ ] Add unit tests? How?
 - [ ] Facilitate the addition of new data: different folders in [OGLE-evfinder/phot](https://github.com/rapoliveira/MulensModel/tree/develop/exploring_MulensModel/OGLE-evfinder/phot)?
 - [X] **URGENT:** Solve stuck EMCEE chains using blending flux...
-- [ ] Write priors setup to yaml input file for 2L1S
+- [X] Write priors setup to yaml files: 1L2S results and input file for 2L1S
 - [ ] Speed-up the saving of the chains with backend, h5py
 - [ ] Write instructions to run and improve README
 - [ ] [...]

@@ -53,10 +53,14 @@ class PrepareBinaryLens(object):
         best_model: *dict*
             dictionary with information about the model with minimum chi2,
             should contain chi2, dof, Parameters and Fluxes
+        fit_constraints: *dict*, optional
+            dictionary with the fit constraints, allowing only the sigma
+            for negative blending flux and t_E prior
     """
 
     def __init__(self, path_orig_settings, event_id, pspl_1, pspl_2, xlim,
-                 fitted_parameters, fitted_fluxes, best_model):
+                 fitted_parameters, fitted_fluxes, best_model,
+                 fit_constraints=None):
 
         self.path_orig_settings = path_orig_settings
         self.get_paths_and_orig_settings()
@@ -70,6 +74,7 @@ class PrepareBinaryLens(object):
         self.best_chi2 = best_model['chi2']
         self.best_params = best_model['Parameters']
         self.best_fluxes = best_model['Fluxes']
+        self.fit_constraints = fit_constraints
 
         self.check_input_types()
         self.check_binary_source_chi2()
@@ -153,11 +158,25 @@ class PrepareBinaryLens(object):
     def add_lines_for_fit_constraints(self):
         """
         Check which priors are used and then write to the yaml...
+        I'm doing it DUPLICATED, but later I can try to use the function
+        from save_results_binary_source.py directly... Static method?
         """
-        test_2 = self.template
-        repl = 'fit_constraints:\n    negative_blending_flux_sigma_mag: 20.\n'
-        test_2 = test_2.replace('min_values:', repl + 'min_values:')
-        breakpoint()
+        if self.fit_constraints is None:
+            return
+
+        str_to_add = "fit_constraints:\n    "
+        bflux = self.fit_constraints.get('negative_blending_flux_sigma_mag')
+        if bflux is not None:
+            str_to_add += f"negative_blending_flux_sigma_mag: {bflux}\n"
+
+        prior = self.fit_constraints.get('prior')
+        if prior is not None:
+            str_to_add += "    prior:\n"
+            for key, val in prior.items():
+                str_to_add += f"        {key}: {val}\n"
+
+        str_to_add += "min_values:"
+        self.template = self.template.replace('min_values:', str_to_add)
 
     def get_initial_params_traj_between(self):
         """
