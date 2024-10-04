@@ -101,6 +101,8 @@ class PrepareBinaryLens(object):
         test_name = os.path.join(self.base_path, self.phot_dir)
         if not os.path.isdir(test_name):
             self.phot_dir = os.path.dirname(self.phot_dir)
+        if self.phot_dir.endswith('/'):
+            self.phot_dir = self.phot_dir[:-1]
         self.add_2450000 = self.phot_settings['add_2450000']
 
     def check_input_types(self):

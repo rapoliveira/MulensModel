@@ -584,13 +584,13 @@ if __name__ == '__main__':
         fit_binary_source.run_initial_fits()
         fit_binary_source.run_final_fits()
 
-        kwargs = {**stg_copy,
-                  'event_data': [data],
-                  'event_id': fit_binary_source.event_id,
-                  'res_pspl_1': fit_binary_source.res_pspl_1,
-                  'res_pspl_2': fit_binary_source.res_pspl_2,
-                  'res_1l2s': fit_binary_source.res_1L2S,
-                  'time_min_flux': fit_binary_source._time_min_flux}
+        kwargs = copy.deepcopy(stg_copy)
+        kwargs.update({'event_data': [data],
+                       'event_id': fit_binary_source.event_id,
+                       'res_pspl_1': fit_binary_source.res_pspl_1,
+                       'res_pspl_2': fit_binary_source.res_pspl_2,
+                       'res_1l2s': fit_binary_source.res_1L2S,
+                       'time_min_flux': fit_binary_source._time_min_flux})
         save_results = SaveResultsBinarySource(phot_files, **kwargs)
 
         print("\n--------------------------------------------------")

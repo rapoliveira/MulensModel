@@ -1,8 +1,10 @@
 # Raphael's workspace within the MulensModel repository
 
-The main script is [fit_binary_source.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/fit_binary_source.py), where the FitBinarySource class inherits UlensModelFit from [example_16](https://github.com/rapoliveira/MulensModel/blob/develop/examples/example_16/ulens_model_fit.py), using a lot of its functions to parse inputs and outputs.
+This workspace contains the main script, auxiliary codes and templates to fit binary source (1L2S) models and produce input to run binary lens (2L1S) models with [example_16](https://github.com/rapoliveira/MulensModel/blob/develop/examples/example_16/ulens_model_fit.py).
 
-*Add a description of the fitting pipeline...*
+The main script is [fit_binary_source.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/fit_binary_source.py), where FitBinarySource class inherits UlensModelFit to use a lot of its functions to parse inputs and outputs. The auxiliary codes are: [save_results_binary_source.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/save_results_binary_source.py), [prepare_binary_lens.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/prepare_binary_lens.py) and [utils.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/.utils.py). They are used to produce all the outputs (figures, chains, yaml file), to prepare the YAML input for 2L1S fitting, and to store utilitary functions, respectively.
+
+In order to add a new project (e.g. "OGLE-evfinder", "W16-59events"), a folder must be created with this name. The folder needs to contain the `1L2S_project-name.yaml`, edited with the fitting parameters and the paths for the photometry and outputs. For example, [1L2S_OGLE-evfinder.yaml](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/OGLE-evfinder/1L2S_OGLE-evfinder.yaml) requires the existence of the folders `phot/phot_obvious`, `results_1L2S` and `yaml_files_2L1S`.
 
 ## Run binary source (1L2S) fitting
 

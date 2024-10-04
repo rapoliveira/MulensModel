@@ -1,23 +1,23 @@
 photometry_files:
-    - {file_name: phot/phot_obvious/BLG501_20_76926_OGLE.dat, add_2450000: True, phot_fmt: mag}
+    - {file_name: phot/phot_obvious/, add_2450000: True, phot_fmt: mag}
 fit_method: EMCEE
 starting_parameters: {}
 fit_constraints:
-    negative_blending_flux_sigma_mag: 20.  # 5. (old code, equals 20.25)
+    negative_blending_flux_sigma_mag: 20.
     # no_negative_blending_flux: True  # sharp alternative (not working!)
     prior:
-        # t_E: lognormal 2.70 2.50 # 0.99-1.20  # 1.172 0.5 (wrong log10)
+        # t_E: lognormal 2.70 2.50  # 0.99-1.20  # 1.172 0.5 (wrong log10)
         t_E: Mroz et al. 2020  # Mroz et al. 2017 (free-floating) or 2020
 min_values:
     t_E: 0.
     u_0: 0.
 max_values:
-    u_0: 5.  # or 6.
+    u_0: 5.
     t_0: [-100., 100.]  # above and below the time range of the data
 fitting_parameters:
     n_walkers: 20
-    n_steps: 1000
-    n_burn: 500
+    n_steps: 3000
+    n_burn: 1500
     progress: True
 plots:
     all_plots:
@@ -32,15 +32,21 @@ other_output:
     yaml output:
         file name: results_1L2S/yaml_results/{}_results.yaml
 additional_inputs:
-    # Add comments for each...
-    t_peaks: t_peak-obvious-evfinder.dat  # file or False
-    fix_blend: 0.  # float (0. for 2L1S initial params) or False
-    sigmas: [[1., 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]  # PSPL, 1L2S
-    ans: max_prob  # options: max_prob, median, ... TO-DO: skewed gaussians
+    # More detailed explanation in fit_binary_souce.py
+    # t_peaks - file with times of two peaks (event_finder) or False
+    t_peaks: t_peak-obvious-evfinder.dat
+    # fix_blend - float value (0. for 2L1S initial params) or False
+    fix_blend: 0.
+    # sigmas - list of sigmas to get walkers initial states (PSPL, 1L2S)
+    sigmas: [[1., 0.05, 1.], [0.1, 0.01, 0.1, 0.01, 0.1]]
+    # ans - method to get best solution from chains (max_prob, median)
+    ans: max_prob
+    # yaml_files_2l1S - info to produce input for 2L1S fitting
     yaml_files_2L1S:
         t_or_f: True
         yaml_template: ../1L2S-to-2L1S_template.yaml
         yaml_dir_name: yaml_files_2L1S/{}-2L1S.yaml
+    # table output (DEPRECATED) - info to produce general tabl with results
     # table output:
     #     file name: results-1L2S-withoutprior.txt
     #     columns: [id, param1, param2, param3, param4, param5, chi2, dof]
