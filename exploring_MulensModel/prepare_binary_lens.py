@@ -79,7 +79,6 @@ class PrepareBinaryLens(object):
         self.check_input_types()
         self.check_binary_source_chi2()
         self.get_filenames_and_templates()
-        self.add_lines_for_fit_constraints()
         params_between = self.get_initial_params_traj_between()
         params_beyond = self.get_initial_params_traj_beyond(params_between)
         self.round_params_and_save(params_between, 'between')
@@ -145,38 +144,18 @@ class PrepareBinaryLens(object):
         yaml_dir = yaml_2L1S['yaml_dir_name']
         yaml_dir = yaml_dir.format(self.event_id)
         yaml_dir = yaml_dir.replace('.yaml', '_traj_between.yaml')
-
         self.yaml_file = os.path.join(self.base_path, yaml_dir)
-        template = os.path.join(self.base_path, yaml_2L1S['yaml_template'])
-        plot_template = os.path.join(self.path, '2L1S_plot_template.yaml')
 
+        template = os.path.join(self.base_path, yaml_2L1S['yaml_template'])
         with open(template, 'r', encoding='utf-8') as data:
             self.template = data.read()
-        with open(plot_template, 'r', encoding='utf-8') as data:
-            self.template_plot = data.read()
-
-    def add_lines_for_fit_constraints(self):
-        """
-        Check which priors are used and then write to the yaml...
-        I'm doing it DUPLICATED, but later I can try to use the function
-        from save_results_binary_source.py directly... Static method?
-        """
-        if self.fit_constraints is None:
-            return
-
-        str_to_add = "fit_constraints:\n    "
-        bflux = self.fit_constraints.get('negative_blending_flux_sigma_mag')
-        if bflux is not None:
-            str_to_add += f"negative_blending_flux_sigma_mag: {bflux}\n"
-
-        prior = self.fit_constraints.get('prior')
-        if prior is not None:
-            str_to_add += "    prior:\n"
-            for key, val in prior.items():
-                str_to_add += f"        {key}: {val}\n"
-
+        str_to_add = Utils.format_prior_info_for_yaml(self.fit_constraints)
         str_to_add += "min_values:"
         self.template = self.template.replace('min_values:', str_to_add)
+
+        plot_template = os.path.join(self.path, '2L1S_plot_template.yaml')
+        with open(plot_template, 'r', encoding='utf-8') as data:
+            self.template_plot = data.read()
 
     def get_initial_params_traj_between(self):
         """

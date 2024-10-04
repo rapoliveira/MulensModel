@@ -535,3 +535,36 @@ class Utils(object):
 
         return fix_blend
     check_blending_flux = staticmethod(check_blending_flux)
+
+    def format_prior_info_for_yaml(fit_constraints):
+        """
+        Format the information about fit_constraints, which will be added
+        to two yaml files: 1L2S results and 2L1S inputs.
+        Only the sigma for negative blending flux and priors are available.
+
+        Keywords :
+            fit_constraints: *dict* or *NoneType*
+                If not *None*, it contains the sigma for negative blending
+                flux (float) and/or priors in the parameters.
+
+        Returns :
+            str_to_add: *str*
+                String to be added to the YAML file, containing the prior
+                information in the adequate format.
+        """
+        if fit_constraints is None:
+            return
+
+        str_to_add = "fit_constraints:\n    "
+        bflux = fit_constraints.get('negative_blending_flux_sigma_mag')
+        if bflux is not None:
+            str_to_add += f"negative_blending_flux_sigma_mag: {bflux}\n"
+
+        prior = fit_constraints.get('prior')
+        if prior is not None:
+            str_to_add += "    prior:\n"
+            for key, val in prior.items():
+                str_to_add += f"        {key}: {val}\n"
+
+        return str_to_add
+    format_prior_info_for_yaml = staticmethod(format_prior_info_for_yaml)

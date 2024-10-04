@@ -343,33 +343,14 @@ class SaveResultsBinarySource(UlensModelFit):
         template = os.path.join(self.path, '../1L2S-result_template.yaml')
         with open(template) as file_:
             template_result = file_.read()
-        self._template_result = template_result.format(*lst)
-        self._add_prior_info_to_yaml()
+        self._yaml_results = template_result.format(*lst)
+        str_to_add = Utils.format_prior_info_for_yaml(self._fit_constraints)
+        str_to_add += "pspl_1:"
+        self._yaml_results = self._yaml_results.replace('pspl_1:', str_to_add)
 
         yaml_fname = self._other_output['yaml output']['file name']
         with open(yaml_fname, 'w') as yaml_results:
-            yaml_results.write(self._template_result)
-
-    def _add_prior_info_to_yaml(self):
-        """
-        Add prior information to the yaml file. MAKE IT STATIC???
-        """
-        if self._fit_constraints is None:
-            return
-
-        str_to_add = "fit_constraints:\n    "
-        bflux = self._fit_constraints.get('negative_blending_flux_sigma_mag')
-        if bflux is not None:
-            str_to_add += f"negative_blending_flux_sigma_mag: {bflux}\n"
-
-        prior = self._fit_constraints.get('prior')
-        if prior is not None:
-            str_to_add += "    prior:\n"
-            for key, val in prior.items():
-                str_to_add += f"        {key}: {val}\n"
-
-        self._template_result = self._template_result.replace(
-            'pspl_1:', str_to_add + 'pspl_1:')
+            yaml_results.write(self._yaml_results)
 
     def _write_results_table(self):
         """
@@ -413,10 +394,10 @@ class SaveResultsBinarySource(UlensModelFit):
         """
         if self._additional_inputs['yaml_files_2L1S']['t_or_f'] is False:
             return
-        if not hasattr(self, '_template_result'):
+        if not hasattr(self, '_yaml_results'):
             raise NotImplementedError('Still working on it...')
 
-        stg = yaml.safe_load(self._template_result)
+        stg = yaml.safe_load(self._yaml_results)
         stg.pop("Mean acceptance fraction")
         stg.pop("Mean autocorrelation time [steps]")
         new_stg = {k.lower().replace(' ', '_'): v for k, v in stg.items()}
@@ -430,6 +411,5 @@ if __name__ == '__main__':
     with open(sys.argv[1], 'r', encoding="utf-8") as yaml_input:
         all_settings = yaml.safe_load(yaml_input)
 
-    raise NotImplementedError("This code cannot be called as main code "
-                              "because it is unlikely that someone will "
-                              "input everything necessary to save.")
+    # it is unlikely that someone will input everything necessary to save.
+    raise NotImplementedError("This code cannot be called as main code.")
