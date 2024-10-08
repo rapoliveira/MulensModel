@@ -4,22 +4,23 @@ This workspace contains the main script, auxiliary codes and templates to fit bi
 
 The main script is [fit_binary_source.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/fit_binary_source.py), where FitBinarySource class inherits UlensModelFit (see [example_16](https://github.com/rapoliveira/MulensModel/blob/develop/examples/example_16/ulens_model_fit.py)) to use a lot of its functions to parse inputs and outputs. The auxiliary codes are:
 - [utils.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/.utils.py): stores utilitary functions, used in several parts of the process;
-- [save_results_binary_source.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/save_results_binary_source.py): produces all the outputs (figures, chains and yaml files with results);
+- [save_results_binary_source.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/save_results_binary_source.py): produces the final outputs (figures, chains and yaml files with results);
 - [prepare_binary_lens.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/prepare_binary_lens.py): prepares the YAML input for 2L1S fitting.
 
-Projects like "OGLE-evfinder" and "W16-59events" are separated in different folders, with folders for photometry and results inside it. Use "project-name" to setup a new project, where you must edit the input YAML file ([1L2S_project-name.yaml](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/OGLE-evfinder/1L2S_OGLE-evfinder.yaml)), add photometry files and an optional table with the peak times.
+Projects like "OGLE-evfinder" and "W16-59events" are separated in different folders which, in turn, contain folders for photometry and results. Use "project-name" folder to setup a new project, where you must edit the input YAML file ([1L2S_project-name.yaml](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/project-name/1L2S_project-name.yaml)) and an optional table with the [peak times](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/project-name/t_peaks-file.dat), as well as add the photometry files.
 
-### Instructions to run binary source (1L2S) fitting
+## Usage for binary source (1L2S) fitting
 
 ```
 > cd exploring_MulensModel/
 > python3 fit_binary_source.py OGLE-evfinder/1L2S_OGLE-evfinder.yaml
 ```
 
-The first key of the YAML file is `phot_settings`, which contains a list of dictionaries with the key `name`, and optionally the keys `add_2450000` (True or False) and `phot_fmt` (mag or flux).
+The configuration of the YAML file is as follows.
+The key `phot_settings` contains a list of dictionaries with the key `name`, and optionally `add_2450000` (True or False) and `phot_fmt` (mag or flux).
 If the value of `name` is a directory, all the photometry files inside it will be executed in the fitting process.
 If `name` is a file, it will be used for the only fitting.
-The photometry file should be in .dat format with at least three columns, i.e. time, magnitude and magnitude error.
+The photometry file should be in .dat format with at least three columns, e.g., time, magnitude and magnitude error.
 
 The rest of the YAML file is formatted as in example_16 except for the key `additional_inputs`, which can contain these optional keys:
 - `t_peaks`: name of file with bump times or False. If the file is given, it should have columns with names 'obj_id', 't_peak' and 't_peak_2'. Default is False.
@@ -28,18 +29,11 @@ The rest of the YAML file is formatted as in example_16 except for the key `addi
 - `ans`: method to get the final solution from the EMCEE posteriors. The options are 'max_prob' (default) or 'median'.
 - `yaml_files_2L1S`: information to generate input files for 2L1S. The keys are `t_or_f`, `yaml_template` and `yaml_dir_name`.
 
-## Instructions to run binary lens (2L1S) fitting
+## Usage for binary lens (2L1S) fitting and others
 
-```
-> cd exploring_MulensModel/
-> python3 ../examples/example_16/ulens_model_fit.py OGLE-evfinder/yaml_files_1L2S/<event_id>-2L1S_traj_between.yaml
-```
+Simplify a lot, refer to example_16. Mention the bash script like [run_multiple_fits.sh](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/run_multiple_fits.sh) can be used to run EMCEE or UltraNest for several events at once.
 
-A .sh file like ... can also be used to run for several events at once.
-
-## Generate UltraNest files, run it and make final table (with evidence)
-
-Add generate_ultranest_files.py script? Add combine-1L2S-2L1S-results.py script? *Add description...*
+*Explain [generate_ultranest_files.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/OGLE-evfinder/generate_ultranest_files.py) (add check for negative t_E) and [combine_1L2S_2L1S_results.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/OGLE-evfinder/combine_1L2S_2L1S_results.py) scripts... Change everything for the example project, after adding the simulated data from example_11.*
 
 ## To-Do List (Raphael)
 - [X] Improve fixed value of blending_flux in the yaml input
@@ -57,7 +51,7 @@ Add generate_ultranest_files.py script? Add combine-1L2S-2L1S-results.py script?
 - [X] **URGENT:** Solve stuck EMCEE chains using blending flux...
 - [X] Write priors setup to yaml files: 1L2S results and input file for 2L1S
 - [ ] Speed-up the saving of the chains with backend, h5py
-- [ ] Write instructions to run and improve README (**1/2 done**)
+- [ ] Write instructions to run and improve README, with examples (**1/2 done**)
 - [ ] [...]
 
 ### New script for 2xPSPL fits: split and subtract data from the beginning

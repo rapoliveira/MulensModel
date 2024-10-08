@@ -1,0 +1,38 @@
+photometry_files:
+    - {{file_name: {0:},
+       add_2450000: True}}
+fit_method: UltraNest
+prior_limits:
+    t_0: {1:}
+    u_0: {2:}
+    t_E: {3:}
+    s: {4:}
+    q: {5:}
+    alpha: {6:}
+model:
+    methods: {7:}
+    default method: point_source_point_lens
+fit_constraints:
+    negative_blending_flux_sigma_mag: 20.
+    prior:
+        t_E: Mroz et al. 2020
+fitting_parameters:
+    # log directory: ultranest_outputs/
+    derived parameter names: source_flux blending_flux
+    show_status: True
+    n_live_points: 40  # 20 or 40?
+    dlogz: 2.
+    frac_remain: 0.5
+    max_num_improvement_loops: 0
+plots:
+    best model:
+        file: {8:}/{9:}/{9:}_2L1S_model_UN.png
+        time range: {10:}
+        second Y scale:
+            magnifications: optimal
+    triangle:
+        file: {8:}/{9:}/{9:}_2L1S_triangle_UN.png
+        shift t_0: False
+other_output:
+    yaml output:
+        file name: {8:}/{9:}/{9:}_2L1S_all_results_UN.yaml
