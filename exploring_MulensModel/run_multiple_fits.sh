@@ -14,36 +14,27 @@ if [ $# -eq 0 ]; then
 fi
 
 ARG=$1
+python_script="../examples/example_16/ulens_model_fit.py"
 
 if [ "$ARG" == "task1" ]; then
     DIRECTORY="./OGLE-evfinder/yaml_files_2L1S"
-    for file in $(ls "$DIRECTORY"/*.yaml | sort)
-    do
-        echo -e "\n--\n\nProcessing $file"
-        python3 ../examples/example_16/ulens_model_fit.py "$file"
-    done
-
+    yaml_files=$(ls "$DIRECTORY"/*.yaml | sort)
 elif [ "$ARG" == "task2" ]; then
     DIRECTORY="./OGLE-evfinder/ultranest_1L2S"
-    for file in $(ls "$DIRECTORY"/*-1L2S_UltraNest.yaml | sort)
-    do
-        echo -e "\n--\n\nProcessing $file"
-        python3 ../examples/example_16/ulens_model_fit.py "$file"
-    done
-
+    yaml_files=$(ls "$DIRECTORY"/*-1L2S_UltraNest.yaml | sort)
 elif [ "$ARG" == "task3" ]; then
     DIRECTORY="./OGLE-evfinder/ultranest_2L1S"
-    for file in $(ls "$DIRECTORY"/*-2L1S_UltraNest.yaml | sort)
-    do
-    echo -e "\n--\n\nProcessing $file"
-    python3 ../examples/example_16/ulens_model_fit.py "$file"
-
-done
-
+    yaml_files=$(ls "$DIRECTORY"/*-2L1S_UltraNest.yaml | sort)
 else
     echo "Invalid argument. Please use: task1, task2, or task3."
     exit 1
 fi
+
+for yaml_file in $yaml_files
+do
+    echo -e "\n--\n\nProcessing $yaml_file"
+    python3 "$python_script" "$yaml_file"
+done
 
 # for file in $(ls "$DIRECTORY"/*-2L1S_UltraNest.yaml | sort | head -n 7)
 # for file in $(ls "$DIRECTORY"/*-2L1S_UltraNest.yaml | sort | head -n 15 | tail -n 2)

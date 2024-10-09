@@ -118,6 +118,10 @@ class FitBinarySource(UlensModelFit):
         self._get_n_walkers()
         self._n_burn = self._fitting_parameters.get('n_burn', 0)
 
+        self._backend = None
+        fname = self._other_output['models']['file name']
+        self._backend_fname = os.path.join(self.path, fname)
+
     def _check_additional_inputs_types(self):
         """
         Check the types of additional inputs from YAML file.
@@ -188,6 +192,7 @@ class FitBinarySource(UlensModelFit):
         start['t_E'] = t_E_scipy
 
         self._n_fitting = 0
+        self._backend_fname = self._backend_fname.format(self.event_id)
         self._setup_and_run_emcee(self._datasets[0], start)
         self.res_pre_1L2S = self._result.copy()
 
@@ -274,8 +279,7 @@ class FitBinarySource(UlensModelFit):
         """
         Get the value of the likelihood function from chi2 of event.
 
-        NOTE: if flux_ratio is not needed, use _ln_like from example_16.
-        Using this one is 2x faster, leave it...
+        NOTE: flux_ratio is not needed, but it is commented for future use.
         """
         # event = self._event
         # for (param, theta_) in zip(self.params_to_fit, theta):
@@ -375,10 +379,14 @@ class FitBinarySource(UlensModelFit):
             self._sigma_emcee = self.sigmas_emcee[0]
             fix = Utils.check_blending_flux(self.fix_blend_in, data)
             self._return_inf = -np.inf, np.array([-np.inf]), -np.inf
+            self._blobs_dtype = np.dtype([('source_fluxes', np.float64, (1,)),
+                                          ('blend_fluxes', np.float64)])
         elif self._n_fit_parameters == 5:
             self._sigma_emcee = self.sigmas_emcee[1]
             fix = None
             self._return_inf = -np.inf, np.array([-np.inf, -np.inf]), -np.inf
+            self._blobs_dtype = np.dtype([('source_fluxes', np.float64, (2,)),
+                                          ('blend_fluxes', np.float64)])
         else:
             raise ValueError("Number of fitting parameters should be 3 or 5.")
 
@@ -390,9 +398,7 @@ class FitBinarySource(UlensModelFit):
         """
         Get initial state for walkers and run EMCEE sampler.
 
-        TO-DO :::
-        - Add backend=backend to sampler if needed...
-        - Try multiprocessing once more...
+        NOTE: Multiprocessing speeds-up less than 5%, so it is commented.
         """
         self._set_n_fluxes()
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
@@ -402,20 +408,23 @@ class FitBinarySource(UlensModelFit):
         start = abs(np.array(self._init_emcee) + self._rand_sample)
         self._kwargs_EMCEE['initial_state'] = start
 
-        blobs = [('source_fluxes', list), ('blend_fluxes', float)]
-        self._skip_blending_flux = False
+        if self._n_fitting == 4 and self._backend_fname.endswith('.h5'):
+            self._backend = emcee.backends.HDFBackend(self._backend_fname)
+            self._backend.reset(self._n_walkers, self._n_fit_parameters)
         self._sampler = emcee.EnsembleSampler(
             self._n_walkers, self._n_fit_parameters, self._ln_prob,
-            blobs_dtype=blobs)
+            backend=self._backend, blobs_dtype=self._blobs_dtype)
         self._sampler.run_mcmc(**self._kwargs_EMCEE)
 
         # Setting up multi-threading (std: fork in Linux, spawn in Mac)
         # multiprocessing.set_start_method("fork", force=True)
-        # os.environ["OMP_NUM_THREADS"] = "1"
+        # os.environ["OMP_NUM_THREADS"] = "4"
         # with multiprocessing.Pool() as pool:
-        #     sampler = emcee.EnsembleSampler(nwlk, n_dim, ln_prob, pool=pool,
-        #                                     args=(event, params_to_fit,spec))
-        #     sampler.run_mcmc(start, nstep, progress=n_emcee['progress'])
+        #     self._sampler = emcee.EnsembleSampler(
+        #         self._n_walkers, self._n_fit_parameters, self._ln_prob,
+        #         pool=pool,
+        #         backend=self._backend, blobs_dtype=self._blobs_dtype)
+        #     self._sampler.run_mcmc(**self._kwargs_EMCEE)
         # pool.close()
 
     def _run_quick_emcee(self):
@@ -425,7 +434,6 @@ class FitBinarySource(UlensModelFit):
         """
         start = abs(np.array(self._init_emcee) + 10*self._rand_sample)
         self._kwargs_EMCEE['initial_state'] = start
-        self._skip_blending_flux = True
 
         sampler = emcee.EnsembleSampler(
             self._n_walkers, self._n_fit_parameters, self._ln_prob)
@@ -477,12 +485,11 @@ class FitBinarySource(UlensModelFit):
     def _get_best_params_emcee(self):
         """
         Get the best parameters from the EMCEE samples.
-
-        NOTE: if flux_ratio is needed, recover lines from _ln_prob()
         """
         best_idx = np.argmax(self._samples[:, -1])
         pars_best = self._samples[best_idx, :-1]
         self._set_model_parameters(pars_best)
+
         print("Smallest chi2 model:")
         print(*[repr(b) if isinstance(b, float) else b for b in pars_best])
         n_dof = self._event.datasets[0].n_epochs - self._n_fit_parameters
