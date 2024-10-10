@@ -11,7 +11,6 @@ import warnings
 from astropy.table import Table
 import emcee
 import MulensModel as mm
-# import multiprocessing
 import numpy as np
 import yaml
 
@@ -119,7 +118,7 @@ class FitBinarySource(UlensModelFit):
         self._n_burn = self._fitting_parameters.get('n_burn', 0)
 
         self._backend = None
-        fname = self._other_output['models']['file name']
+        fname = self._other_output.get('models', {}).get('file name', '')
         self._backend_fname = os.path.join(self.path, fname)
 
     def _check_additional_inputs_types(self):
@@ -398,7 +397,8 @@ class FitBinarySource(UlensModelFit):
         """
         Get initial state for walkers and run EMCEE sampler.
 
-        NOTE: Multiprocessing speeds-up less than 5%, so it is commented.
+        NOTE: The multiprocessing library was tested but it speeds-up the
+        code very little, specially in Linux systems.
         """
         self._set_n_fluxes()
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
@@ -411,21 +411,11 @@ class FitBinarySource(UlensModelFit):
         if self._n_fitting == 4 and self._backend_fname.endswith('.h5'):
             self._backend = emcee.backends.HDFBackend(self._backend_fname)
             self._backend.reset(self._n_walkers, self._n_fit_parameters)
+
         self._sampler = emcee.EnsembleSampler(
             self._n_walkers, self._n_fit_parameters, self._ln_prob,
             backend=self._backend, blobs_dtype=self._blobs_dtype)
         self._sampler.run_mcmc(**self._kwargs_EMCEE)
-
-        # Setting up multi-threading (std: fork in Linux, spawn in Mac)
-        # multiprocessing.set_start_method("fork", force=True)
-        # os.environ["OMP_NUM_THREADS"] = "4"
-        # with multiprocessing.Pool() as pool:
-        #     self._sampler = emcee.EnsembleSampler(
-        #         self._n_walkers, self._n_fit_parameters, self._ln_prob,
-        #         pool=pool,
-        #         backend=self._backend, blobs_dtype=self._blobs_dtype)
-        #     self._sampler.run_mcmc(**self._kwargs_EMCEE)
-        # pool.close()
 
     def _run_quick_emcee(self):
         """

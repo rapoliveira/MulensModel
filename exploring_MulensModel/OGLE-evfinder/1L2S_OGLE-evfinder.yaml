@@ -28,7 +28,8 @@ plots:
         file: results_1L2S/{}_cplot.pdf
 other_output:
     models:
-        file name: results_1L2S/chains/{}_all_chains.txt
+        # format options: txt, npy (optimal), h5
+        file name: results_1L2S/chains/{}_all_chains.h5
     yaml output:
         file name: results_1L2S/yaml_results/{}_results.yaml
 additional_inputs:

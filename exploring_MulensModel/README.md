@@ -50,7 +50,7 @@ Simplify a lot, refer to example_16. Mention the bash script like [run_multiple_
 - [X] Facilitate the addition of new data: different folders in [OGLE-evfinder/phot](https://github.com/rapoliveira/MulensModel/tree/develop/exploring_MulensModel/OGLE-evfinder/phot)?
 - [X] **URGENT:** Solve stuck EMCEE chains using blending flux...
 - [X] Write priors setup to yaml files: 1L2S results and input file for 2L1S
-- [X] Speed-up the saving of the chains with backend, h5py
+- [X] Speed-up the saving of the chains with h5py and npy*
 - [ ] Write instructions to run and improve README, with examples (**1/2 done**)
 - [ ] Limit to u_0 > 0 also in 2L1S: change alpha by 180 if initial u_0 < 0 (see Skowron+2011)
 - [ ] [...]
@@ -64,4 +64,4 @@ Simplify a lot, refer to example_16. Mention the bash script like [run_multiple_
 - [ ] Check if there is a second peak above 3 sigma to go for 1L2S...
 - [ ] Include and test all cases, including those with a single peak or skewed(?)
 
-Last updated: 08 Oct 2024
+Last updated: 10 Oct 2024

@@ -94,6 +94,8 @@ class SaveResultsBinarySource(UlensModelFit):
         """
         Add event_id to the names of `plots` and `other_output`, just in
         the cases they contain '{}'.
+        If `models` value has h5 format, it is removed from `other_output`
+        because the chains were already during the fitting.
         """
         names_dict = [
             (self._all_plots, 'file'),
@@ -107,6 +109,10 @@ class SaveResultsBinarySource(UlensModelFit):
             if data and '{}' in data.get(key, ''):
                 new_name = data[key].format(self._event_id)
                 data[key] = os.path.join(self.path, new_name)
+
+        fname = self._other_output.get('models', {}).get('file name', '')
+        if fname.endswith('.h5'):
+            self._other_output.pop('models', None)
 
     def create_all_plots(self):
         """
@@ -284,10 +290,7 @@ class SaveResultsBinarySource(UlensModelFit):
         chains, yaml file with results and table with events).
         """
         if 'models' in self._other_output:
-            if self._print_model_file.name.endswith('.txt'):
-                self._write_models_table_txt()
-            elif self._print_model_file.name.endswith('.npy'):
-                raise NotImplementedError("Still working on it...")
+            self._write_models_table()
 
         if 'yaml output' in self._other_output:
             lst, aux_dict = self._organizing_yaml_content()
@@ -296,18 +299,24 @@ class SaveResultsBinarySource(UlensModelFit):
         if 'table output' in self._additional_inputs:
             self._write_results_table()
 
-    def _write_models_table_txt(self):
+    def _write_models_table(self):
         """
         Write table with all the simulated chains, with the likelihood as
-        the first column.
+        the first column. The table is saved in a txt or npy file.
         """
         thetas = self._res_1l2s[2][:, :5]
         ln_probs = self._res_1l2s[2][:, -1]
 
-        for (theta, ln_prob) in zip(thetas, ln_probs):
-            theta_str = " ".join([repr(x) for x in theta])
-            out = "{:.4f}  {:}".format(ln_prob, theta_str)
-            print(out, file=self._print_model_file, flush=False)
+        if self._print_model_file.name.endswith('.txt'):
+            for (theta, ln_prob) in zip(thetas, ln_probs):
+                theta_str = " ".join([repr(x) for x in theta])
+                out = "{:.4f}  {:}".format(ln_prob, theta_str)
+                print(out, file=self._print_model_file, flush=False)
+
+        elif self._print_model_file.name.endswith('.npy'):
+            chains = np.column_stack((ln_probs, thetas))
+            np.save(self._print_model_file.name, chains)
+
         self._print_model_file.close()
 
     def _organizing_yaml_content(self):
