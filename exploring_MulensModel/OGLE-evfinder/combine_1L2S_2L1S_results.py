@@ -77,15 +77,33 @@ def add_params_to_table(res_fit):
     bflux_sig = np.mean([fitted_bflux[1], -fitted_bflux[2]])
     chi2, evid = round(best['chi2'], 2), round(best['ln_ev'][0], 2)
 
-    line = [*best_params, round(t_E_sig, 2), bflux, round(bflux_sig, 2), chi2,
+    line = [*best_params, round(t_E_sig, 2), bflux, round(bflux_sig, 5), chi2,
             evid]
     return line
+
+
+def declare_and_format_table():
+    """
+    Write...
+    """
+    names = ['id', 't_0_1', 'u_0_1', 't_0_2', 'u_0_2', 't_E_1L2S', 'sig_t_E_1',
+             'bflux_1L2S', 'sig_bflux_1', 'chi2_1L2S', 'ln_ev_1L2S',
+             't_0', 'u_0', 't_E_2L1S', 's', 'q', 'alpha', 'sig_t_E_2',
+             'bflux_2L1S', 'sig_bflux_2', 'chi2_2L1S', 'ln_ev_2L1S']
+    tab = Table(names=names, dtype=['str']+[np.float64]*21)
+
+    n_digits = ('%.2f', '%.5f', '%.2f', '%.5f', '%.2f', '%.2f', '%.5f', '%.5f',
+                '%.2f', '%.2f', '%.2f', '%.5f', '%.2f', '%.2f', '%.5f', '%.2f',
+                '%.2f', '%.5f', '%.5f', '%.2f', '%.2f')
+    for (i, col) in enumerate(tab.colnames[1:]):
+        tab[col].info.format = n_digits[i]
+
+    return tab
 
 
 if __name__ == '__main__':
 
     path = os.path.dirname(os.path.abspath(__file__))
-    breakpoint()
 
     # dir_1 = f'{path}/results_1L2S/yaml_results/'
     dir_1 = f'{path}/ultranest_1L2S/'
@@ -99,18 +117,12 @@ if __name__ == '__main__':
     results_2L1S = [f for f in os.listdir(dir_2) if f[0] != '.' and
                     not f.endswith(".yaml")]
     results_1L2S, results_2L1S = sorted(results_1L2S), sorted(results_2L1S)
-    names = ['id', 't_0_1', 'u_0_1', 't_0_2', 'u_0_2', 't_E_1L2S', 'sig_t_E_1',
-             'bflux_1L2S', 'sig_bflux_1', 'chi2_1L2S', 'ln_ev_1L2S',
-             't_0', 'u_0', 't_E_2L1S', 's', 'q', 'alpha', 'sig_t_E_2',
-             'bflux_2L1S', 'sig_bflux_2', 'chi2_2L1S', 'ln_ev_2L1S']
-    tab = Table(names=names, dtype=['str']+[np.float64]*21)
 
+    tab = declare_and_format_table()
     for (res_1L2S, res_2L1S) in zip(results_1L2S, sorted(results_2L1S)):
         event_id, res_1L2S, res_2L1S = read_results(res_1L2S, res_2L1S)
         line_1L2S = add_params_to_table(res_1L2S)
         line_2L1S = add_params_to_table(res_2L1S)
         tab.add_row([event_id, *line_1L2S, *line_2L1S])
-    # tab.round(5)
     tab.write(f'{path}/comp_1L2S_2L1S.txt', format='ascii.commented_header',
               overwrite=True)
-    breakpoint()

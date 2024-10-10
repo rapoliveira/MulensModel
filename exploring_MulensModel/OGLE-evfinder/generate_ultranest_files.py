@@ -22,12 +22,11 @@ def get_1L2S_params(path, diff_path, obj_id, n_sigma):
     perc_vals = results_1L2S['Fitted parameters'].values()
     for (best, perc) in zip(best_vals, perc_vals):
         mean_std = np.mean([perc[1], -perc[2]])
-        lower_limit = round(best - n_sigma*mean_std, 5)
+        lower_limit = max(0, round(best - n_sigma*mean_std, 5))
         upper_limit = round(best + n_sigma*mean_std, 5)
         list_1L2S.append([lower_limit, upper_limit])
 
     path_yaml = os.path.join(diff_path, 'ultranest_1L2S')
-    # TEMPORARY: xlim will be obtained from 1L2S result soon
     list_1L2S += [path_yaml, obj_id, '']
 
     return list_1L2S
@@ -52,7 +51,7 @@ def get_2L1S_params(path, diff_path, obj_id, n_sigma):
     perc_vals = results_2L1S['Fitted parameters'].values()
     for (best, perc) in zip(best_vals, perc_vals):
         mean_std = np.mean([perc[1], -perc[2]])
-        lower_limit = round(best - n_sigma*mean_std, 5)
+        lower_limit = max(0, round(best - n_sigma*mean_std, 5))
         upper_limit = round(best + n_sigma*mean_std, 5)
         list_2L1S.append([lower_limit, upper_limit])
 
@@ -135,5 +134,3 @@ if __name__ == '__main__':
         list_2L1S[7], list_2L1S[-1] = model_methods, xlim
         save_yaml_inputs(path, obj_id, list_1L2S, list_2L1S)
         create_results_dir(path, obj_id)
-
-    breakpoint()

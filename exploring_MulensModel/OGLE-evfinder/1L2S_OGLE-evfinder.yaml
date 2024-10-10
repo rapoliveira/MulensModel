@@ -29,11 +29,10 @@ plots:
 other_output:
     models:
         # format options: txt, npy (optimal), h5
-        file name: results_1L2S/chains/{}_all_chains.h5
+        file name: results_1L2S/chains/{}_all_chains.npy
     yaml output:
         file name: results_1L2S/yaml_results/{}_results.yaml
 additional_inputs:
-    # More detailed explanation in fit_binary_souce.py
     # t_peaks - file with times of two peaks (event_finder) or False
     t_peaks: t_peak-obvious-evfinder.dat
     # fix_blend - float value (0. for 2L1S initial params) or False

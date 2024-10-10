@@ -191,14 +191,16 @@ class PrepareBinaryLens(object):
 
     def _check_u_0_and_alpha(self, u_0, alpha):
         """
-        Check if u_0 > 0 and alpha is in the range [0, 360).
-
-        NOTE: I'm still checking the possible values... range [0, 180) ?
+        If u_0 < 0, the binary lens degeneracy from Skowron et al. (2011)
+        is applied inverting the sign of u_0 and alpha.add()
+        If alpha is out of the range [0, 360), it is changed to the correct
+        value using the operator %. The solutions will probably be in the
+        ranges [0, 90) or [270, 360).
         """
         if u_0 < 0.:
             u_0 = -u_0
-            alpha = 180. - alpha
-        alpha = alpha % 180.
+            alpha = 360. - alpha
+        alpha = alpha % 360.
 
         return u_0, alpha
 
@@ -215,7 +217,8 @@ class PrepareBinaryLens(object):
         diff_u0 = abs(self.pspl_1[1] - self.pspl_2[1])
         diff_t0 = self.pspl_2[0] - self.pspl_1[0]
         alpha_2L1S = np.degrees(np.arctan(diff_u0 * t_E_2L1S / diff_t0))
-        alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
+        # alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
+        u_0_2L1S, alpha_2L1S = self._check_u_0_and_alpha(u_0_2L1S, alpha_2L1S)
 
         # Calculate s for the 2L1S model
         s_prime = np.sqrt((diff_t0/t_E_2L1S)**2 + diff_u0**2)

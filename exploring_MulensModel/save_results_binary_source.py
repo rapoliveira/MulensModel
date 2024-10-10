@@ -53,6 +53,7 @@ class SaveResultsBinarySource(UlensModelFit):
 
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
         self._xlim = self._get_time_limits_for_plot(3.0, 'best model')
+        self._extend_shorten_xlim()
         self._prepare_file_names()
 
         if self._all_plots:
@@ -89,6 +90,22 @@ class SaveResultsBinarySource(UlensModelFit):
                  "source_flux": sflux, "blending_flux": bflux}
 
         return model
+
+    def _extend_shorten_xlim(self):
+        """
+        Extend the x-axis limits in the plot by 20% if they are inside the
+        range [2455000, 2459000]. Otherwise, set the limits to 10 times the
+        maximum t_E of the PSPL models.
+        """
+        if self._xlim[0] > 2455000. and self._xlim[1] < 2459000.:
+            diff = self._xlim[1] - self._xlim[0]
+            self._xlim = [self._xlim[0] - 0.2*diff, self._xlim[1] + 0.2*diff]
+        else:
+            pspl_1, pspl_2 = self._res_pspl_1[0], self._res_pspl_2[0]
+            peaks = sorted([pspl_1['t_0'], pspl_2['t_0']])
+            max_t_E = max([pspl_1['t_E'], pspl_2['t_E']])
+            max_t_E = min(max_t_E, 50)
+            self._xlim = [peaks[0] - 10*max_t_E, peaks[1] + 10*max_t_E]
 
     def _prepare_file_names(self):
         """
