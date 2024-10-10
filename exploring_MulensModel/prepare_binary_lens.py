@@ -179,7 +179,8 @@ class PrepareBinaryLens(object):
         sum_u0 = self.pspl_1[1] + self.pspl_2[1]
         diff_t0 = self.pspl_2[0] - self.pspl_1[0]
         alpha_2L1S = np.degrees(np.arctan(sum_u0 * t_E_2L1S / diff_t0))
-        alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
+        # alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
+        u_0_2L1S, alpha_2L1S = self._check_u_0_and_alpha(u_0_2L1S, alpha_2L1S)
 
         # Calculate s for the 2L1S model
         s_prime = np.sqrt((diff_t0 / t_E_2L1S)**2 + sum_u0**2)
@@ -187,6 +188,19 @@ class PrepareBinaryLens(object):
         s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
 
         return [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
+
+    def _check_u_0_and_alpha(self, u_0, alpha):
+        """
+        Check if u_0 > 0 and alpha is in the range [0, 360).
+
+        NOTE: I'm still checking the possible values... range [0, 180) ?
+        """
+        if u_0 < 0.:
+            u_0 = -u_0
+            alpha = 180. - alpha
+        alpha = alpha % 180.
+
+        return u_0, alpha
 
     def get_initial_params_traj_beyond(self, params_between):
         """

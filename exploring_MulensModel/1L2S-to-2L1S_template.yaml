@@ -12,13 +12,12 @@ model:
     methods: {10:} point_source {11:}
     default method: point_source_point_lens
 min_values:
-    # u_0: 0.
+    u_0: 0.  # (u_0, alpha) -> −(u_0, alpha)
     t_E: {12:}  # 3. # 1.
     s: 0.05  # 0. # 1.
     q: 1.e-5  # 0.
     alpha: 0.
 max_values:
-    # u_0: 0.
     s: 100.
     q: 1.
     alpha: 360.
