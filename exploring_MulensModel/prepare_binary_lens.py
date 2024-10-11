@@ -238,8 +238,8 @@ class PrepareBinaryLens(object):
         lst = [round(param, round_dec[i]) for i, param in enumerate(params)]
         phot_params = [self.base_path, self.phot_dir, self.event_id,
                        self.add_2450000]
-        max_t_E = round(max(3, lst[2]/5.), 3)
-        lst = phot_params + lst + self.xlim_str + [max_t_E, between_or_beyond]
+        min_t_E = round(max(3, lst[2]/5.), 3) if lst[2] > 3 else 1.
+        lst = phot_params + lst + self.xlim_str + [min_t_E, between_or_beyond]
 
         if between_or_beyond == 'beyond':
             self.yaml_file = self.yaml_file.replace('between', 'beyond')

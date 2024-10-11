@@ -589,5 +589,4 @@ if __name__ == '__main__':
                        'res_1l2s': fit_binary_source.res_1L2S,
                        'time_min_flux': fit_binary_source._time_min_flux})
         save_results = SaveResultsBinarySource(phot_files, **kwargs)
-
         print("\n--------------------------------------------------")
