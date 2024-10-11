@@ -13,7 +13,7 @@ Projects like "OGLE-evfinder" and "W16-59events" are organized into separate fol
 
 ```
 > cd exploring_MulensModel/
-> python3 fit_binary_source.py OGLE-evfinder/1L2S_OGLE-evfinder.yaml
+> python3 fit_binary_source.py OGLE-evfinder/1L2S_project-name.yaml
 ```
 
 The configuration of the YAML file is as follows.
@@ -51,7 +51,7 @@ Simplify a lot, refer to example_16. Mention the bash script like [run_multiple_
 - [X] **URGENT:** Solve stuck EMCEE chains using blending flux...
 - [X] Write priors setup to yaml files: 1L2S results and input file for 2L1S
 - [X] Speed-up the saving of the chains with h5py and npy*
-- [ ] Write instructions to run and improve README, with examples (**1/2 done**)
+- [X] Write instructions to run and improve README, with examples (**1/2 done**)
 - [X] Limit to u_0 > 0 also in 2L1S: change alpha by 180 if initial u_0 < 0 (see Skowron+2011)
 - [ ] [...]
 

@@ -204,7 +204,7 @@ class FitBinarySource(UlensModelFit):
             return
 
         tab = Table.read(self.t_peaks_in, format='ascii')
-        event = self.event_id.replace('_OGLE', '').replace('_', '.')
+        event = self.event_id.replace('_OGLE', '')  # .replace('_', '.')
         line = tab[tab['obj_id'] == event]
         self.t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
         self.t_peaks_orig = self.t_peaks.copy()

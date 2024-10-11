@@ -1,0 +1,51 @@
+photometry_files:
+    - {file_name: ./project-name/phot/example_11_OGLE.dat, add_2450000: True}
+fit_method: EMCEE
+starting_parameters:
+    t_0: gauss 2456100.26 0.01
+    u_0: gauss 0.22659 0.001
+    t_E: gauss 23.17 0.01
+    s: gauss 2.18193 0.001
+    q: gauss 0.00471 0.001
+    alpha: gauss 359.20425 0.001
+model:
+    methods: 2455986. point_source 2456253.
+    default method: point_source_point_lens
+fit_constraints:
+    negative_blending_flux_sigma_mag: 20.0
+    prior:
+        t_E: Mroz et al. 2020
+min_values:
+    u_0: 0.  # (u_0, alpha) -> −(u_0, alpha)
+    t_E: 4.634  # 3. # 1.
+    s: 0.05  # 0. # 1.
+    q: 1.e-5  # 0.
+    alpha: 0.
+max_values:
+    s: 1000.
+    q: 1.
+    alpha: 360.
+fitting_parameters:
+    n_walkers: 20  # 20w3000 (short), 20w10000 (long), 100w3000s (more walkers)
+    n_steps: 10000
+    n_burn:  5000
+    progress: True
+plots:
+    best model:
+        file: ./project-name/results_2L1S/example_11_OGLE_2L1S_model_beyond.png
+        time range: 2455986. 2456253.
+        second Y scale:
+            magnifications: optimal
+    trajectory:
+        file: ./project-name/results_2L1S/example_11_OGLE_2L1S_trajectory_beyond.png
+        time range: 2455986. 2456253.
+    triangle:
+        file: ./project-name/results_2L1S/example_11_OGLE_2L1S_triangle_beyond.png
+        shift t_0: False
+    trace:
+        file: ./project-name/results_2L1S/example_11_OGLE_2L1S_trace_beyond.png
+other_output:
+    models:
+        file name: ./project-name/results_2L1S/example_11_OGLE_2L1S_all_models_beyond.txt
+    yaml output:
+        file name: ./project-name/results_2L1S/example_11_OGLE_2L1S_all_results_beyond.yaml

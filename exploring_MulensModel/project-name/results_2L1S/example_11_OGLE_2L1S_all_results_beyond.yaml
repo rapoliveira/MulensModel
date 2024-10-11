@@ -1,0 +1,27 @@
+MulensModel and script versions: ['2.24.1', '0.39.0']
+Mean acceptance fraction: 0.272
+Mean autocorrelation time [steps]: 353.9
+Fitted parameters:
+# [median, sigma+, sigma-]
+    t_0 : [2456106.04474, +0.12598, -0.20354]
+    u_0 : [0.21978, +0.00099, -0.00093]
+    t_E : [27.27730, +0.34045, -0.53352]
+    s : [1.92331, +0.02612, -0.01589]
+    q : [0.1367728, +0.0027695, -0.0045613]
+    alpha : [358.03554, +0.13072, -0.21538]
+Fitted fluxes: # (source and blending)
+# [median, sigma+, sigma-]
+    flux_s_1 : [120.59903, +1.55176, -0.93581]
+    flux_b_1 : [-9.80623, +0.87644, -1.48765]
+Best model:
+  chi2: 4213.3529
+  Parameters:
+    t_0: 2456106.087106582
+    u_0: 0.2196722864344059
+    t_E: 27.37854546953317
+    s: 1.9182981830389048
+    q: 0.13750097877398756
+    alpha: 358.06638783384653
+  Fluxes:
+    flux_s_1: 120.35232253861695
+    flux_b_1: -9.576389519031826
