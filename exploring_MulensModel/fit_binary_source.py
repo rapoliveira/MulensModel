@@ -582,7 +582,7 @@ if __name__ == '__main__':
         fit_binary_source.run_final_fits()
 
         kwargs = copy.deepcopy(stg_copy)
-        kwargs.update({'event_data': [data],
+        kwargs.update({'datasets': [data],
                        'event_id': fit_binary_source.event_id,
                        'res_pspl_1': fit_binary_source.res_pspl_1,
                        'res_pspl_2': fit_binary_source.res_pspl_2,

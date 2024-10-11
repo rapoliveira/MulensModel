@@ -41,7 +41,7 @@ class SaveResultsBinarySource(UlensModelFit):
     def __init__(self, photometry_files, plots, **kwargs):
 
         self._fitting_parameters_in = kwargs.pop('fitting_parameters')
-        attrs = ['additional_inputs', 'event_data', 'event_id', 'res_pspl_1',
+        attrs = ['additional_inputs', 'datasets', 'event_id', 'res_pspl_1',
                  'res_pspl_2', 'res_1l2s', 'time_min_flux']
         for attr in attrs:
             setattr(self, f'_{attr}', kwargs.pop(attr))
@@ -52,8 +52,7 @@ class SaveResultsBinarySource(UlensModelFit):
             photometry_files, model=model_1l2s, plots=plots, **kwargs)
 
         self.path = os.path.dirname(os.path.realpath(sys.argv[1]))
-        self._xlim = self._get_time_limits_for_plot(3.0, 'best model')
-        self._extend_shorten_xlim()
+        self._get_and_adjust_axes_limits()
         self._prepare_file_names()
 
         if self._all_plots:
@@ -91,21 +90,26 @@ class SaveResultsBinarySource(UlensModelFit):
 
         return model
 
-    def _extend_shorten_xlim(self):
+    def _get_and_adjust_axes_limits(self):
         """
         Extend the x-axis limits in the plot by 20% if they are inside the
         range [2455000, 2459000]. Otherwise, set the limits to 10 times the
         maximum t_E of the PSPL models.
         """
-        if self._xlim[0] > 2455000. and self._xlim[1] < 2459000.:
-            diff = self._xlim[1] - self._xlim[0]
-            self._xlim = [self._xlim[0] - 0.2*diff, self._xlim[1] + 0.2*diff]
+        (t_1, t_2) = self._get_time_limits_for_plot(3.0, 'best model')
+
+        if t_1 > 2455000. and t_2 < 2459000.:
+            self._xlim = [t_1 - 0.2*(t_2-t_1), t_2 + 0.2*(t_2-t_1)]
         else:
             pspl_1, pspl_2 = self._res_pspl_1[0], self._res_pspl_2[0]
             peaks = sorted([pspl_1['t_0'], pspl_2['t_0']])
             max_t_E = max([pspl_1['t_E'], pspl_2['t_E']])
             max_t_E = min(max_t_E, 50)
             self._xlim = [peaks[0] - 10*max_t_E, peaks[1] + 10*max_t_E]
+
+        self._event = Utils.get_mm_event(self._datasets[0], self._res_1l2s[0])
+        ylim_ans = self._get_ylim_for_best_model_plot(*self._xlim)
+        self._ylim, self._ylim_residuals = ylim_ans
 
     def _prepare_file_names(self):
         """
@@ -142,7 +146,7 @@ class SaveResultsBinarySource(UlensModelFit):
 
         self._make_pdf_plots(self._res_pspl_1, data_1_subt)
         self._make_pdf_plots(self._res_pspl_2, data_2_subt)
-        self.cplot = self._make_pdf_plots(self._res_1l2s, self._event_data[0])
+        self.cplot = self._make_pdf_plots(self._res_1l2s, self._datasets[0])
         self._pdf.close()
 
     def _make_pdf_plots(self, results_states, data):
@@ -247,15 +251,16 @@ class SaveResultsBinarySource(UlensModelFit):
         ans = self._additional_inputs.get('ans', 'max_prob')
 
         self._event = Utils.get_mm_event(data, best)
+        data_kwargs = {'subtract_2450000': True, 'phot_fmt': 'mag'}
         if self._event.model.n_sources == 1:
             data_label = "Subtracted data"
-            self._event_data[0].plot(phot_fmt='mag', color='gray', alpha=0.2,
-                                     label="Original data")
+            self._datasets[0].plot(label="Original data", color='gray',
+                                   alpha=0.2, **data_kwargs)
             txt = f'PSPL ({ans}):'
         else:
             data_label = "Original data"
             txt = f'1L2S ({ans}):'
-        self._event.plot_data(subtract_2450000=True, label=data_label)
+        self._event.plot_data(label=data_label, **data_kwargs)
 
         plot_params = {'lw': 2.5, 'alpha': 0.5, 'subtract_2450000': True,
                        't_start': self._xlim[0], 't_stop': self._xlim[1],
@@ -263,22 +268,31 @@ class SaveResultsBinarySource(UlensModelFit):
         for key, val in best.items():
             txt += f'\n{key} = {val:.2f}' if 'flux' not in key else ""
         self._event.plot_model(label=rf"{txt}", **plot_params)
-        plt.tick_params(axis='both', direction='in')
-        ax1.xaxis.set_ticks_position('both')
-        ax1.yaxis.set_ticks_position('both')
 
         ax2 = fig.add_subplot(gs[2:, :], sharex=ax1)
         self._event.plot_residuals(subtract_2450000=True, zorder=10)
-        plt.tick_params(axis='both', direction='in')
-        ax2.xaxis.set_ticks_position('both')
-        ax2.yaxis.set_ticks_position('both')
-        plt.xlim(*np.array(self._xlim) - 2450000)
-        plt.tight_layout()
-        plt.subplots_adjust(hspace=0)
-        plt.axes(ax1)
-        ax1.legend(loc='best')
+        self._matplotlib_rc_params(plt, ax1, ax2)
         self._pdf.savefig(fig)
         plt.close('all')
+
+    def _matplotlib_rc_params(self, plt, ax1, ax2):
+        """
+        Set the matplotlib rc parameters for the plots.
+        """
+        for ax in [ax1, ax2]:
+            ax.tick_params(axis='both', direction='in', which='both')
+            ax.xaxis.set_ticks_position('both')
+            ax.yaxis.set_ticks_position('both')
+            ax.minorticks_on()
+
+        ax1.legend(loc='best')
+        ax1.tick_params(axis='x', labelbottom=False)
+        ax1.set_xlim(*np.array(self._xlim) - 2450000)
+        ax1.set_ylim(*self._ylim)
+        ax2.set_ylim(*self._ylim_residuals)
+
+        plt.tight_layout()
+        plt.subplots_adjust(hspace=0)
 
     def create_triangle(self):
         """
@@ -298,7 +312,7 @@ class SaveResultsBinarySource(UlensModelFit):
         Create pdf for best model plot and call the function to make it.
         """
         self._pdf = PdfPages(self._plots['best model']['file'])
-        self._plot_fit(self._res_1l2s[0], self._event_data[0])
+        self._plot_fit(self._res_1l2s[0], self._datasets[0])
         self._pdf.close()
 
     def create_tables(self):
@@ -351,7 +365,7 @@ class SaveResultsBinarySource(UlensModelFit):
 
         acc_fraction = np.mean(sampler.acceptance_fraction)
         acor = sampler.get_autocorr_time(quiet=True, discard=self._n_burn)
-        deg_of_freedom = self._event_data[0].n_epochs - len(bst)
+        deg_of_freedom = self._datasets[0].n_epochs - len(bst)
         pspl_1, pspl_2 = self._res_pspl_1[0], self._res_pspl_2[0]
         pspl_1 = str([round(val, 7) for val in pspl_1.values()])
         pspl_2 = str([round(val, 7) for val in pspl_2.values()])
@@ -413,7 +427,7 @@ class SaveResultsBinarySource(UlensModelFit):
         bst = dict(item for item in best_items if 'flux' not in item[0])
         bst_values = [round(val, 5) for val in bst.values()]
         lst = bst_values+[0., 0.] if len(bst) == 3 else bst_values
-        deg_of_freedom = self._event_data[0].n_epochs - len(bst)
+        deg_of_freedom = self._datasets[0].n_epochs - len(bst)
         lst = [name] + lst + [round(self._event.chi2, 4), deg_of_freedom]
         if name in res_tab['id']:
             idx_event = np.where(res_tab['id'] == name)[0]
