@@ -52,7 +52,7 @@ def read_results(res_1L2S, res_2L1S):
     with open(fname, encoding='utf-8') as in_2L1S:
         res_2L1S = yaml.safe_load(in_2L1S)
 
-    return event_id, res_1L2S, res_2L1S
+    return event_id.ljust(16), res_1L2S, res_2L1S
 
 
 def add_params_to_table(res_fit):
@@ -90,15 +90,40 @@ def declare_and_format_table():
              'bflux_1L2S', 'sig_bflux_1', 'chi2_1L2S', 'ln_ev_1L2S',
              't_0', 'u_0', 't_E_2L1S', 's', 'q', 'alpha', 'sig_t_E_2',
              'bflux_2L1S', 'sig_bflux_2', 'chi2_2L1S', 'ln_ev_2L1S']
-    tab = Table(names=names, dtype=['str']+[np.float64]*21)
+    tab = Table(names=names, dtype=['S16']+[np.float64]*21)
 
-    n_digits = ('%.2f', '%.5f', '%.2f', '%.5f', '%.2f', '%.2f', '%.5f', '%.5f',
-                '%.2f', '%.2f', '%.2f', '%.5f', '%.2f', '%.2f', '%.5f', '%.2f',
-                '%.2f', '%.5f', '%.5f', '%.2f', '%.2f')
+    n_digits = ('%10.2f', '%7.5f', '%10.2f', '%7.5f', '%8.2f', '%9.2f',
+                '%10.5f', '%11.5f', '%9.2f', '%10.2f',
+                '%10.2f', '%8.5f', '%8.2f', '%6.2f', '%7.5f', '%6.2f',
+                '%9.2f', '%10.5f', '%11.5f', '%9.2f', '%10.2f')
     for (i, col) in enumerate(tab.colnames[1:]):
         tab[col].info.format = n_digits[i]
 
     return tab
+
+
+def setup_and_save_table(tab):
+    """
+    Write...
+    """
+    column_to_move = tab['sig_t_E_2']
+    tab.remove_column('sig_t_E_2')
+    tab.add_column(column_to_move, index=14)
+    tab.write(f'{path}/comp_1L2S_2L1S.txt', format='ascii.fixed_width',
+              overwrite=True, delimiter='')
+
+    new_header = "# id               t_0_1       u_0_1    t_0_2       " + \
+                 "u_0_2    t_E_1L2S  sig_t_E_1  bflux_1L2S  sig_bflux_1" + \
+                 "  chi2_1L2S  ln_ev_1L2S  t_0         u_0       t_E_2L1S" + \
+                 "  sig_t_E_2  s       q        alpha   bflux_2L1S  " + \
+                 "sig_bflux_2  chi2_2L1S  ln_ev_2L1S\n"
+    with open(f'{path}/comp_1L2S_2L1S.txt', 'r+') as file:
+        lines = file.readlines()
+        if lines:
+            lines[0] = new_header
+        file.seek(0)
+        file.writelines(lines)
+        file.truncate()
 
 
 if __name__ == '__main__':
@@ -124,5 +149,4 @@ if __name__ == '__main__':
         line_1L2S = add_params_to_table(res_1L2S)
         line_2L1S = add_params_to_table(res_2L1S)
         tab.add_row([event_id, *line_1L2S, *line_2L1S])
-    tab.write(f'{path}/comp_1L2S_2L1S.txt', format='ascii.commented_header',
-              overwrite=True)
+    setup_and_save_table(tab)

@@ -226,7 +226,8 @@ class SaveResultsBinarySource(UlensModelFit):
                 Instante of the corner plot, so it can be reused.
         """
         cplot = corner.corner(states, quantiles=[0.16, 0.50, 0.84],
-                              labels=labels, truths=truths, show_titles=True)
+                              labels=labels, truths=truths, show_titles=True,
+                              quiet=True)
         self._pdf.savefig(cplot)
 
         return cplot
