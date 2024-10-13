@@ -79,10 +79,10 @@ class PrepareBinaryLens(object):
         self.check_input_types()
         self.check_binary_source_chi2()
         self.get_filenames_and_templates()
-        params_between = self.get_initial_params_traj_between()
-        params_beyond = self.get_initial_params_traj_beyond(params_between)
-        self.round_params_and_save(params_between, 'between')
-        self.round_params_and_save(params_beyond, 'beyond')
+        self.get_initial_params_traj_between()
+        self.round_params_and_save(self._temp_params, 'between')
+        self.get_initial_params_traj_beyond()
+        self.round_params_and_save(self._temp_params, 'beyond')
 
     def get_paths_and_orig_settings(self):
         """
@@ -175,57 +175,69 @@ class PrepareBinaryLens(object):
         u_0_2L1S = (q_2L1S * self.pspl_2[1] - self.pspl_1[1]) / (1 + q_2L1S)
         t_E_2L1S = np.sqrt(self.pspl_1[2]**2 + self.pspl_2[2]**2)
 
-        # Calculate alpha with some auxiliary variables
+        # Calculate s with some auxiliary variables
         sum_u0 = self.pspl_1[1] + self.pspl_2[1]
         diff_t0 = self.pspl_2[0] - self.pspl_1[0]
-        alpha_2L1S = np.degrees(np.arctan(sum_u0 * t_E_2L1S / diff_t0))
-        # alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
-        u_0_2L1S, alpha_2L1S = self._check_u_0_and_alpha(u_0_2L1S, alpha_2L1S)
-
-        # Calculate s for the 2L1S model
         s_prime = np.sqrt((diff_t0 / t_E_2L1S)**2 + sum_u0**2)
         factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
         s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
+        self._temp_params = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S]
 
-        return [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
+        # Calculate alpha
+        alpha_2L1S = np.degrees(np.arctan(sum_u0 * t_E_2L1S / diff_t0))
+        self._check_u_0_and_alpha(alpha_2L1S)
 
-    def _check_u_0_and_alpha(self, u_0, alpha):
+    def _check_u_0_and_alpha(self, alpha):
         """
         If u_0 < 0, the binary lens degeneracy from Skowron et al. (2011)
         is applied inverting the sign of u_0 and alpha.add()
         If alpha is out of the range [0, 360), it is changed to the correct
         value using the operator %. The solutions will probably be in the
         ranges [0, 90) or [270, 360).
+
+        UPDATE DOCSTRINGS...
         """
-        if u_0 < 0.:
-            u_0 = -u_0
-            alpha = 360. - alpha
-        alpha = alpha % 360.
+        if self._temp_params[1] < 0.:
+            self._temp_params[1] *= -1.
+            alpha_1 = (360. - alpha) % 360.
+        else:
+            alpha_1 = alpha % 360.
+        alpha_2 = (180. + alpha_1) % 360.
 
-        return u_0, alpha
+        # testing alpha_1 (add it to the docstrings...)
+        data = mm.MulensData(**self.phot_settings)
+        m_dict = dict(zip(['t_0', 'u_0', 't_E', 's', 'q'], self._temp_params))
+        m_dict['alpha'] = alpha_1
+        event_1 = Utils.get_mm_event(data, m_dict)
 
-    def get_initial_params_traj_beyond(self, params_between):
+        # testing alpha_2 and selecting the lowest chi2
+        m_dict['alpha'] = alpha_2
+        event_2 = Utils.get_mm_event(data, m_dict)
+        alpha = alpha_1 if event_1.chi2 < event_2.chi2 else alpha_2
+        self._temp_params.append(alpha)
+
+    def get_initial_params_traj_beyond(self):
         """
         Change u_0, s and alpha of the 2L1S model between the lenses, in
         order to get the trajectory beyond the lenses.
         """
-        # Get t_E and q, which remain unchanged
-        t_0_2L1S, t_E_2L1S, q_2L1S = params_between[::2]
+        # Get t_0, t_E and q, which remain unchanged
+        t_0_2L1S, t_E_2L1S, q_2L1S = self._temp_params[::2]
 
         # Calculate u_0 and alpha for the 2L1S model
         u_0_2L1S = -(self.pspl_1[1] + q_2L1S * self.pspl_2[1]) / (1 + q_2L1S)
         diff_u0 = abs(self.pspl_1[1] - self.pspl_2[1])
         diff_t0 = self.pspl_2[0] - self.pspl_1[0]
-        alpha_2L1S = np.degrees(np.arctan(diff_u0 * t_E_2L1S / diff_t0))
-        # alpha_2L1S = 180. + alpha_2L1S if alpha_2L1S < 0. else alpha_2L1S
-        u_0_2L1S, alpha_2L1S = self._check_u_0_and_alpha(u_0_2L1S, alpha_2L1S)
 
         # Calculate s for the 2L1S model
         s_prime = np.sqrt((diff_t0/t_E_2L1S)**2 + diff_u0**2)
         factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
         s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
+        self._temp_params = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S]
 
-        return [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S, alpha_2L1S]
+        # Calculate alpha
+        alpha_2L1S = np.degrees(np.arctan(diff_u0 * t_E_2L1S / diff_t0))
+        self._check_u_0_and_alpha(alpha_2L1S)
 
     def round_params_and_save(self, params, between_or_beyond):
         """

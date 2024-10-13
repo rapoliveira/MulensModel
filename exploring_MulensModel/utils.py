@@ -315,10 +315,12 @@ class Utils(object):
                 Data with the model subtracted, point by point.
         """
         bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
-        fix_source = {data: [best[p] for p in best if 'flux_s' in p]}
+        source_list = [best[p] for p in best if 'flux_s' in p]
+        fix_source = {data: source_list} if source_list else None
+        fix_blend = {data: best['flux_b_1']} if 'flux_b_1' in best else None
         event_1L2S = mm.Event(data, model=mm.Model(bst),
                               fix_source_flux=fix_source,
-                              fix_blend_flux={data: best['flux_b_1']})
+                              fix_blend_flux=fix_blend)
         event_1L2S.get_chi2()
 
         return event_1L2S
