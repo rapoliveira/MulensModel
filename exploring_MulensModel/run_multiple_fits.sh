@@ -7,7 +7,6 @@
 #         - task2: Fit 1L2S models with UltraNest for multiple events.
 #         - task3: Fit 2L1S models with UltraNest for multiple events.
 
-# Check if an argument is provided
 if [ $# -eq 0 ]; then
     echo "No arguments provided. Options are: task1, task2, or task3."
     exit 1
@@ -15,15 +14,16 @@ fi
 
 ARG=$1
 python_script="../examples/example_16/ulens_model_fit.py"
+project_name="OGLE-evfinder"
 
 if [ "$ARG" == "task1" ]; then
-    DIRECTORY="./OGLE-evfinder/yaml_files_2L1S"
+    DIRECTORY="./$project_name/yaml_files_2L1S"
     yaml_files=$(ls "$DIRECTORY"/*.yaml | sort)
 elif [ "$ARG" == "task2" ]; then
-    DIRECTORY="./OGLE-evfinder/ultranest_1L2S"
+    DIRECTORY="./$project_name/ultranest_1L2S"
     yaml_files=$(ls "$DIRECTORY"/*-1L2S_UltraNest.yaml | sort)
 elif [ "$ARG" == "task3" ]; then
-    DIRECTORY="./OGLE-evfinder/ultranest_2L1S"
+    DIRECTORY="./$project_name/ultranest_2L1S"
     yaml_files=$(ls "$DIRECTORY"/*-2L1S_UltraNest.yaml | sort)
 else
     echo "Invalid argument. Please use: task1, task2, or task3."

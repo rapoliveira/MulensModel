@@ -7,13 +7,13 @@ The main script is [fit_binary_source.py](https://github.com/rapoliveira/MulensM
 - [save_results_binary_source.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/save_results_binary_source.py): generates the final outputs, including figures, chains and YAML files with results;
 - [prepare_binary_lens.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/prepare_binary_lens.py): prepares the YAML input for 2L1S fitting.
 
-Projects like "OGLE-evfinder" and "W16-59events" are organized into separate folders, each containing subfolders for photometry data and results. Use "project-name" folder to setup a new project, where you can edit the input YAML file ([1L2S_project-name.yaml](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/project-name/1L2S_project-name.yaml)) and the optional table with [peak times](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/project-name/t_peaks-file.dat), as well as adding more photometry files.
+Projects like "OGLE-evfinder" and "W16-59events" are organized into separate folders, each containing subfolders for photometry data and results. The folder "project-name" can be used to setup a new project, by editing the input YAML file ([1L2S_project-name.yaml](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/project-name/1L2S_project-name.yaml)) and the optional table with [peak times](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/project-name/t_peaks-file.dat), as well as adding more photometry files.
 
 ## Usage for binary source (1L2S) fitting
 
 ```
-> cd exploring_MulensModel/
-> python3 fit_binary_source.py OGLE-evfinder/1L2S_project-name.yaml
+$ cd exploring_MulensModel/
+$ python3 fit_binary_source.py OGLE-evfinder/1L2S_project-name.yaml
 ```
 
 The configuration of the YAML file is as follows.
@@ -31,9 +31,23 @@ The rest of the YAML file is formatted as in example_16 except for the key `addi
 
 ## Usage for binary lens (2L1S) fitting and others
 
-Simplify a lot, refer to example_16. Mention the bash script like [run_multiple_fits.sh](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/run_multiple_fits.sh) can be used to run EMCEE or UltraNest for several events at once.
+All subsequent fittings with EMCEE and UltraNest are carried out with the UlensModelFit class. An example to run a single 2L1S fitting is given below. The bash script [run_multiple_fits.sh](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/run_multiple_fits.sh) contain options to run several fits at once.
 
-*Explain [generate_ultranest_files.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/OGLE-evfinder/generate_ultranest_files.py) (add check for negative t_E) and [combine_1L2S_2L1S_results.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/OGLE-evfinder/combine_1L2S_2L1S_results.py) scripts... Change everything for the example project, after adding the simulated data from example_11.*
+```
+$ cd exploring_MulensModel/
+$ yaml_path="project-name/yaml_files_2L1S/example_11_OGLE-2L1S_traj_between.yaml"
+$ python3 ../examples/example_16/ulens_model_fit.py $yaml_path
+```
+
+In the case of "OGLE-evfinder" project, two more scripts are applied.
+The script [generate_ultranest_files.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/OGLE-evfinder/generate_ultranest_files.py) generates input files for UltraNest and is called with the path to photometry files and number of sigma around the EMCEE solution.
+The script [combine_1L2S_2L1S_results.py](https://github.com/rapoliveira/MulensModel/blob/develop/exploring_MulensModel/OGLE-evfinder/combine_1L2S_2L1S_results.py) combines the 1L2S and 2L1S results into a final table.
+
+```
+$ cd exploring_MulensModel/OGLE-evfinder/
+$ python3 generate_ultranest_files.py phot/phot_obvious 5
+$ python3 combine_1L2S_2L1S_results.py
+```
 
 ## To-Do List (Raphael)
 - [X] Improve fixed value of blending_flux in the yaml input
@@ -51,7 +65,7 @@ Simplify a lot, refer to example_16. Mention the bash script like [run_multiple_
 - [X] **URGENT:** Solve stuck EMCEE chains using blending flux...
 - [X] Write priors setup to yaml files: 1L2S results and input file for 2L1S
 - [X] Speed-up the saving of the chains with h5py and npy*
-- [X] Write instructions to run and improve README, with examples (**1/2 done**)
+- [X] Write instructions to run and improve README, with examples
 - [X] Limit to u_0 > 0 also in 2L1S: change alpha by 180 if initial u_0 < 0 (see Skowron+2011)
 - [ ] [...]
 
@@ -64,4 +78,4 @@ Simplify a lot, refer to example_16. Mention the bash script like [run_multiple_
 - [ ] Check if there is a second peak above 3 sigma to go for 1L2S...
 - [ ] Include and test all cases, including those with a single peak or skewed(?)
 
-Last updated: 10 Oct 2024
+Last updated: 15 Oct 2024

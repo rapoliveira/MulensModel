@@ -6,7 +6,6 @@ import os
 import sys
 import yaml
 
-from astropy.table import Table, Column
 import corner
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.gridspec import GridSpec
@@ -31,11 +30,38 @@ from utils import Utils
 class SaveResultsBinarySource(UlensModelFit):
     """
     Class to save figures and tables with the results of the fitting to
-    a binary source event.
-    It is a subclass of UlensModelFit, from example_16.
+    a binary source event. This script cannot be called as main code, as
+    it is very unlikely that someone will input the chains and everything
+    necessary to save the results.
+    It is a subclass of UlensModelFit, from example_16. The parameters
+    declared in UlensModelFit and FitBinarySource (`additional_inputs`)
+    are skipped in the description given below.
 
     Parameters :
-        [...]
+        datasets: *list*
+            List with the data of the event. Only the first item is used,
+            because a single OGLE datafile is provided.
+
+        event_id: *str*
+            Event identifier, in the format 'BLG<field>_<chip>_<obj>_OGLE'.
+
+        res_pspl_1: *list*
+            List with the results of the PSPL fit to the first peak of the
+            light curve. The list contains: a dictionary with the best
+            parameters, the EMCEE sampler, chain states, the percentiles
+            of 1sigma (16th, 50th and 84th), and a dataset with the data
+            fitted with the PSPL model.
+
+        res_pspl_2: *list*
+            Same as `res_pspl_1`, but for the second peak.
+
+        res_1l2s: *list*
+            Same as `res_pspl_1`, but for the fitted 1L2S model.
+
+        time_min_flux: *float*
+            Time of the minimum flux of the event, located between the
+            two peaks. It is used to divide the light curve in two parts,
+            which are fitted separately with PSPL.
     """
 
     def __init__(self, photometry_files, plots, **kwargs):
@@ -113,10 +139,10 @@ class SaveResultsBinarySource(UlensModelFit):
 
     def _prepare_file_names(self):
         """
-        Add event_id to the names of `plots` and `other_output`, just in
-        the cases they contain '{}'.
+        Add event_id to the names of `plots` and `other_output`, in the
+        cases they contain the placeholder '{}'.
         If `models` value has h5 format, it is removed from `other_output`
-        because the chains were already during the fitting.
+        because the chains were already saved during the fitting.
         """
         names_dict = [
             (self._all_plots, 'file'),
@@ -151,7 +177,9 @@ class SaveResultsBinarySource(UlensModelFit):
 
     def _make_pdf_plots(self, results_states, data):
         """
-        Make three plots: tracer plot, corner plot and best model.
+        Make three plots: tracer plot, corner plot and best model. The
+        variable `pspl_fix` is used to check if the PSPL model has the
+        blending_flux fixed or not.
 
         Keywords :
             results_states: *tuple*
@@ -160,17 +188,18 @@ class SaveResultsBinarySource(UlensModelFit):
                 percentiles.
 
             data: *mm.MulensData*
-                Data instance of a single event.
+                Data instance of a single event. It needs to be passed,
+                because data other than self._datasets[0] are plotted, such
+                as the subtracted data fitted with PSPL.
 
         Returns :
             cplot: *matplotlib.figure.Figure*
-                Instante of the corner plot, so it can be reused.
+                Instance of the corner plot, so it can be reused.
         """
         best, sampler, states = results_states[:-1]
         self._fix_blend = self._additional_inputs['fix_blend']
         self._n_burn = self._fitting_parameters_in['n_burn']
 
-        # Check: PSPL with blending_flux fixed or binary
         pspl_fix = (self._fix_blend is not False) and (len(best) != 8)
         c_states = states[:, :-2] if pspl_fix else states[:, :-1]
         params = list(best.keys())[:-1] if pspl_fix else list(best.keys())
@@ -239,7 +268,7 @@ class SaveResultsBinarySource(UlensModelFit):
         the subtracted one.
 
         Keywords :
-            best: *np.array*
+            best: *np.ndarray*
                 Contain the best combination of parameters fitted to the
                 data: for PSPL (3+2 params) or 1L2S (5+3 params).
 
@@ -328,9 +357,6 @@ class SaveResultsBinarySource(UlensModelFit):
             lst, aux_dict = self._organizing_yaml_content()
             self._write_yaml_output(lst, aux_dict)
 
-        if 'table output' in self._additional_inputs:
-            self._write_results_table()
-
     def _write_models_table(self):
         """
         Write table with all the simulated chains, with the likelihood as
@@ -404,41 +430,6 @@ class SaveResultsBinarySource(UlensModelFit):
         with open(yaml_fname, 'w') as yaml_results:
             yaml_results.write(self._yaml_results)
 
-    def _write_results_table(self):
-        """
-        Write the results to a table, saving the results of the best model
-        for each event. The table is read, the data of the event is updated
-        and then written again.
-
-        NOTE: This function still needs to be tested...
-        """
-        input_dict = self._additional_inputs['table output']
-        fname, columns, dtypes = input_dict.values()
-        fname = os.path.join(self.path, fname)
-
-        if not os.path.isfile(fname):
-            res_tab = Table()
-            for col, dtype in zip(columns, dtypes):
-                res_tab[col] = Column(name=col, dtype=dtype)
-        else:
-            res_tab = Table.read(fname, format='ascii')
-
-        name = self._event_id
-        best_items = list(self._res_1l2s[0].items())
-        bst = dict(item for item in best_items if 'flux' not in item[0])
-        bst_values = [round(val, 5) for val in bst.values()]
-        lst = bst_values+[0., 0.] if len(bst) == 3 else bst_values
-        deg_of_freedom = self._datasets[0].n_epochs - len(bst)
-        lst = [name] + lst + [round(self._event.chi2, 4), deg_of_freedom]
-        if name in res_tab['id']:
-            idx_event = np.where(res_tab['id'] == name)[0]
-            if res_tab[idx_event]['chi2'] > lst[-2]:
-                res_tab[idx_event] = lst
-        else:
-            res_tab.add_row(lst)
-        res_tab.sort('id')
-        res_tab.write(fname, format="ascii.commented_header", overwrite=True)
-
     def call_prepare_binary_lens(self):
         """
         Call class that prepares the binary lens model, using the results
@@ -454,14 +445,3 @@ class SaveResultsBinarySource(UlensModelFit):
         stg.pop("Mean autocorrelation time [steps]")
         new_stg = {k.lower().replace(' ', '_'): v for k, v in stg.items()}
         PrepareBinaryLens(**new_stg)
-
-
-if __name__ == '__main__':
-
-    if len(sys.argv) != 2:
-        raise ValueError('Exactly one argument needed - YAML file')
-    with open(sys.argv[1], 'r', encoding="utf-8") as yaml_input:
-        all_settings = yaml.safe_load(yaml_input)
-
-    # it is unlikely that someone will input everything necessary to save.
-    raise NotImplementedError("This code cannot be called as main code.")

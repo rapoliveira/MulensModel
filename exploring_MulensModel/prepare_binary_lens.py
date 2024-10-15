@@ -21,38 +21,43 @@ from utils import Utils
 class PrepareBinaryLens(object):
     """
     Class to calculate the initial parameters and prepare the YAML files to
-    be used as input in binary lens (2L1S) fitting. Two files are produced,
-    one for the trajectory between the lenses and another for the trajectory
-    beyond the lenses.
+    be used as input in binary lens (2L1S) fitting.
+    Two files are produced, one for the trajectory between the lenses and
+    another for the trajectory beyond the lenses.
 
-    It uses as attributes the results of the binary source (1L2S) fitting
+    It uses as parameters the results of the binary source (1L2S) fitting
     and the two PSPL models.
-
     It can be imported with the required attributes or called as standalone
-    code with a YAML file (1L2S result) via the command line.
+    code with a YAML file (1L2S result) as described below.
 
-    Usage:
+    Usage :
         python3 prepare_binary_lens.py <path>/<id>_results_1L2S.yaml
 
-    Attributes :
+    Parameters :
         path_orig_settings: *str*
             path to the original settings YAML file, which contains the
             input information for the 1L2S fitting
+
         pspl_1, pspl_2: *list*
             lists of the PSPL models fitted separately, which will be used
             to get the initial parameters for the 2L1S model
+
         xlim: *list*
             list of the lower and upper limits for the x-axis in the plot,
             used here to set the limits for point_source model
+
         fitted_parameters: *dict*
             median and 1-sigma errors for the fitted parameters (t_0_1,
             u_0_1, t_0_2, u_0_2, t_E), from the 1L2S fitting
+
         fitted_fluxes: *dict*
             median and 1-sigma errors for the fitted fluxes (source_flux_1,
             source_flux_2, blending_flux)
+
         best_model: *dict*
             dictionary with information about the model with minimum chi2,
             should contain chi2, dof, Parameters and Fluxes
+
         fit_constraints: *dict*, optional
             dictionary with the fit constraints, allowing only the sigma
             for negative blending flux and t_E prior
@@ -86,7 +91,7 @@ class PrepareBinaryLens(object):
 
     def get_paths_and_orig_settings(self):
         """
-        Get the paths and original settings from the YAML file.
+        Get the paths and original settings from the input YAML file.
         """
         self.path = os.path.dirname(os.path.realpath(__file__))
         yaml_path = os.path.dirname(os.path.realpath(sys.argv[1]))
@@ -140,7 +145,7 @@ class PrepareBinaryLens(object):
         """
         Get the filenames and templates for the two YAML files: trajectories
         between and beyond the lenses. A template to obtain the plots (using
-        UlensModelFit) is also recorded.
+        UlensModelFit) is also assigned to a variable.
         """
         yaml_2L1S = self.settings['additional_inputs']['yaml_files_2L1S']
         yaml_dir = yaml_2L1S['yaml_dir_name']
@@ -161,21 +166,22 @@ class PrepareBinaryLens(object):
 
     def get_initial_params_traj_between(self):
         """
-        Get the initial parameters for the trajectory between the lenses.
-        PSPL lists contain: t_0, u_0, t_E, source_flux, blending_flux.
+        Get the initial parameters for the trajectory between the lenses,
+        using the two PSPL results. As a first step, the PSPL values are
+        inverted if t_E_2 > t_E_1 to avoid q > 1. Some auxiliary variables
+        are created to calculate s and alpha.
+
+        The PSPL lists contain: t_0, u_0, t_E, source_flux, blending_flux.
         """
-        # Invert PSPL values if t_E_2 > t_E_1, to avoid q > 1
         if (self.pspl_2[2] / self.pspl_1[2]) ** 2 > 1.:
             self.pspl_1, self.pspl_2 = self.pspl_2, self.pspl_1
 
-        # Calculate t_0, u_0, t_E and q for the 2L1S model
         q_2L1S = (self.pspl_2[2] / self.pspl_1[2]) ** 2
         q_2L1S = max(q_2L1S, 1e-5)
         t_0_2L1S = (q_2L1S * self.pspl_2[0] + self.pspl_1[0]) / (1 + q_2L1S)
         u_0_2L1S = (q_2L1S * self.pspl_2[1] - self.pspl_1[1]) / (1 + q_2L1S)
         t_E_2L1S = np.sqrt(self.pspl_1[2]**2 + self.pspl_2[2]**2)
 
-        # Calculate s with some auxiliary variables
         sum_u0 = self.pspl_1[1] + self.pspl_2[1]
         diff_t0 = self.pspl_2[0] - self.pspl_1[0]
         s_prime = np.sqrt((diff_t0 / t_E_2L1S)**2 + sum_u0**2)
@@ -183,19 +189,21 @@ class PrepareBinaryLens(object):
         s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
         self._temp_params = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S]
 
-        # Calculate alpha
         alpha_2L1S = np.degrees(np.arctan(sum_u0 * t_E_2L1S / diff_t0))
         self._check_u_0_and_alpha(alpha_2L1S)
 
     def _check_u_0_and_alpha(self, alpha):
         """
-        If u_0 < 0, the binary lens degeneracy from Skowron et al. (2011)
-        is applied inverting the sign of u_0 and alpha.add()
-        If alpha is out of the range [0, 360), it is changed to the correct
-        value using the operator %. The solutions will probably be in the
-        ranges [0, 90) or [270, 360).
+        The u_0 and alpha values are checked and corrected if necessary,
+        as described in the following items:
 
-        UPDATE DOCSTRINGS...
+        - Negative u_0 values are not avoided. If u_0 < 0, the binary lens
+        degeneracy from Skowron et al. (2011) is applied to invert the sign
+        of u_0 and alpha.
+        - If alpha is out of the range [0, 360), it is changed to the correct
+        value using the modulo operator (%).
+        - Two values of alpha are tested (alpha and 180 + alpha) and the
+        one with the lowest chi2 is selected.
         """
         if self._temp_params[1] < 0.:
             self._temp_params[1] *= -1.
@@ -204,13 +212,11 @@ class PrepareBinaryLens(object):
             alpha_1 = alpha % 360.
         alpha_2 = (180. + alpha_1) % 360.
 
-        # testing alpha_1 (add it to the docstrings...)
         data = mm.MulensData(**self.phot_settings)
         m_dict = dict(zip(['t_0', 'u_0', 't_E', 's', 'q'], self._temp_params))
         m_dict['alpha'] = alpha_1
         event_1 = Utils.get_mm_event(data, m_dict)
 
-        # testing alpha_2 and selecting the lowest chi2
         m_dict['alpha'] = alpha_2
         event_2 = Utils.get_mm_event(data, m_dict)
         alpha = alpha_1 if event_1.chi2 < event_2.chi2 else alpha_2
@@ -220,31 +226,26 @@ class PrepareBinaryLens(object):
         """
         Change u_0, s and alpha of the 2L1S model between the lenses, in
         order to get the trajectory beyond the lenses.
+        The other three parameters (t_0, t_E and q) remain unchanged.
         """
-        # Get t_0, t_E and q, which remain unchanged
         t_0_2L1S, t_E_2L1S, q_2L1S = self._temp_params[::2]
-
-        # Calculate u_0 and alpha for the 2L1S model
         u_0_2L1S = -(self.pspl_1[1] + q_2L1S * self.pspl_2[1]) / (1 + q_2L1S)
-        diff_u0 = abs(self.pspl_1[1] - self.pspl_2[1])
-        diff_t0 = self.pspl_2[0] - self.pspl_1[0]
 
-        # Calculate s for the 2L1S model
+        diff_t0 = self.pspl_2[0] - self.pspl_1[0]
+        diff_u0 = abs(self.pspl_1[1] - self.pspl_2[1])
         s_prime = np.sqrt((diff_t0/t_E_2L1S)**2 + diff_u0**2)
         factor = 1 if s_prime + np.sqrt(s_prime**2 + 4) > 0. else -1
         s_2L1S = (s_prime + factor*np.sqrt(s_prime**2 + 4)) / 2.
         self._temp_params = [t_0_2L1S, u_0_2L1S, t_E_2L1S, s_2L1S, q_2L1S]
 
-        # Calculate alpha
         alpha_2L1S = np.degrees(np.arctan(diff_u0 * t_E_2L1S / diff_t0))
         self._check_u_0_and_alpha(alpha_2L1S)
 
     def round_params_and_save(self, params, between_or_beyond):
         """
         Round the parameters to five decimal places (except for t_0 and t_E,
-        which are rounded to two decimal places) and save them in the YAML
-        file. The best model and trajectory plots are also saved using the
-        UlensModelFit class.
+        rounded to two decimal places) and save them in the YAML file.
+        Two plots are also saved using the UlensModelFit class.
         """
         round_dec = (2, 5, 2, 5, 5, 5)
         lst = [round(param, round_dec[i]) for i, param in enumerate(params)]

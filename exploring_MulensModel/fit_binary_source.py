@@ -21,9 +21,9 @@ try:
     from ulens_model_fit import UlensModelFit
 except ImportError as err:
     print(err)
-    print("Please install MulensModel in editable mode (-e) from within the"
+    print("Please install MulensModel in editable mode (-e) from within the "
           "directory cloned from GitHub. This will allow to import the class"
-          "UlensModelFit from example_16.")
+          " UlensModelFit from example_16.")
     sys.exit(1)
 from utils import Utils
 
@@ -35,8 +35,8 @@ class FitBinarySource(UlensModelFit):
 
     It is a child class of UlensModelFit from example_16, using several of
     its functions to check and parse inputs, setup the EMCEE fitting and
-    parse the results. Additional functions (child methods) are used to
-    read the data, setup PSPL fits and run EMCEE with blobs.
+    parse the results. Additional functions are used to read the data, setup
+    PSPL fits and run EMCEE with blobs.
 
     Parameters :
         additional_inputs: *dict*
@@ -49,15 +49,15 @@ class FitBinarySource(UlensModelFit):
             The file should have columns with the names 'obj_id', 't_peak'
             and 't_peak_2' (see event_finder_modif).
 
-            ``'fix_blend'`` - fix blending flux to a given value; if *False*,
+            ``'fix_blend'`` - fix blending flux to given value; if *False*,
             the blending flux is fitted.
 
-            ``'sigmas'`` - list of sigma values used to find starting values
-            for EMCEE. The first value is used for the first PSPL fit and the
-            second for the 1L2S fit.
+            ``'sigmas'`` - list of sigma values that provide starting values
+            for EMCEE. The first item is used for PSPL fits and the second
+            for the 1L2S fit.
 
             ``'ans'`` - select which method to get the final solution from
-            the EMCEE posteriors. If *'max_prob'*, the model with the highest
+            EMCEE posteriors. If *'max_prob'*, the model with the highest
             probability is used; if *'median'*, the median values are used.
 
             ``'yaml_files_2L1S'`` - dictionary with information about the
@@ -85,17 +85,17 @@ class FitBinarySource(UlensModelFit):
 
     def read_data(self):
         """
-        Read catalogue or list of catalogues and create MulensData instance.
+        Read catalogue(s) and create MulensData instance(s).
         """
         self.phot_fmt = self.photometry_files_orig[0]['phot_fmt']
         phot_settings_aux = self.photometry_files_orig[0].copy()
-        dir_file = os.path.join(self.path, phot_settings_aux.pop('file_name'))
+        cat_path = os.path.join(self.path, phot_settings_aux.pop('file_name'))
 
-        if os.path.isdir(dir_file):
-            fnames = [f for f in os.listdir(dir_file) if not f.startswith('.')]
-            fnames = [os.path.join(dir_file, f) for f in fnames]
-        elif os.path.isfile(dir_file):
-            fnames = [dir_file]
+        if os.path.isdir(cat_path):
+            lst = os.listdir(cat_path)
+            fnames = [os.path.join(cat_path, f) for f in lst if f[0] != '.']
+        elif os.path.isfile(cat_path):
+            fnames = [cat_path]
         else:
             raise RuntimeError(f'Photometry file(s) {fnames} not available.')
         self.file_names = sorted(fnames)
@@ -197,14 +197,14 @@ class FitBinarySource(UlensModelFit):
 
     def _get_peak_times(self):
         """
-        Get the peak times from the input file.
+        Get the peak times from the input `t_peaks` file.
         """
         if self.t_peaks_in is False:
             self.t_peaks, self.t_peaks_orig = [], []
             return
 
         tab = Table.read(self.t_peaks_in, format='ascii')
-        event = self.event_id.replace('_OGLE', '')  # .replace('_', '.')
+        event = self.event_id.replace('_OGLE', '')
         line = tab[tab['obj_id'] == event]
         self.t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
         self.t_peaks_orig = self.t_peaks.copy()
@@ -213,7 +213,7 @@ class FitBinarySource(UlensModelFit):
         """
         Quick minimization of PSPL models, first with original data and
         then with data subtracted from the first fit.
-        These auxiliary functions are all stored in utils.py.
+        Auxiliary functions are all stored in utils.py.
         """
         self.t_E_init = Utils.guess_initial_t_E(self.t_E_prior)
         self.fix_blend = Utils.check_blending_flux(
@@ -228,8 +228,8 @@ class FitBinarySource(UlensModelFit):
 
     def _set_starting_params_emcee(self, dict_start):
         """
-        Set starting parameters for the EMCEE fitting. The three functions
-        in the second block are from UlensModelFit class.
+        Set starting parameters for the EMCEE fitting.
+        The functions in the second block are from UlensModelFit class.
         """
         self._starting_parameters_input = {}
         for idx, (key, val) in enumerate(dict_start.items()):
@@ -298,9 +298,8 @@ class FitBinarySource(UlensModelFit):
         """
         Apply all the priors (minimum, maximum, distributions), returning
         -np.inf if parameters are outside the bounds.
-        The model parameters are set here, after a check if the proposed
-        values are inside the bounds. The function get_chi2() calculates
-        both chi2 (used in _ln_like) and fluxes.
+        The model parameters are set here, after check_bounds. The function
+        get_chi2() calculates chi2 (used in _ln_like) and fluxes.
         """
         ln_prior_flux, ln_prior_t_E = 0., 0.
         bounds = self._check_bounds_prior(theta)
@@ -334,7 +333,7 @@ class FitBinarySource(UlensModelFit):
     def _ln_prob(self, theta):
         """
         Combines likelihood value and priors for a given set of parameters.
-        The parameter theta is an array with the chain parameters to sample
+        The argument theta is an array with the chain parameters to sample
         the likelihood + prior.
         Returns the logarithm of the probability and fluxes.
         """
@@ -397,8 +396,7 @@ class FitBinarySource(UlensModelFit):
         """
         Get initial state for walkers and run EMCEE sampler.
 
-        NOTE: The multiprocessing library was tested but it speeds-up the
-        code very little, specially in Linux systems.
+        NOTE: Multiprocessing was not effective, specially in Linux.
         """
         self._set_n_fluxes()
         rand_sample = np.random.randn(self._n_walkers, self._n_fit_parameters)
@@ -530,7 +528,7 @@ class FitBinarySource(UlensModelFit):
         start = Utils.guess_pspl_params(
             self._datasets[0], t_E_prior=self.t_E_prior)[0]
         if not data_1.time.min() <= start['t_0'] <= data_1.time.max():
-            data_1, data_2 = data_2, data_1  # e.g. BLG611.09.12112
+            data_1, data_2 = data_2, data_1
 
         # 1st PSPL (data_left or brighter)
         self._setup_and_run_emcee(data_1, start)

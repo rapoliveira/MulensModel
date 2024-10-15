@@ -1,5 +1,8 @@
 """
-Write documentation later...
+Short script to generate the yaml input files for the UltraNest fitting,
+using the EMCEE results as input.
+The script is called with path to the directory containing the photometry
+files and the number of sigma to use for the limits of the parameters.
 """
 import os
 import sys
@@ -10,7 +13,10 @@ import numpy as np
 
 def get_1L2S_params(path, diff_path, obj_id, n_sigma):
     """
-    Get the parameters from the 1L2S model.
+    Get the parameters from the fitted 1L2S model.
+    A list is returned with the path to the photometry file, the limits for
+    each parameter, the path to save the UltraNest results, and the event
+    identifier.
     """
     results_file = 'results_1L2S/yaml_results/{:}_results.yaml'
     results_file = os.path.join(path, results_file.format(obj_id))
@@ -34,7 +40,9 @@ def get_1L2S_params(path, diff_path, obj_id, n_sigma):
 
 def get_2L1S_params(path, diff_path, obj_id, n_sigma):
     """
-    Get the parameters from the 2L1S model.
+    Get the parameters from the 2L1S model, selecting the smaller chi2
+    between the trajectory `between` and `beyond` the lenses.
+    A similar list to get_1L2S_params() is returned.
     """
     results_file = 'results_2L1S/{:}_2L1S_all_results_{:}.yaml'
     fname_1 = os.path.join(path, results_file.format(obj_id, 'between'))
@@ -78,8 +86,7 @@ def get_xlim(path, obj_id):
 
 def save_yaml_inputs(path, obj_id, list_1L2S, list_2L1S):
     """
-    Save the yaml input for the 1L2S and 2L1S model, using UltraNest.
-    Also create a directory with the name of obj_id.
+    Save yaml inputs for the 1L2S and 2L1S model, to apply UltraNest.
     """
     with open('template_1L2S_UltraNest.yaml', 'r', encoding='utf-8') as t_file:
         temp_UN = t_file.read()
@@ -123,10 +130,8 @@ if __name__ == '__main__':
         raise ValueError('Input is neither a file nor a directory.')
 
     n_sigma = float(sys.argv[2]) if len(sys.argv) > 2 else 5
-    print("n_sigma =", n_sigma)
     for obj_id in obj_list:
         # for obj_id in obj_list[13:14]:  # [:1], [12:14]
-        print("Doing for", obj_id)
         list_1L2S = get_1L2S_params(path, diff_path, obj_id, n_sigma)
         list_2L1S = get_2L1S_params(path, diff_path, obj_id, n_sigma)
         model_methods, xlim = get_xlim(path, obj_id)
@@ -134,3 +139,4 @@ if __name__ == '__main__':
         list_2L1S[7], list_2L1S[-1] = model_methods, xlim
         save_yaml_inputs(path, obj_id, list_1L2S, list_2L1S)
         create_results_dir(path, obj_id)
+        print("Done for", obj_id)
