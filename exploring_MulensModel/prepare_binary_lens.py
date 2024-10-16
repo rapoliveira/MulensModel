@@ -197,7 +197,7 @@ class PrepareBinaryLens(object):
         The u_0 and alpha values are checked and corrected if necessary,
         as described in the following items:
 
-        - Negative u_0 values are not avoided. If u_0 < 0, the binary lens
+        - Negative u_0 values are avoided. In this case, the binary lens
         degeneracy from Skowron et al. (2011) is applied to invert the sign
         of u_0 and alpha.
         - If alpha is out of the range [0, 360), it is changed to the correct
@@ -215,10 +215,10 @@ class PrepareBinaryLens(object):
         data = mm.MulensData(**self.phot_settings)
         m_dict = dict(zip(['t_0', 'u_0', 't_E', 's', 'q'], self._temp_params))
         m_dict['alpha'] = alpha_1
-        event_1 = Utils.get_mm_event(data, m_dict)
+        event_1 = Utils.get_mm_event(data, m_dict, self.xlim_str)
 
         m_dict['alpha'] = alpha_2
-        event_2 = Utils.get_mm_event(data, m_dict)
+        event_2 = Utils.get_mm_event(data, m_dict, self.xlim_str)
         alpha = alpha_1 if event_1.chi2 < event_2.chi2 else alpha_2
         self._temp_params.append(alpha)
 

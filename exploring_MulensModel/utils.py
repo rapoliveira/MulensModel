@@ -297,7 +297,7 @@ class Utils(object):
         return results[1], t_peaks
     run_scipy_minimize = staticmethod(run_scipy_minimize)
 
-    def get_mm_event(data, best):
+    def get_mm_event(data, best, xlim=None):
         """
         Get an instance of mm.Event for a PSPL or binary source event,
         using the `data` and `best` parameters.
@@ -310,16 +310,25 @@ class Utils(object):
                 Combination of parameters that maximize the likelihood,
                 including the source and blending fluxes.
 
+            xlim: *list* or *None*
+                List* with the time limits to set a different magnification
+                method, in the case of binary lens model.
+
         Returns :
             event_1L2S: *MulensModel.event.Event*
                 Data with the model subtracted, point by point.
         """
         bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
+        model = mm.Model(bst)
+        if model.n_lenses == 2 and xlim is not None:
+            model.set_default_magnification_method('point_source_point_lens')
+            methods_lst = [float(xlim[0]), 'point_source', float(xlim[1])]
+            model.set_magnification_methods(methods_lst)
+
         source_list = [best[p] for p in best if 'flux_s' in p]
         fix_source = {data: source_list} if source_list else None
         fix_blend = {data: best['flux_b_1']} if 'flux_b_1' in best else None
-        event_1L2S = mm.Event(data, model=mm.Model(bst),
-                              fix_source_flux=fix_source,
+        event_1L2S = mm.Event(data, model=model, fix_source_flux=fix_source,
                               fix_blend_flux=fix_blend)
         event_1L2S.get_chi2()
 

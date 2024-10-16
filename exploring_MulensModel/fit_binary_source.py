@@ -97,7 +97,7 @@ class FitBinarySource(UlensModelFit):
         elif os.path.isfile(cat_path):
             fnames = [cat_path]
         else:
-            raise RuntimeError(f'Photometry file(s) {fnames} not available.')
+            raise RuntimeError(f'Check name of photometry file: {cat_path}.')
         self.file_names = sorted(fnames)
 
         self.data_list = []

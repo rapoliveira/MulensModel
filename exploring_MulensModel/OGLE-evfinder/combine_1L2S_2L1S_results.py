@@ -127,7 +127,7 @@ def fill_table(method, dir_1, dir_2, event_ids):
     return tab
 
 
-def final_setup_and_save_table(tab):
+def final_setup_and_save_table(tab, method):
     """
     Final setup of the table and save it to a text file.
     The column sig_t_E_2 is moved to the 15th position, in order to be
@@ -145,6 +145,9 @@ def final_setup_and_save_table(tab):
                  "  chi2_1L2S  ln_ev_1L2S  t_0         u_0       t_E_2L1S" + \
                  "  sig_t_E_2  s       q        alpha   bflux_2L1S  " + \
                  "sig_bflux_2  chi2_2L1S  ln_ev_2L1S\n"
+    if method.lower() == "emcee":
+        new_header = new_header.replace('ln_ev_1L2S  ', '')
+        new_header = new_header.replace('ln_ev_2L1S', '')
     with open(f'{path}/comp_1L2S_2L1S.txt', 'r+') as file:
         lines = file.readlines()
         if lines:
@@ -168,5 +171,5 @@ if __name__ == '__main__':
     event_ids = [f.split('-1L2S')[0] for f in os.listdir(dir_1)
                  if f[0] != '.' and f.endswith(".yaml")]
 
-    tab = fill_table(method, dir_1, dir_2, sorted(event_ids))
-    final_setup_and_save_table(tab)
+    tab = fill_table(method, dir_1, dir_2, sorted(event_ids)[3:])
+    final_setup_and_save_table(tab, method)
