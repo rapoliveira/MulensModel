@@ -197,13 +197,12 @@ class PrepareBinaryLens(object):
         The u_0 and alpha values are checked and corrected if necessary,
         as described in the following items:
 
-        - Negative u_0 values are avoided. In this case, the binary lens
-        degeneracy from Skowron et al. (2011) is applied to invert the sign
-        of u_0 and alpha.
+        - Negative u_0 is avoided: binary lens degeneracy from Skowron et al.
+        (2011) is applied to invert the sign of u_0 and alpha.
         - If alpha is out of the range [0, 360), it is changed to the correct
         value using the modulo operator (%).
-        - Two values of alpha are tested (alpha and 180 + alpha) and the
-        one with the lowest chi2 is selected.
+        - Four values of alpha are tested (alpha, 180 + alpha and negative)
+        and the one with the lowest chi2 is selected.
         """
         if self._temp_params[1] < 0.:
             self._temp_params[1] *= -1.
@@ -214,13 +213,16 @@ class PrepareBinaryLens(object):
 
         data = mm.MulensData(**self.phot_settings)
         m_dict = dict(zip(['t_0', 'u_0', 't_E', 's', 'q'], self._temp_params))
-        m_dict['alpha'] = alpha_1
-        event_1 = Utils.get_mm_event(data, m_dict, self.xlim_str)
+        alpha_list = [alpha_1, alpha_2, -alpha_1 % 360., -alpha_2 % 360.]
+        best_alpha, best_chi2 = None, float('inf')
+        for alpha in alpha_list:
+            m_dict['alpha'] = alpha
+            chi2 = Utils.get_mm_event(data, m_dict, self.xlim_str).chi2
+            if chi2 < best_chi2:
+                best_chi2 = chi2
+                best_alpha = alpha
 
-        m_dict['alpha'] = alpha_2
-        event_2 = Utils.get_mm_event(data, m_dict, self.xlim_str)
-        alpha = alpha_1 if event_1.chi2 < event_2.chi2 else alpha_2
-        self._temp_params.append(alpha)
+        self._temp_params.append(best_alpha)
 
     def get_initial_params_traj_beyond(self):
         """
