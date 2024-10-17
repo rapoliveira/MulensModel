@@ -11,62 +11,21 @@ import yaml
 import numpy as np
 
 
-def get_1L2S_params(path, diff_path, obj_id, n_sigma):
+def get_obj_list(files_dir):
     """
-    Get the parameters from the fitted 1L2S model.
-    A list is returned with the path to the photometry file, the limits for
-    each parameter, the path to save the UltraNest results, and the event
-    identifier.
+    Get the list of objects to process, from a directory or a single file.
     """
-    results_file = 'results_1L2S/yaml_results/{:}_results.yaml'
-    results_file = os.path.join(path, results_file.format(obj_id))
-    with open(results_file, 'r', encoding='utf-8') as data:
-        results_1L2S = yaml.safe_load(data)
+    if os.path.isdir(files_dir):
+        obj_list = [f for f in os.listdir(files_dir) if f[0] != '.']
+        obj_list = [item.split('.')[0] for item in sorted(obj_list)]
+        return files_dir, obj_list
 
-    list_1L2S = [os.path.join(diff_path, sys.argv[1], obj_id + '.dat')]
-    best_vals = results_1L2S['Best model']['Parameters'].values()
-    perc_vals = results_1L2S['Fitted parameters'].values()
-    for (best, perc) in zip(best_vals, perc_vals):
-        mean_std = np.mean([perc[1], -perc[2]])
-        lower_limit = max(0, round(best - n_sigma*mean_std, 5))
-        upper_limit = round(best + n_sigma*mean_std, 5)
-        list_1L2S.append([lower_limit, upper_limit])
+    elif os.path.isfile(files_dir):
+        obj_list = [os.path.splitext(os.path.basename(files_dir))[0]]
+        files_dir = os.path.dirname(files_dir)
+        return files_dir, obj_list
 
-    path_yaml = os.path.join(diff_path, 'ultranest_1L2S')
-    list_1L2S += [path_yaml, obj_id, '']
-
-    return list_1L2S
-
-
-def get_2L1S_params(path, diff_path, obj_id, n_sigma):
-    """
-    Get the parameters from the 2L1S model, selecting the smaller chi2
-    between the trajectory `between` and `beyond` the lenses.
-    A similar list to get_1L2S_params() is returned.
-    """
-    results_file = 'results_2L1S/{:}_2L1S_all_results_{:}.yaml'
-    fname_1 = os.path.join(path, results_file.format(obj_id, 'between'))
-    fname_2 = os.path.join(path, results_file.format(obj_id, 'beyond'))
-    with open(fname_1, 'r', encoding='utf-8') as data:
-        results_2L1S = yaml.safe_load(data)
-    with open(fname_2, 'r', encoding='utf-8') as data:
-        temp = yaml.safe_load(data)
-        if temp['Best model']['chi2'] < results_2L1S['Best model']['chi2']:
-            results_2L1S = temp
-
-    list_2L1S = [os.path.join(diff_path, sys.argv[1], obj_id + '.dat')]
-    best_vals = results_2L1S['Best model']['Parameters'].values()
-    perc_vals = results_2L1S['Fitted parameters'].values()
-    for (best, perc) in zip(best_vals, perc_vals):
-        mean_std = np.mean([perc[1], -perc[2]])
-        lower_limit = max(0, round(best - n_sigma*mean_std, 5))
-        upper_limit = round(best + n_sigma*mean_std, 5)
-        list_2L1S.append([lower_limit, upper_limit])
-
-    path_yaml = os.path.join(diff_path, 'ultranest_2L1S')
-    list_2L1S += ['', path_yaml, obj_id, '']
-
-    return list_2L1S
+    raise ValueError('Input is neither a file nor a directory.')
 
 
 def get_xlim(path, obj_id):
@@ -84,22 +43,87 @@ def get_xlim(path, obj_id):
     return model_methods, xlim
 
 
-def save_yaml_inputs(path, obj_id, list_1L2S, list_2L1S):
+def get_1L2S_params(path, diff_path, obj_id, files_dir):
+    """
+    Get the parameters from the fitted 1L2S model.
+    A list is returned with the path to the photometry file, the limits for
+    each parameter, the path to save the UltraNest results, and the event
+    identifier.
+    """
+    n_sigma = float(sys.argv[2])
+    results_file = 'results_1L2S/yaml_results/{:}_results.yaml'
+    results_file = os.path.join(path, results_file.format(obj_id))
+    with open(results_file, 'r', encoding='utf-8') as data:
+        results_1L2S = yaml.safe_load(data)
+
+    list_1L2S = [os.path.join(diff_path, files_dir, obj_id + '.dat')]
+    best_vals = results_1L2S['Best model']['Parameters'].values()
+    perc_vals = results_1L2S['Fitted parameters'].values()
+    for (best, perc) in zip(best_vals, perc_vals):
+        mean_std = np.mean([perc[1], -perc[2]])
+        lower_limit = max(0, round(best - n_sigma*mean_std, 5))
+        upper_limit = round(best + n_sigma*mean_std, 5)
+        list_1L2S.append([lower_limit, upper_limit])
+
+    path_yaml = os.path.join(diff_path, 'ultranest_1L2S')
+    list_1L2S += [path_yaml, obj_id, '']
+
+    return list_1L2S
+
+
+def get_2L1S_params(path, diff_path, obj_id, files_dir):
+    """
+    Get the parameters from the 2L1S model, selecting the smaller chi2
+    between the trajectory `between` and `beyond` the lenses.
+    A similar list to get_1L2S_params() is returned.
+    """
+    n_sigma = float(sys.argv[2])
+    results_file = 'results_2L1S/{:}_2L1S_all_results_{:}.yaml'
+    fname_1 = os.path.join(path, results_file.format(obj_id, 'between'))
+    fname_2 = os.path.join(path, results_file.format(obj_id, 'beyond'))
+    with open(fname_1, 'r', encoding='utf-8') as data:
+        results_2L1S = yaml.safe_load(data)
+    with open(fname_2, 'r', encoding='utf-8') as data:
+        temp = yaml.safe_load(data)
+        if temp['Best model']['chi2'] < results_2L1S['Best model']['chi2']:
+            results_2L1S = temp
+
+    list_2L1S = [os.path.join(diff_path, files_dir, obj_id + '.dat')]
+    best_vals = results_2L1S['Best model']['Parameters'].values()
+    perc_vals = results_2L1S['Fitted parameters'].values()
+    for (best, perc) in zip(best_vals, perc_vals):
+        mean_std = np.mean([perc[1], -perc[2]])
+        lower_limit = max(0, round(best - n_sigma*mean_std, 5))
+        upper_limit = round(best + n_sigma*mean_std, 5)
+        list_2L1S.append([lower_limit, upper_limit])
+
+    path_yaml = os.path.join(diff_path, 'ultranest_2L1S')
+    list_2L1S += ['', path_yaml, obj_id, '']
+
+    return list_2L1S
+
+
+def save_yaml_inputs(path, obj_id, list_1L2S=None, list_2L1S=None):
     """
     Save yaml inputs for the 1L2S and 2L1S model, to apply UltraNest.
     """
-    with open('template_1L2S_UltraNest.yaml', 'r', encoding='utf-8') as t_file:
-        temp_UN = t_file.read()
-    yaml_file = obj_id + '-1L2S_UltraNest.yaml'
-    yaml_path = os.path.join(path, list_1L2S[6].split('/')[-1], yaml_file)
-    with open(yaml_path, 'w') as yaml_input:
-        yaml_input.write(temp_UN.format(*list_1L2S))
+    if list_1L2S is not None:
+        fname = 'template_1L2S_UltraNest.yaml'
+        with open(fname, 'r', encoding='utf-8') as t_file:
+            temp_UN = t_file.read()
+        yaml_file = obj_id + '-1L2S_UltraNest.yaml'
+        yaml_path = os.path.join(path, list_1L2S[6].split('/')[-1], yaml_file)
+        with open(yaml_path, 'w') as yaml_input:
+            yaml_input.write(temp_UN.format(*list_1L2S))
 
-    with open('template_2L1S_UltraNest.yaml', 'r', encoding='utf-8') as t_file:
-        temp_UN = t_file.read()
-    yaml_path = yaml_path.replace('1L2S', '2L1S')
-    with open(yaml_path, 'w') as yaml_input:
-        yaml_input.write(temp_UN.format(*list_2L1S))
+    if list_2L1S is not None:
+        fname = 'template_2L1S_UltraNest.yaml'
+        with open(fname, 'r', encoding='utf-8') as t_file:
+            temp_UN = t_file.read()
+        yaml_file = obj_id + '-2L1S_UltraNest.yaml'
+        yaml_path = os.path.join(path, list_2L1S[8].split('/')[-1], yaml_file)
+        with open(yaml_path, 'w') as yaml_input:
+            yaml_input.write(temp_UN.format(*list_2L1S))
 
 
 def create_results_dir(path, obj_id):
@@ -120,23 +144,19 @@ if __name__ == '__main__':
     path = os.path.dirname(os.path.abspath(__file__))
     path_point = os.path.normpath(path + os.sep + os.pardir)
     diff_path = path.replace(path_point, '.')
+    files_dir = sys.argv[1]
+    which_models = "both" if len(sys.argv) < 4 else sys.argv[3].lower()
+    list_1L2S, list_2L1S = None, None
+    files_dir, obj_list = get_obj_list(files_dir)
 
-    if os.path.isdir(sys.argv[1]):
-        obj_list = [f for f in os.listdir(sys.argv[1]) if f[0] != '.']
-        obj_list = [item.split('.')[0] for item in sorted(obj_list)]
-    elif os.path.isfile(sys.argv[1]):
-        obj_list = [os.path.basename(sys.argv[1])]
-    else:
-        raise ValueError('Input is neither a file nor a directory.')
-
-    n_sigma = float(sys.argv[2]) if len(sys.argv) > 2 else 5
     for obj_id in obj_list:
-        # for obj_id in obj_list[13:14]:  # [:1], [12:14]
-        list_1L2S = get_1L2S_params(path, diff_path, obj_id, n_sigma)
-        list_2L1S = get_2L1S_params(path, diff_path, obj_id, n_sigma)
         model_methods, xlim = get_xlim(path, obj_id)
-        list_1L2S[-1] = xlim
-        list_2L1S[7], list_2L1S[-1] = model_methods, xlim
+        if which_models in ["both", "1l2s"]:
+            list_1L2S = get_1L2S_params(path, diff_path, obj_id, files_dir)
+            list_1L2S[-1] = xlim
+        if which_models in ["both", "2l1s"]:
+            list_2L1S = get_2L1S_params(path, diff_path, obj_id, files_dir)
+            list_2L1S[7], list_2L1S[-1] = model_methods, xlim
         save_yaml_inputs(path, obj_id, list_1L2S, list_2L1S)
         create_results_dir(path, obj_id)
         print("Done for", obj_id)
