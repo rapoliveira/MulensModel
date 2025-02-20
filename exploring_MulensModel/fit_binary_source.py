@@ -185,6 +185,11 @@ class FitBinarySource(UlensModelFit):
         """
         print(f'\n\033[1m * Running fit for {self.event_id}\033[0m\n')
         self._get_peak_times()
+        if self.t_peaks.max() < 6000:
+            chi2_lin = self._quick_linear_fit()
+            if chi2_lin < 2.:
+                print('Linear model fits best. Stopping here...')
+                return chi2_lin
         self._quick_fits_pspl_subtract_pspl()
         start = {'t_0_1': self.pspl_1['t_0'], 'u_0_1': self.pspl_1['u_0'],
                  't_0_2': self.pspl_2['t_0'], 'u_0_2': self.pspl_2['u_0'],
@@ -210,6 +215,59 @@ class FitBinarySource(UlensModelFit):
         line = tab[tab['obj_id'] == event]
         self.t_peaks = np.array([line['t_peak'][0], line['t_peak_2'][0]])
         self.t_peaks_orig = self.t_peaks.copy()
+        self.wins = [line['t_start'][0], line['t_start_2'][0]]
+
+    def _quick_linear_fit(self):
+        """
+        Fit a constant magnitude for datapoints before and after the two
+        peaks, and a linear model in between.
+        The chi2/dof is computed for the three segments and returned.
+        """
+        mean_mag, data_segments = self._get_mean_mag_and_split()
+        data_left, data_right, data_middle = data_segments
+
+        chi2_left = np.sum(((data_left['col1'] - np.mean(data_left['col1'])) /
+                            data_left['col2']) ** 2)
+        chi2_right = np.sum(((data_right['col1'] - mean_mag) /
+                            data_right['col2']) ** 2)
+        dof_lr = len(data_left) + len(data_right) - 2
+        if chi2_left + chi2_right > 2 * dof_lr:
+            return np.inf
+
+        a, b = np.polyfit(data_middle['col0'], data_middle['col1'], 1)
+        chi2 = np.sum(((data_middle['col1'] - (a * data_middle['col0'] + b)) /
+                      data_middle['col2']) ** 2)
+        dof = len(self._datasets[0].time) - 4
+
+        return (chi2_left + chi2_right + chi2) / dof
+
+    def _get_mean_mag_and_split(self):
+        """
+        Calculate the mean magnitude and split the data in three segments,
+        in order to fit a linear model in the middle.
+        """
+        data = self._datasets[0]
+        data = Table([data.time, data.mag, data.err_mag])
+        win0, win1 = 2450000 + self.wins[0], 2450360 + self.wins[0]
+        out_win = data[(data['col0'] < win0) | (data['col0'] > win1)]
+        win0, win1 = 2450000 + self.wins[1], 2450360 + self.wins[1]
+        out_win = out_win[(out_win['col0'] < win0) | (out_win['col0'] > win1)]
+        mean_mag, std_mag = np.mean(out_win['col1']), np.std(out_win['col1'])
+
+        bins = np.arange(data['col0'].min(), data['col0'].max() + 10, 10)
+        bin_idx = np.digitize(data['col0'], bins)
+        first_bin = self.t_peaks[1] + 2450000
+        for b in np.unique(bin_idx):
+            if np.all(data['col1'][bin_idx == b] >= mean_mag - 3 * std_mag):
+                first_bin = bins[b - 1]
+                break
+
+        mask_left = data['col0'] < self.t_peaks[0] + 2450000
+        mask_right = data['col0'] > first_bin
+        data_left, data_right = data[mask_left], data[mask_right]
+        data_middle = data[~(mask_left | mask_right)]
+
+        return mean_mag, (data_left, data_right, data_middle)
 
     def _quick_fits_pspl_subtract_pspl(self):
         """
@@ -579,7 +637,9 @@ if __name__ == '__main__':
 
     for data, name in zip(dlist, fnames):
         fit_binary_source.setup_datasets(data, name, phot_files)
-        fit_binary_source.run_initial_fits()
+        chi2_lin = fit_binary_source.run_initial_fits()
+        if chi2_lin and chi2_lin < 2.:
+            continue
         try:
             fit_binary_source.run_final_fits()
         except ValueError:
