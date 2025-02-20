@@ -321,7 +321,7 @@ class Utils(object):
         bst = dict(b_ for b_ in list(best.items()) if 'flux' not in b_[0])
         model = mm.Model(bst)
         if model.n_lenses == 2 and xlim is not None:
-            model.set_default_magnification_method('point_source_point_lens')
+            model.default_magnification_method = 'point_source_point_lens'
             methods_lst = [float(xlim[0]), 'point_source', float(xlim[1])]
             model.set_magnification_methods(methods_lst)
 
@@ -330,9 +330,12 @@ class Utils(object):
         fix_blend = {data: best['flux_b_1']} if 'flux_b_1' in best else None
         event_1L2S = mm.Event(data, model=model, fix_source_flux=fix_source,
                               fix_blend_flux=fix_blend)
-        event_1L2S.get_chi2()
+        try:
+            chi2 = event_1L2S.get_chi2()
+        except TypeError:
+            chi2 = float('inf')
 
-        return event_1L2S
+        return (event_1L2S, chi2)
     get_mm_event = staticmethod(get_mm_event)
 
     def subtract_model_from_data(data, model, fix_blend=None):

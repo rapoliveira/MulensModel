@@ -137,7 +137,7 @@ class PrepareBinaryLens(object):
         self.phot_settings['file_name'] = filename + '.dat'
         data = mm.MulensData(**self.phot_settings)
         best = dict(self.best_params, **self.best_fluxes)
-        event_1l2s = Utils.get_mm_event(data, best)
+        event_1l2s = Utils.get_mm_event(data, best)[0]
 
         if abs(event_1l2s.chi2 - self.best_chi2) > 2e-4:
             raise ValueError('Chi2 of the best model is not consistent.')
@@ -218,7 +218,7 @@ class PrepareBinaryLens(object):
         best_alpha, best_chi2 = None, float('inf')
         for alpha in alpha_list:
             m_dict['alpha'] = alpha
-            chi2 = Utils.get_mm_event(data, m_dict, self.xlim_str).chi2
+            chi2 = Utils.get_mm_event(data, m_dict, self.xlim_str)[1]
             if chi2 < best_chi2:
                 best_chi2 = chi2
                 best_alpha = alpha

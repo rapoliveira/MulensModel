@@ -134,7 +134,8 @@ class SaveResultsBinarySource(UlensModelFit):
             max_t_E = min(max_t_E, 50)
             self._xlim = [peaks[0] - 10*max_t_E, peaks[1] + 10*max_t_E]
 
-        self._event = Utils.get_mm_event(self._datasets[0], self._res_1l2s[0])
+        data = self._datasets[0]
+        self._event = Utils.get_mm_event(data, self._res_1l2s[0])[0]
         ylim_ans = self._get_ylim_for_best_model_plot(*self._xlim)
         self._ylim, self._ylim_residuals = ylim_ans
 
@@ -281,7 +282,7 @@ class SaveResultsBinarySource(UlensModelFit):
         ax1 = fig.add_subplot(gs[:-1, :])
         ans = self._additional_inputs.get('ans', 'max_prob')
 
-        self._event = Utils.get_mm_event(data, best)
+        self._event = Utils.get_mm_event(data, best)[0]
         data_kwargs = {'subtract_2450000': True, 'phot_fmt': 'mag'}
         if self._event.model.n_sources == 1:
             data_label = "Subtracted data"

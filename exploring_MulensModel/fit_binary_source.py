@@ -498,7 +498,7 @@ class FitBinarySource(UlensModelFit):
         if not hasattr(self, 't_peaks_orig'):
             t_peaks = [self.res_pre_1L2S['t_0_1'], self.res_pre_1L2S['t_0_2']]
             self.t_peaks_orig = np.array(t_peaks) - 2.45e6
-        pre_ev = Utils.get_mm_event(self._datasets[0], self.res_pre_1L2S)
+        pre_ev = Utils.get_mm_event(self._datasets[0], self.res_pre_1L2S)[0]
 
         model_between_peaks = Utils.get_model_pts_between_peaks(
             pre_ev, self.t_peaks_orig)
@@ -519,7 +519,8 @@ class FitBinarySource(UlensModelFit):
         self._setup_and_run_emcee(self._datasets[0], start)
         self.res_1L2S = [self._result.copy(), self._sampler, self._samples,
                          self._pars_perc]
-        self.ev_1L2S = Utils.get_mm_event(self._datasets[0], self.res_1L2S[0])
+        self.ev_1L2S = Utils.get_mm_event(
+            self._datasets[0], self.res_1L2S[0])[0]
 
     def _fit_pspl_twice(self):
         """
