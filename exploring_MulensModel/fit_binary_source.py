@@ -580,7 +580,12 @@ if __name__ == '__main__':
     for data, name in zip(dlist, fnames):
         fit_binary_source.setup_datasets(data, name, phot_files)
         fit_binary_source.run_initial_fits()
-        fit_binary_source.run_final_fits()
+        try:
+            fit_binary_source.run_final_fits()
+        except ValueError:
+            print("The fit did not converge, skipping...")
+            print("\n--------------------------------------------------")
+            continue
 
         kwargs = copy.deepcopy(stg_copy)
         kwargs.update({'datasets': [data],

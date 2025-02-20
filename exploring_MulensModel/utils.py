@@ -362,7 +362,10 @@ class Utils(object):
         if isinstance(model, dict):
             model = mm.Model(model)
         aux_event = mm.Event(data, model=model, fix_blend_flux=fix_blend)
-        (flux, blend) = aux_event.get_flux_for_dataset(0)
+        try:
+            (flux, blend) = aux_event.get_flux_for_dataset(0)
+        except ValueError:
+            raise
 
         fsub = data.flux - aux_event.fits[0].get_model_fluxes() + flux + blend
         subt_data = np.c_[data.time, fsub, data.err_flux][fsub > 0]
