@@ -16,7 +16,8 @@ import numpy as np
 from prepare_binary_lens import PrepareBinaryLens
 try:
     ex16_path = os.path.join(mm.__path__[0], '../../examples/example_16')
-    sys.path.append(os.path.abspath(ex16_path))
+    if os.path.abspath(ex16_path) not in sys.path:
+        sys.path.append(os.path.abspath(ex16_path))
     from ulens_model_fit import UlensModelFit
 except ImportError as err:
     print(err)

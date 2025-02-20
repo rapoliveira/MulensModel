@@ -17,7 +17,8 @@ import yaml
 from save_results_binary_source import SaveResultsBinarySource
 try:
     ex16_path = os.path.join(mm.__path__[0], '../../examples/example_16')
-    sys.path.append(os.path.abspath(ex16_path))
+    if os.path.abspath(ex16_path) not in sys.path:
+        sys.path.append(os.path.abspath(ex16_path))
     from ulens_model_fit import UlensModelFit
 except ImportError as err:
     print(err)
@@ -103,6 +104,7 @@ class FitBinarySource(UlensModelFit):
         self.data_list = []
         for fname in self.file_names:
             data = mm.MulensData(file_name=fname, **phot_settings_aux)
+            data.bad = np.array(np.isnan(data.mag))
             self.data_list.append(data)
         self._datasets = [self.data_list[0]]
 
