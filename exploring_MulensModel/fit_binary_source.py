@@ -231,7 +231,7 @@ class FitBinarySource(UlensModelFit):
         chi2_right = np.sum(((data_right['col1'] - mean_mag) /
                             data_right['col2']) ** 2)
         dof_lr = len(data_left) + len(data_right) - 2
-        if chi2_left + chi2_right > 2 * dof_lr:
+        if chi2_left + chi2_right > 2 * dof_lr or len(data_middle) == 0:
             return np.inf
 
         a, b = np.polyfit(data_middle['col0'], data_middle['col1'], 1)

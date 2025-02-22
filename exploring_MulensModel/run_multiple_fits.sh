@@ -1,28 +1,30 @@
 #!/bin/bash
 
-# This script is still being improved...
-# Usage: ./run_tasks.sh <task>
+# Usage: ./run_tasks.sh <task> <dataset> <group_X>
 # <task>: Specify the task to run:
 #         - task1: Fit 2L1S models with EMCEE for multiple events.
 #         - task2: Fit 1L2S models with UltraNest for multiple events.
 #         - task3: Fit 2L1S models with UltraNest for multiple events.
 
-if [ $# -eq 0 ]; then
-    echo "No arguments provided. Options are: task1, task2, or task3."
+if [ $# -lt 3 ]; then
+    echo -e "\nInsufficient arguments provided. Please provide 3 arguments..."
+    echo -e "Usage: $0 <task> <dataset> <group_X>\n"
     exit 1
 fi
 
-ARG=$1
+task=$1
+dataset=$2
+group=$3
 python_script="../examples/example_16/ulens_model_fit.py"
 project_name="OGLE-evfinder"
 
-if [ "$ARG" == "task1" ]; then
-    DIRECTORY="./$project_name/yaml_files_2L1S"
+if [ "$task" == "task1" ]; then
+    DIRECTORY="./$project_name/yaml_files_2L1S_$dataset/$group"
     yaml_files=$(ls "$DIRECTORY"/*.yaml | sort)
-elif [ "$ARG" == "task2" ]; then
+elif [ "$task" == "task2" ]; then
     DIRECTORY="./$project_name/ultranest_1L2S"
     yaml_files=$(ls "$DIRECTORY"/*-1L2S_UltraNest.yaml | sort)
-elif [ "$ARG" == "task3" ]; then
+elif [ "$task" == "task3" ]; then
     DIRECTORY="./$project_name/ultranest_2L1S"
     yaml_files=$(ls "$DIRECTORY"/*-2L1S_UltraNest.yaml | sort)
 else
