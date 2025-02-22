@@ -21,20 +21,20 @@ fitting_parameters:
     progress: True
 plots:
     all_plots:
-        file: results_1L2S/all_plots/{}_all_plots.pdf
+        file: results_1L2S/obvious/all_plots/{}_all_plots.pdf
     best model:
-        file: results_1L2S/{}_fit.pdf
+        file: results_1L2S/obvious/{}_fit.pdf
     triangle:
-        file: results_1L2S/{}_cplot.pdf
+        file: results_1L2S/obvious/{}_cplot.pdf
 other_output:
     models:
         # format options: txt, npy (optimal), h5
-        file name: results_1L2S/chains/{}_all_chains.npy
+        file name: results_1L2S/obvious/chains/{}_all_chains.npy
     yaml output:
-        file name: results_1L2S/yaml_results/{}_results.yaml
+        file name: results_1L2S/obvious/yaml_results/{}_results.yaml
 additional_inputs:
     # t_peaks - file with times of two peaks (event_finder) or False
-    t_peaks: t_peak-obvious-evfinder.dat
+    t_peaks: t_peak-evfinder-obvious.dat
     # fix_blend - float value (0. for 2L1S initial params) or False
     fix_blend: 0.
     # sigmas - list of sigmas to get walkers initial states (PSPL, 1L2S)
@@ -45,4 +45,4 @@ additional_inputs:
     yaml_files_2L1S:
         t_or_f: True
         yaml_template: ../1L2S-to-2L1S_template.yaml
-        yaml_dir_name: yaml_files_2L1S/{}-2L1S.yaml
+        yaml_dir_name: yaml_files_2L1S/obvious/{}-2L1S.yaml

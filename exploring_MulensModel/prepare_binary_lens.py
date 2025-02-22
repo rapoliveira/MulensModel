@@ -255,14 +255,16 @@ class PrepareBinaryLens(object):
         phot_params = [self.base_path, self.phot_dir, self.event_id,
                        self.add_2450000]
         min_t_E = round(max(3, lst[2]/5.), 3) if lst[2] > 3 else 1.
-        lst = phot_params + lst + self.xlim_str + [min_t_E, between_or_beyond]
+        dataset = self.yaml_file.split('/')[3]
+        lst = [*phot_params, *lst, *self.xlim_str, min_t_E, dataset,
+               between_or_beyond]
 
         if between_or_beyond == 'beyond':
             self.yaml_file = self.yaml_file.replace('between', 'beyond')
 
         with open(self.yaml_file, 'w', encoding='utf-8') as out_file:
             out_file.write(self.template.format(*lst))
-        lst_plot = lst[:-2] + [between_or_beyond]
+        lst_plot = lst[:-3] + lst[-2:]  # removing min_t_E
         plot = yaml.safe_load(self.template_plot.format(*lst_plot))
         ulens_model_fit = UlensModelFit(**plot)
         ulens_model_fit.plot_best_model()
