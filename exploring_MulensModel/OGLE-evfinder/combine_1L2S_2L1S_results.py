@@ -4,11 +4,34 @@ It reads the yaml files with results from EMCEE (specially to get the
 uncertainties) and UltraNest. A table is created with parameters, chi2
 and evidence of the best models.
 """
+import argparse
+import os
+
 from astropy.table import Table
 import numpy as np
-import os
-import sys
 import yaml
+
+
+def parse_arguments():
+    """
+    Parses command-line arguments and returns them.
+    """
+    # defaults = ["../test_chips_oct24/runs_12_13_14", "BLG50X"]
+    defaults = ["UltraNest", "obvious"]
+
+    parser = argparse.ArgumentParser(description="Arguments for the script")
+    parser.add_argument('method', type=str, nargs='?', default=defaults[0],
+                        help="Method to get results: UltraNest or EMCEE")
+    parser.add_argument('dataset', type=str, nargs='?', default=defaults[1],
+                        help="Dataset to get results: obvious, BLG50X...")
+    args = parser.parse_args()
+
+    path = os.path.dirname(os.path.abspath(__file__))
+    dirs = [f'{path}/ultranest_1L2S/{args.dataset}/',
+            f'{path}/results_1L2S/{args.dataset}/yaml_results/']
+    idx = 0 if args.method.lower() == "ultranest" else 1
+
+    return args, path, dirs, idx
 
 
 def declare_and_format_table(method):
@@ -20,9 +43,9 @@ def declare_and_format_table(method):
              't_0', 'u_0', 't_E_2L1S', 's', 'q', 'alpha', 'sig_t_E_2',
              'bflux_2L1S', 'sig_bflux_2', 'chi2_2L1S']
     n_digits = ['%10.2f', '%7.5f', '%10.2f', '%7.5f', '%8.2f', '%9.2f',
-                '%10.5f', '%11.5f', '%9.2f',
+                '%10.5f', '%11.5f', '%9.5f',
                 '%10.2f', '%7.5f', '%8.2f', '%6.2f', '%7.5f', '%6.2f',
-                '%9.2f', '%10.5f', '%11.5f', '%9.2f']
+                '%9.2f', '%10.5f', '%11.5f', '%9.5f']
 
     if method.lower() == "ultranest":
         names.insert(10, 'ln_ev_1L2S')
@@ -42,11 +65,13 @@ def read_results_EMCEE(dir_1L2S):
     Read EMCEE results for both 1L2S and 2L1S models.
     The solution with lower chi2 is chosen for the 2L1S model.
     """
+    # breakpoint()
     dir_1L2S += "_results.yaml"
     with open(dir_1L2S, encoding='utf-8') as in_1L2S:
         dict_1L2S = yaml.safe_load(in_1L2S)
 
-    dir_2L1S = dir_1L2S.replace('1L2S/yaml_results/', '2L1S/')
+    dir_2L1S = dir_1L2S.replace(f'1L2S/{args.dataset}/yaml_results/',
+                                f'2L1S/{args.dataset}/')
     dir_2L1S = dir_2L1S.replace('_results', '_2L1S_all_results_between')
     with open(dir_2L1S, encoding='utf-8') as in_2L1S:
         res_2L1S_between = yaml.safe_load(in_2L1S)
@@ -110,7 +135,7 @@ def change_sigmas_UN(dict_1L2S, dict_2L1S, sigmas):
         dict_name['Fitted fluxes']['flux_b_1'][2] = -sigmas[i][1]
 
 
-def add_params_to_table(method, res_fit):
+def add_params_to_table(method, res_fit, dof):
     """
     Add the parameters, chi2 and evidence of the best model to the table.
     This function is called twice, once for the 1L2S and once for the 2L1S
@@ -124,14 +149,15 @@ def add_params_to_table(method, res_fit):
     else:
         round_params = (2, 5, 2, 2, 5, 2)
 
-    best_params = list(best['Parameters'].values())
-    best_params = [round(p, r) for p, r in zip(best_params, round_params)]
+    best_pars = list(best['Parameters'].values())
+    best_pars = [round(p, r) for p, r in zip(best_pars, round_params)]
     t_E_sig = np.mean([fitted_pars['t_E'][1], -fitted_pars['t_E'][2]])
     bflux = round(best['Fluxes']['flux_b_1'], 5)
     bflux_sig = np.mean([fitted_bflux[1], -fitted_bflux[2]])
     t_E_sig, bflux_sig = round(t_E_sig, 2), round(bflux_sig, 5)
 
-    line = [*best_params, t_E_sig, bflux, bflux_sig, round(best['chi2'], 2)]
+    # line = [*best_pars, t_E_sig, bflux, bflux_sig, round(best['chi2'], 2)]
+    line = [*best_pars, t_E_sig, bflux, bflux_sig, round(best['chi2']/dof, 5)]
     if method.lower() == "ultranest":
         line.append(round(best['ln_ev'][0], 2))
 
@@ -154,8 +180,9 @@ def fill_table(method, dirs, event_ids):
             res_1L2S = os.path.join(dirs[0], event_id)
             dict_1L2S, dict_2L1S = read_results_UN(res_1L2S)
             change_sigmas_UN(dict_1L2S, dict_2L1S, sigmas_1L2S_2L1S)
-        line_1L2S = add_params_to_table(method, dict_1L2S)
-        line_2L1S = add_params_to_table(method, dict_2L1S)
+        dof = dict_1L2S['Best model']['dof']
+        line_1L2S = add_params_to_table(method, dict_1L2S, dof)
+        line_2L1S = add_params_to_table(method, dict_2L1S, dof-1)
 
         event_id = event_id.split('_OGLE')[0]
         tab.add_row([event_id.ljust(16), *line_1L2S, *line_2L1S])
@@ -163,7 +190,7 @@ def fill_table(method, dirs, event_ids):
     return tab
 
 
-def final_setup_and_save_table(tab, method):
+def final_setup_and_save_table(path, tab, method):
     """
     Final setup of the table and save it to a text file.
     The column sig_t_E_2 is moved to the right of the t_E_2L1S column.
@@ -196,12 +223,9 @@ def final_setup_and_save_table(tab, method):
 
 if __name__ == '__main__':
 
-    path = os.path.dirname(os.path.abspath(__file__))
-    method = str(sys.argv[1]) if len(sys.argv) > 1 else "UltraNest"
-    dirs = [f'{path}/ultranest_1L2S/', f'{path}/results_1L2S/yaml_results/']
-    idx = 0 if method.lower() == "ultranest" else 1
-
-    event_ids = [f.split('-1L2S')[0] for f in os.listdir(dirs[idx])
+    args, path, dirs, idx = parse_arguments()
+    str_split = '-1L2S' if args.method.lower() == "ultranest" else '_results'
+    event_ids = [f.split(str_split)[0] for f in os.listdir(dirs[idx])
                  if f[0] != '.' and f.endswith(".yaml")]
-    tab = fill_table(method, dirs, sorted(event_ids))
-    final_setup_and_save_table(tab, method)
+    tab = fill_table(args.method, dirs, sorted(event_ids))
+    final_setup_and_save_table(path, tab, args.method)

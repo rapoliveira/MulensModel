@@ -19,7 +19,7 @@ python_script="../examples/example_16/ulens_model_fit.py"
 project_name="OGLE-evfinder"
 
 if [ "$task" == "task1" ]; then
-    DIRECTORY="./$project_name/yaml_files_2L1S_$dataset/$group"
+    DIRECTORY="./$project_name/yaml_files_2L1S/$dataset/$group"
     yaml_files=$(ls "$DIRECTORY"/*.yaml | sort)
 elif [ "$task" == "task2" ]; then
     DIRECTORY="./$project_name/ultranest_1L2S"

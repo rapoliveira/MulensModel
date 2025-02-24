@@ -3735,6 +3735,7 @@ class UlensModelFit(object):
         Creates settings for the second Y axis for the best model plot
         """
         if not ylim:
+            # quantile = np.quantile(self._datasets[0].mag, 0.999)
             ylim = plt.ylim()
 
         (magnifications, color, label, labels,  ax2) = self._second_Y_axis_settings()
@@ -3775,7 +3776,8 @@ class UlensModelFit(object):
         A_min = (flux_min - blend_flux) / total_source_flux
         A_max = (flux_max - blend_flux) / total_source_flux
 
-        return ([A_min, A_max], [total_source_flux, blend_flux])
+        # return ([A_min, A_max], [total_source_flux, blend_flux])
+        return (sorted([A_min, A_max]), [total_source_flux, blend_flux])
 
     def _second_Y_axis_optimal(self, ax2, A_min, A_max):
         """

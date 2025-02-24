@@ -28,12 +28,12 @@ def get_obj_list(files_dir):
     raise ValueError('Input is neither a file nor a directory.')
 
 
-def get_xlim(path, obj_id):
+def get_xlim(path, obj_id, dataset):
     """
     Get the xlim from the 2L1S input yaml file.
     """
     yaml_input = obj_id + '-2L1S_traj_beyond.yaml'
-    yaml_input = os.path.join(path, 'yaml_files_2L1S', yaml_input)
+    yaml_input = os.path.join(path, 'yaml_files_2L1S', dataset, yaml_input)
     with open(yaml_input, 'r', encoding='utf-8') as data:
         input_2L1S = yaml.safe_load(data)
 
@@ -78,7 +78,8 @@ def get_2L1S_params(path, diff_path, obj_id, files_dir):
     A similar list to get_1L2S_params() is returned.
     """
     n_sigma = float(sys.argv[2])
-    results_file = 'results_2L1S/{:}_2L1S_all_results_{:}.yaml'
+    results_path = os.path.join('results_2L1S', files_dir.split('_')[1])
+    results_file = os.path.join(results_path, '{:}_2L1S_all_results_{:}.yaml')
     fname_1 = os.path.join(path, results_file.format(obj_id, 'between'))
     fname_2 = os.path.join(path, results_file.format(obj_id, 'beyond'))
     with open(fname_1, 'r', encoding='utf-8') as data:
@@ -148,9 +149,10 @@ if __name__ == '__main__':
     which_models = "both" if len(sys.argv) < 4 else sys.argv[3].lower()
     list_1L2S, list_2L1S = None, None
     files_dir, obj_list = get_obj_list(files_dir)
+    dataset = files_dir.split('_')[1]  # fix it later...
 
     for obj_id in obj_list:
-        model_methods, xlim = get_xlim(path, obj_id)
+        model_methods, xlim = get_xlim(path, obj_id, dataset)
         if which_models in ["both", "1l2s"]:
             list_1L2S = get_1L2S_params(path, diff_path, obj_id, files_dir)
             list_1L2S[-1] = xlim
