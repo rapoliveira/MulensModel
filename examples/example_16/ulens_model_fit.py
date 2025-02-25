@@ -3775,7 +3775,8 @@ class UlensModelFit(object):
         A_min = (flux_min - blend_flux) / total_source_flux
         A_max = (flux_max - blend_flux) / total_source_flux
 
-        return ([A_min, A_max], [total_source_flux, blend_flux])
+        # return ([A_min, A_max], [total_source_flux, blend_flux])
+        return (sorted([A_min, A_max]), [total_source_flux, blend_flux])
 
     def _second_Y_axis_optimal(self, ax2, A_min, A_max):
         """
