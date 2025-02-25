@@ -22,20 +22,22 @@ if [ "$task" == "task1" ]; then
     DIRECTORY="./$project_name/yaml_files_2L1S/$dataset/$group"
     yaml_files=$(ls "$DIRECTORY"/*.yaml | sort)
 elif [ "$task" == "task2" ]; then
-    DIRECTORY="./$project_name/ultranest_1L2S"
+    DIRECTORY="./$project_name/ultranest_1L2S/$dataset/$group"
     yaml_files=$(ls "$DIRECTORY"/*-1L2S_UltraNest.yaml | sort)
 elif [ "$task" == "task3" ]; then
-    DIRECTORY="./$project_name/ultranest_2L1S"
+    DIRECTORY="./$project_name/ultranest_2L1S/$dataset/$group"
     yaml_files=$(ls "$DIRECTORY"/*-2L1S_UltraNest.yaml | sort)
 else
     echo "Invalid argument. Please use: task1, task2, or task3."
     exit 1
 fi
 
+trap "echo 'Process interrupted'; exit 1" SIGINT SIGTERM
 for yaml_file in $yaml_files
 do
     echo -e "\n--\n\nProcessing $yaml_file"
-    python3 "$python_script" "$yaml_file"
+    timeout 1800 python3 "$python_script" "$yaml_file"
+    # ps aux | grep python --> kill -9 <PID>
 done
 
 # for file in $(ls "$DIRECTORY"/*-2L1S_UltraNest.yaml | sort | head -n 7)
