@@ -3735,6 +3735,7 @@ class UlensModelFit(object):
         Creates settings for the second Y axis for the best model plot
         """
         if not ylim:
+            # quantile = np.quantile(self._datasets[0].mag, 0.999)
             ylim = plt.ylim()
 
         (magnifications, color, label, labels,  ax2) = self._second_Y_axis_settings()
