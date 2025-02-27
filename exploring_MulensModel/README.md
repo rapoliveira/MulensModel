@@ -45,8 +45,8 @@ The script [combine_1L2S_2L1S_results.py](https://github.com/rapoliveira/MulensM
 
 ```
 $ cd exploring_MulensModel/OGLE-evfinder/
-$ python3 generate_ultranest_files.py phot/phot_obvious 5
-$ python3 combine_1L2S_2L1S_results.py
+$ python3 generate_ultranest_files.py phot/phot_obvious obvious both 5
+$ python3 combine_1L2S_2L1S_results.py [...]
 ```
 
 ## To-Do List (Raphael)

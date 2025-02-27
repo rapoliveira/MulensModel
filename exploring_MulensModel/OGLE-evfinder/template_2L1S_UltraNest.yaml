@@ -20,7 +20,7 @@ fitting_parameters:
     # log directory: ultranest_outputs/
     derived parameter names: source_flux blending_flux
     show_status: True
-    n_live_points: 40  # 20 or 40?
+    n_live_points: 20  # 20 or 40?
     dlogz: 2.
     frac_remain: 0.5
     max_num_improvement_loops: 0
