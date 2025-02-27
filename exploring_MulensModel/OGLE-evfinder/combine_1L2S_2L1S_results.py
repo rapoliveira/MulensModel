@@ -16,7 +16,6 @@ def parse_arguments():
     """
     Parses command-line arguments and returns them.
     """
-    # defaults = ["../test_chips_oct24/runs_12_13_14", "BLG50X"]
     defaults = ["UltraNest", "obvious"]
 
     parser = argparse.ArgumentParser(description="Arguments for the script")
@@ -29,7 +28,8 @@ def parse_arguments():
     path = os.path.dirname(os.path.abspath(__file__))
     dirs = [f'{path}/ultranest_1L2S/{args.dataset}/',
             f'{path}/results_1L2S/{args.dataset}/yaml_results/']
-    idx = 0 if args.method.lower() == "ultranest" else 1
+    args.method = args.method.lower()
+    idx = 0 if args.method == "ultranest" else 1
 
     return args, path, dirs, idx
 
@@ -47,7 +47,7 @@ def declare_and_format_table(method):
                 '%10.2f', '%7.5f', '%8.2f', '%6.2f', '%7.5f', '%6.2f',
                 '%9.2f', '%10.5f', '%11.5f', '%9.5f']
 
-    if method.lower() == "ultranest":
+    if method == "ultranest":
         names.insert(10, 'ln_ev_1L2S')
         names.append('ln_ev_2L1S')
         n_digits.insert(10, '%10.2f')
@@ -65,7 +65,6 @@ def read_results_EMCEE(dir_1L2S):
     Read EMCEE results for both 1L2S and 2L1S models.
     The solution with lower chi2 is chosen for the 2L1S model.
     """
-    # breakpoint()
     dir_1L2S += "_results.yaml"
     with open(dir_1L2S, encoding='utf-8') as in_1L2S:
         dict_1L2S = yaml.safe_load(in_1L2S)
@@ -156,9 +155,15 @@ def add_params_to_table(method, res_fit, dof):
     bflux_sig = np.mean([fitted_bflux[1], -fitted_bflux[2]])
     t_E_sig, bflux_sig = round(t_E_sig, 2), round(bflux_sig, 5)
 
+    # Temporary lines to print the typical uncertainties
+    # if len(fitted_pars) == 6:
+    #     for item in fitted_pars.values():
+    #         print(round(np.mean([item[1], -item[2]]) / item[0], 5), end=' ')
+    #     print()
+
     # line = [*best_pars, t_E_sig, bflux, bflux_sig, round(best['chi2'], 2)]
     line = [*best_pars, t_E_sig, bflux, bflux_sig, round(best['chi2']/dof, 5)]
-    if method.lower() == "ultranest":
+    if method == "ultranest":
         line.append(round(best['ln_ev'][0], 2))
 
     return line
@@ -175,13 +180,14 @@ def fill_table(method, dirs, event_ids):
         dir_1L2S_emcee = os.path.join(dirs[1], event_id)
         dict_1L2S, dict_2L1S = read_results_EMCEE(dir_1L2S_emcee)
 
-        if method.lower() == "ultranest":
+        if method == "ultranest":
             sigmas_1L2S_2L1S = get_EMCEE_sigmas(dict_1L2S, dict_2L1S)
             res_1L2S = os.path.join(dirs[0], event_id)
             dict_1L2S, dict_2L1S = read_results_UN(res_1L2S)
             change_sigmas_UN(dict_1L2S, dict_2L1S, sigmas_1L2S_2L1S)
         dof = dict_1L2S['Best model']['dof']
         line_1L2S = add_params_to_table(method, dict_1L2S, dof)
+        print(event_id, end=' ')
         line_2L1S = add_params_to_table(method, dict_2L1S, dof-1)
 
         event_id = event_id.split('_OGLE')[0]
@@ -198,10 +204,10 @@ def final_setup_and_save_table(path, tab, method):
     """
     column_to_move = tab['sig_t_E_2']
     tab.remove_column('sig_t_E_2')
-    new_idx = 14 if method.lower() == "ultranest" else 13
+    new_idx = 14 if method == "ultranest" else 13
     tab.add_column(column_to_move, index=new_idx)
-    method_ = "_un" if method.lower() == "ultranest" else "_emcee"
-    fname = os.path.join(path, f'comp_1L2S_2L1S{method_}.txt')
+    method_tmp = "_un" if method == "ultranest" else "_emcee"
+    fname = os.path.join(path, f'comp_1L2S_2L1S{method_tmp}.txt')
     tab.write(fname, format='ascii.fixed_width', overwrite=True, delimiter='')
 
     new_header = "# id               t_0_1       u_0_1    t_0_2       " + \
@@ -209,7 +215,7 @@ def final_setup_and_save_table(path, tab, method):
                  "  chi2_1L2S  ln_ev_1L2S  t_0         u_0      t_E_2L1S" + \
                  "  sig_t_E_2  s       q        alpha   bflux_2L1S  " + \
                  "sig_bflux_2  chi2_2L1S  ln_ev_2L1S\n"
-    if method.lower() == "emcee":
+    if method == "emcee":
         new_header = new_header.replace('ln_ev_1L2S  ', '')
         new_header = new_header.replace('ln_ev_2L1S', '')
     with open(fname, 'r+') as file:
@@ -224,8 +230,9 @@ def final_setup_and_save_table(path, tab, method):
 if __name__ == '__main__':
 
     args, path, dirs, idx = parse_arguments()
-    str_split = '-1L2S' if args.method.lower() == "ultranest" else '_results'
+    str_split = '-1L2S' if args.method == "ultranest" else '_results'
     event_ids = [f.split(str_split)[0] for f in os.listdir(dirs[idx])
                  if f[0] != '.' and f.endswith(".yaml")]
     tab = fill_table(args.method, dirs, sorted(event_ids))
+    # breakpoint()
     final_setup_and_save_table(path, tab, args.method)

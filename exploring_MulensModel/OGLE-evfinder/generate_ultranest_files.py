@@ -25,7 +25,7 @@ def parse_arguments():
     parser.add_argument('which_models', choices=lst, nargs='?', default="both",
                         help="Which models to use: 1L2S, 2L1S or both")
     n_sigma_def = 3 if lst in ["2l1s", "2L1S"] else 5
-    parser.add_argument('n_sigma', type=int, nargs='?', default=n_sigma_def,
+    parser.add_argument('n_sigma', type=float, nargs='?', default=n_sigma_def,
                         help="Number of sigma to use around EMCEE solution")
     args = parser.parse_args()
 
@@ -34,6 +34,7 @@ def parse_arguments():
     if not os.path.isabs(args.files_dir):
         path = os.path.dirname(os.path.abspath(__file__))
         args.files_dir = os.path.join(path, args.files_dir)
+    args.which_models = args.which_models.lower()
 
     return args
 
@@ -157,6 +158,27 @@ def get_2L1S_params(args, path, diff_path, obj_id):
     return list_2L1S
 
 
+def update_mag_methods(mag_methods, list_1L2S):
+    """
+    Update the methods to calculate the magnification in the 2L1S model,
+    if the abs(t_0_1-t_0_2) > 1000 and t_E < 30 days.
+    """
+    t_0_1 = np.mean(list_1L2S[1])
+    t_0_2 = np.mean(list_1L2S[3])
+    t_E = np.mean(list_1L2S[5])
+
+    if abs(t_0_1 - t_0_2) > 1000 and t_E < 30:
+        t_E_min = max(5*t_E, 50)
+        mag_methods = mag_methods.split()
+        mag_methods.insert(2, '%.1f' % (min([t_0_1, t_0_2]) + t_E_min))
+        mag_methods.insert(3, 'point_source_point_lens')
+        mag_methods.insert(4, '%.1f' % (max([t_0_1, t_0_2]) - t_E_min))
+        mag_methods.insert(5, 'point_source')
+        mag_methods = ' '.join(mag_methods)
+
+    return mag_methods
+
+
 def save_yaml_UN_inputs(path, obj_id, list_1L2S=None, list_2L1S=None):
     """
     Save yaml inputs for the 1L2S and 2L1S model, to apply UltraNest.
@@ -199,13 +221,16 @@ if __name__ == '__main__':
     list_1L2S, list_2L1S = None, None
 
     for obj_id in obj_list:
-        model_methods, xlim = get_xlim(all_paths[0], obj_id)
-        if args.which_models in ["both", "1l2s"]:
-            list_1L2S = get_1L2S_params(args, *all_paths[1], obj_id)
-            list_1L2S[-1] = xlim
+        mag_method, xlim = get_xlim(all_paths[0], obj_id)
+        list_1L2S = get_1L2S_params(args, *all_paths[1], obj_id)
+        list_1L2S[-1] = xlim
+
         if args.which_models in ["both", "2l1s"]:
             list_2L1S = get_2L1S_params(args, *all_paths[2], obj_id)
-            list_2L1S[7], list_2L1S[-1] = model_methods, xlim
+            new_methods = update_mag_methods(mag_method, list_1L2S)
+            list_2L1S[7], list_2L1S[-1] = new_methods, xlim
+        if args.which_models == "2l1s":
+            list_1L2S = None
         save_yaml_UN_inputs(all_paths[3], obj_id, list_1L2S, list_2L1S)
         create_results_dir(all_paths[4], obj_id)
         print("Done for", obj_id)
