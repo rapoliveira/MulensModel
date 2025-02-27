@@ -4,43 +4,72 @@ using the EMCEE results as input.
 The script is called with path to the directory containing the photometry
 files and the number of sigma to use for the limits of the parameters.
 """
+import argparse
 import os
-import sys
 import yaml
 
 from astropy.table import Table
 import numpy as np
 
 
-def get_paths(files_dir, dataset):
+def parse_arguments():
+    """
+    Parses command-line arguments and returns them.
+    """
+    parser = argparse.ArgumentParser(description="Arguments for the script")
+    parser.add_argument('files_dir', type=str,
+                        help="Directory or file with the photometry data")
+    parser.add_argument('dataset', type=str,
+                        help="Dataset to get results: obvious, BLG50X1...")
+    lst = ["1l2s", "1L2S", "2l1s", "2L1S", "both"]
+    parser.add_argument('which_models', choices=lst, nargs='?', default="both",
+                        help="Which models to use: 1L2S, 2L1S or both")
+    n_sigma_def = 3 if lst in ["2l1s", "2L1S"] else 5
+    parser.add_argument('n_sigma', type=int, nargs='?', default=n_sigma_def,
+                        help="Number of sigma to use around EMCEE solution")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.files_dir):
+        raise ValueError('First argument is not a valid directory or file.')
+    if not os.path.isabs(args.files_dir):
+        path = os.path.dirname(os.path.abspath(__file__))
+        args.files_dir = os.path.join(path, args.files_dir)
+
+    return args
+
+
+def get_paths(dataset):
     """
     Get the paths to the results files and the directory to save the
     UltraNest results.
-    STILL NEED TO MAKE MEANINGFUL NAMES...
     """
     path = os.path.dirname(os.path.abspath(__file__))
     path_point = os.path.normpath(path + os.sep + os.pardir)
     diff_path = path.replace(path_point, '.')
 
-    files_dir = os.path.join(path, files_dir)
     yaml_in_2L1S = '{:}-2L1S_traj_beyond.yaml'
     yaml_in_2L1S = os.path.join(path, 'yaml_files_2L1S', dataset, yaml_in_2L1S)
     file_1L2S = os.path.join(path, 'results_1L2S', dataset, 'yaml_results',
                              '{:}_results.yaml')
     file_2L1S = os.path.join(path, 'results_2L1S', dataset,
                              '{:}_2L1S_all_results_{:}.yaml')
+    res_1L2S, res_2L1S = [file_1L2S, diff_path], [file_2L1S, diff_path]
 
     out_1L2S = os.path.join(path, '{:}', dataset, '{:}-1L2S_UltraNest.yaml')
     out_2L1S = os.path.join(path, '{:}', dataset, '{:}-2L1S_UltraNest.yaml')
     out_mkdir = os.path.join(path, 'ultranest_1L2S', dataset, '{:}')
 
-    return (files_dir, yaml_in_2L1S, [file_1L2S, diff_path],
-            [file_2L1S, diff_path], [out_1L2S, out_2L1S], out_mkdir)
+    return (yaml_in_2L1S, res_1L2S, res_2L1S, [out_1L2S, out_2L1S], out_mkdir)
 
 
-def get_obj_list(files_dir):
+def get_obj_list(files_dir, dataset):
     """
-    Get the list of objects to process, from a directory or a single file.
+    Retrieve a list of objects to process from a directory or a single file.
+
+    - If the input is a directory, returns a list of photometry files.
+    - If it is a photometry file, returns a list with single object ID.
+    - If it is a results table, updates the photometry file directory and
+    returns the list of object IDs in the table.
     """
     if os.path.isdir(files_dir):
         obj_list = [f for f in os.listdir(files_dir) if f[0] != '.']
@@ -54,9 +83,7 @@ def get_obj_list(files_dir):
         elif 'comp_' in files_dir and files_dir.endswith('.txt'):
             tab = Table.read(files_dir, format='ascii')
             obj_list = [line['id'] + '_OGLE' for line in tab]
-            files_dir = '/Users/rapoliveira/postdoc/MulensModel_raphael/' + \
-                        'exploring_MulensModel/OGLE-evfinder/phot/phot_' + \
-                        sys.argv[2]
+            files_dir = 'phot/phot_' + dataset
 
         return files_dir, obj_list
 
@@ -65,7 +92,7 @@ def get_obj_list(files_dir):
 
 def get_xlim(path, obj_id):
     """
-    Get the xlim from the 2L1S input yaml file.
+    Get the x-axis range from the 2L1S input yaml file.
     """
     yaml_input = path.format(obj_id)
     with open(yaml_input, 'r', encoding='utf-8') as data:
@@ -77,41 +104,37 @@ def get_xlim(path, obj_id):
     return model_methods, xlim
 
 
-def get_1L2S_params(path, diff_path, obj_id, files_dir):
+def get_1L2S_params(args, path, diff_path, obj_id):
     """
-    Get the parameters from the fitted 1L2S model.
+    Get the parameters from the 1L2S model fitted with EMCEE.
     A list is returned with the path to the photometry file, the limits for
     each parameter, the path to save the UltraNest results, and the event
     identifier.
     """
-    dataset = sys.argv[2]
-    n_sigma = float(sys.argv[3])
-
     with open(path.format(obj_id), 'r', encoding='utf-8') as data:
         results_1L2S = yaml.safe_load(data)
     best_vals = results_1L2S['Best model']['Parameters'].values()
     perc_vals = results_1L2S['Fitted parameters'].values()
 
-    list_1L2S = [os.path.join(diff_path, files_dir, obj_id + '.dat')]
+    list_1L2S = [os.path.join(diff_path, args.files_dir, obj_id + '.dat')]
     for (best, perc) in zip(best_vals, perc_vals):
         mean_std = np.mean([perc[1], -perc[2]])
-        lower_limit = max(0, round(best - n_sigma*mean_std, 5))
-        upper_limit = round(best + n_sigma*mean_std, 5)
+        lower_limit = max(0, round(best - args.n_sigma*mean_std, 5))
+        upper_limit = round(best + args.n_sigma*mean_std, 5)
         list_1L2S.append([lower_limit, upper_limit])
 
-    path_yaml = os.path.join(diff_path, 'ultranest_1L2S', dataset)
+    path_yaml = os.path.join(diff_path, 'ultranest_1L2S', args.dataset)
     list_1L2S += [path_yaml, obj_id, '']
 
     return list_1L2S
 
 
-def get_2L1S_params(path, diff_path, obj_id, files_dir):
+def get_2L1S_params(args, path, diff_path, obj_id):
     """
     Get the parameters from the 2L1S model, selecting the smaller chi2
     between the trajectory `between` and `beyond` the lenses.
     A similar list to get_1L2S_params() is returned.
     """
-    n_sigma = float(sys.argv[3])
     with open(path.format(obj_id, 'between'), 'r', encoding='utf-8') as data:
         results_2L1S = yaml.safe_load(data)
     with open(path.format(obj_id, 'beyond'), 'r', encoding='utf-8') as data:
@@ -119,22 +142,22 @@ def get_2L1S_params(path, diff_path, obj_id, files_dir):
         if temp['Best model']['chi2'] < results_2L1S['Best model']['chi2']:
             results_2L1S = temp
 
-    list_2L1S = [os.path.join(diff_path, files_dir, obj_id + '.dat')]
+    list_2L1S = [os.path.join(diff_path, args.files_dir, obj_id + '.dat')]
     best_vals = results_2L1S['Best model']['Parameters'].values()
     perc_vals = results_2L1S['Fitted parameters'].values()
     for (best, perc) in zip(best_vals, perc_vals):
         mean_std = np.mean([perc[1], -perc[2]])
-        lower_limit = max(0, round(best - n_sigma*mean_std, 5))
-        upper_limit = round(best + n_sigma*mean_std, 5)
+        lower_limit = max(0, round(best - args.n_sigma*mean_std, 5))
+        upper_limit = round(best + args.n_sigma*mean_std, 5)
         list_2L1S.append([lower_limit, upper_limit])
 
-    path_yaml = os.path.join(diff_path, 'ultranest_2L1S', dataset)
+    path_yaml = os.path.join(diff_path, 'ultranest_2L1S', args.dataset)
     list_2L1S += ['', path_yaml, obj_id, '']
 
     return list_2L1S
 
 
-def save_yaml_inputs(path, obj_id, list_1L2S=None, list_2L1S=None):
+def save_yaml_UN_inputs(path, obj_id, list_1L2S=None, list_2L1S=None):
     """
     Save yaml inputs for the 1L2S and 2L1S model, to apply UltraNest.
     """
@@ -170,22 +193,19 @@ def create_results_dir(path, obj_id):
 
 if __name__ == '__main__':
 
-    # still add function to parse_args and organize paths name!!!
-    files_dir = sys.argv[1]
-    dataset = sys.argv[2]
-    which_models = "both" if len(sys.argv) < 5 else sys.argv[4].lower()
+    args = parse_arguments()
+    all_paths = get_paths(args.dataset)
+    args.files_dir, obj_list = get_obj_list(args.files_dir, args.dataset)
     list_1L2S, list_2L1S = None, None
 
-    all_paths = get_paths(files_dir, dataset)
-    files_dir, obj_list = get_obj_list(all_paths[0])
     for obj_id in obj_list:
-        model_methods, xlim = get_xlim(all_paths[1], obj_id)
-        if which_models in ["both", "1l2s"]:
-            list_1L2S = get_1L2S_params(*all_paths[2], obj_id, files_dir)
+        model_methods, xlim = get_xlim(all_paths[0], obj_id)
+        if args.which_models in ["both", "1l2s"]:
+            list_1L2S = get_1L2S_params(args, *all_paths[1], obj_id)
             list_1L2S[-1] = xlim
-        if which_models in ["both", "2l1s"]:
-            list_2L1S = get_2L1S_params(*all_paths[3], obj_id, files_dir)
+        if args.which_models in ["both", "2l1s"]:
+            list_2L1S = get_2L1S_params(args, *all_paths[2], obj_id)
             list_2L1S[7], list_2L1S[-1] = model_methods, xlim
-        save_yaml_inputs(all_paths[4], obj_id, list_1L2S, list_2L1S)
-        create_results_dir(all_paths[5], obj_id)
+        save_yaml_UN_inputs(all_paths[3], obj_id, list_1L2S, list_2L1S)
+        create_results_dir(all_paths[4], obj_id)
         print("Done for", obj_id)
