@@ -154,6 +154,7 @@ def get_2L1S_params(args, path, diff_path, obj_id):
 
     path_yaml = os.path.join(diff_path, 'ultranest_2L1S', args.dataset)
     list_2L1S += ['', path_yaml, obj_id, '']
+    list_2L1S.append(results_2L1S)
 
     return list_2L1S
 
@@ -179,15 +180,43 @@ def update_mag_methods(mag_methods, list_1L2S):
     return mag_methods
 
 
-def save_yaml_UN_inputs(path, obj_id, list_1L2S=None, list_2L1S=None):
+def update_large_sigmas(list_2L1S):
+    """
+    Update the prior limits in cases with large uncertainties (s, q, alpha).
+    """
+    results_2L1S = list_2L1S.pop(-1)
+    perc = results_2L1S['Fitted parameters']
+    sig_alpha = np.mean([perc['alpha'][1], -perc['alpha'][2]])
+    sig_q = np.mean([perc['q'][1], -perc['q'][2]]) / perc['q'][0]
+    sig_s = np.mean([perc['s'][1], -perc['s'][2]]) / perc['s'][0]
+
+    if sig_alpha > 3 and (sig_q > 0.5 or sig_s > 2):
+        new_n_sigma = 0.1
+        best = results_2L1S['Best model']['Parameters'].values()
+
+        for i, (best, perc) in enumerate(zip(best, perc.values())):
+            mean_std = np.mean([perc[1], -perc[2]])
+            lower_limit = max(0, round(best - new_n_sigma*mean_std, 5))
+            upper_limit = round(best + new_n_sigma*mean_std, 5)
+            list_2L1S[i+1] = [lower_limit, upper_limit]
+        return (list_2L1S, new_n_sigma)
+
+    return (list_2L1S, None)
+
+
+def save_yaml_UN_inputs(path, obj_id, list_1L2S=None, list_2L1S=None,
+                        new_sigma=None):
     """
     Save yaml inputs for the 1L2S and 2L1S model, to apply UltraNest.
     """
+    n_sigma = new_sigma if new_sigma is not None else args.n_sigma
+    n_sigma = str(n_sigma).replace('.', 'p')
     if list_1L2S is not None:
         fname = 'template_1L2S_UltraNest.yaml'
         with open(fname, 'r', encoding='utf-8') as t_file:
             temp_UN = t_file.read()
         yaml_path = path[0].format(list_1L2S[6].split('/')[-2], obj_id)
+        yaml_path = yaml_path.replace('.yaml', f'_{n_sigma}sig.yaml')
         with open(yaml_path, 'w') as yaml_input:
             yaml_input.write(temp_UN.format(*list_1L2S))
 
@@ -196,6 +225,7 @@ def save_yaml_UN_inputs(path, obj_id, list_1L2S=None, list_2L1S=None):
         with open(fname, 'r', encoding='utf-8') as t_file:
             temp_UN = t_file.read()
         yaml_path = path[1].format(list_2L1S[8].split('/')[-2], obj_id)
+        yaml_path = yaml_path.replace('.yaml', f'_{n_sigma}sig.yaml')
         with open(yaml_path, 'w') as yaml_input:
             yaml_input.write(temp_UN.format(*list_2L1S))
 
@@ -218,7 +248,7 @@ if __name__ == '__main__':
     args = parse_arguments()
     all_paths = get_paths(args.dataset)
     args.files_dir, obj_list = get_obj_list(args.files_dir, args.dataset)
-    list_1L2S, list_2L1S = None, None
+    list_1L2S, list_2L1S, sig = None, None, None
 
     for obj_id in obj_list:
         mag_method, xlim = get_xlim(all_paths[0], obj_id)
@@ -228,9 +258,10 @@ if __name__ == '__main__':
         if args.which_models in ["both", "2l1s"]:
             list_2L1S = get_2L1S_params(args, *all_paths[2], obj_id)
             new_methods = update_mag_methods(mag_method, list_1L2S)
+            list_2L1S, sig = update_large_sigmas(list_2L1S)
             list_2L1S[7], list_2L1S[-1] = new_methods, xlim
         if args.which_models == "2l1s":
             list_1L2S = None
-        save_yaml_UN_inputs(all_paths[3], obj_id, list_1L2S, list_2L1S)
+        save_yaml_UN_inputs(all_paths[3], obj_id, list_1L2S, list_2L1S, sig)
         create_results_dir(all_paths[4], obj_id)
         print("Done for", obj_id)

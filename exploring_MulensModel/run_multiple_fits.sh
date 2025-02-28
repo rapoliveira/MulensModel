@@ -26,7 +26,7 @@ elif [ "$task" == "task2" ]; then
     yaml_files=$(ls "$DIRECTORY"/*-1L2S_UltraNest.yaml | sort)
 elif [ "$task" == "task3" ]; then
     DIRECTORY="./$project_name/ultranest_2L1S/$dataset/$group"
-    yaml_files=$(ls "$DIRECTORY"/*-2L1S_UltraNest.yaml | sort)
+    yaml_files=$(ls "$DIRECTORY"/*-2L1S_UltraNest*.yaml | sort)
 else
     echo "Invalid argument. Please use: task1, task2, or task3."
     exit 1
