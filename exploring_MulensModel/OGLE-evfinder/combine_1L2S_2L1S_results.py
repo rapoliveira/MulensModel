@@ -147,6 +147,10 @@ def add_params_to_table(method, res_fit, dof):
         round_params = (2, 5, 2, 5, 2)
     else:
         round_params = (2, 5, 2, 2, 5, 2)
+    s_flux = [val for key, val in best['Fluxes'].items() if 'flux_s' in key]
+    if any(np.array(s_flux) < 0):
+        name = res_fit.get('event_id', best['Parameters'].get('t_0'))
+        print(name, 'has negative s_flux.')
 
     best_pars = list(best['Parameters'].values())
     best_pars = [round(p, r) for p, r in zip(best_pars, round_params)]
@@ -154,12 +158,6 @@ def add_params_to_table(method, res_fit, dof):
     bflux = round(best['Fluxes']['flux_b_1'], 5)
     bflux_sig = np.mean([fitted_bflux[1], -fitted_bflux[2]])
     t_E_sig, bflux_sig = round(t_E_sig, 2), round(bflux_sig, 5)
-
-    # Temporary lines to print the typical uncertainties
-    # if len(fitted_pars) == 6:
-    #     for item in fitted_pars.values():
-    #         print(round(np.mean([item[1], -item[2]]) / item[0], 5), end=' ')
-    #     print()
 
     # line = [*best_pars, t_E_sig, bflux, bflux_sig, round(best['chi2'], 2)]
     line = [*best_pars, t_E_sig, bflux, bflux_sig, round(best['chi2']/dof, 5)]
@@ -187,7 +185,6 @@ def fill_table(method, dirs, event_ids):
             change_sigmas_UN(dict_1L2S, dict_2L1S, sigmas_1L2S_2L1S)
         dof = dict_1L2S['Best model']['dof']
         line_1L2S = add_params_to_table(method, dict_1L2S, dof)
-        print(event_id, end=' ')
         line_2L1S = add_params_to_table(method, dict_2L1S, dof-1)
 
         event_id = event_id.split('_OGLE')[0]
@@ -234,5 +231,4 @@ if __name__ == '__main__':
     event_ids = [f.split(str_split)[0] for f in os.listdir(dirs[idx])
                  if f[0] != '.' and f.endswith(".yaml")]
     tab = fill_table(args.method, dirs, sorted(event_ids))
-    # breakpoint()
     final_setup_and_save_table(path, tab, args.method)
