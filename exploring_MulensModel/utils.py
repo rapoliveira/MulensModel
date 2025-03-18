@@ -322,7 +322,10 @@ class Utils(object):
         model = mm.Model(bst)
         if model.n_lenses == 2 and xlim is not None:
             model.default_magnification_method = 'point_source_point_lens'
-            methods_lst = [float(xlim[0]), 'point_source', float(xlim[1])]
+            if len(xlim) == 2:
+                methods_lst = [float(xlim[0]), 'point_source', float(xlim[1])]
+            else:
+                methods_lst = [float(x) if '.' in x else x for x in xlim]
             model.set_magnification_methods(methods_lst)
 
         source_list = [best[p] for p in best if 'flux_s' in p]

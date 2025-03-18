@@ -216,6 +216,7 @@ class PrepareBinaryLens(object):
         m_dict = dict(zip(['t_0', 'u_0', 't_E', 's', 'q'], self._temp_params))
         alpha_list = [alpha_1, alpha_2, -alpha_1 % 360., -alpha_2 % 360.]
         best_alpha, best_chi2 = None, float('inf')
+        # mag_methods = self._update_mag_methods()
         for alpha in alpha_list:
             m_dict['alpha'] = alpha
             chi2 = Utils.get_mm_event(data, m_dict, self.xlim_str)[1]
@@ -224,6 +225,27 @@ class PrepareBinaryLens(object):
                 best_alpha = alpha
 
         self._temp_params.append(best_alpha)
+
+    def _update_mag_methods(self):
+        """
+        Update the magnification methods if the bumps are too separated.
+
+        It's commented right now, because further details in yaml need to
+        be implemented before using this method.
+        """
+        bst = self.best_params
+        mag_methods = self.xlim_str.copy()
+
+        t_0_1, t_0_2, t_E = *sorted([bst['t_0_1'], bst['t_0_2']]), bst['t_E']
+        if t_0_2 - t_0_1 > 2000. and t_E < 30:
+            mag_methods.insert(1, 'point_source')
+            t_E_min = max(5 * t_E, 50)
+            mag_methods.insert(2, '%.1f' % (t_0_1 + t_E_min))
+            mag_methods.insert(3, 'point_source_point_lens')
+            mag_methods.insert(4, '%.1f' % (t_0_2 - t_E_min))
+            mag_methods.insert(5, 'point_source')
+
+        return mag_methods
 
     def get_initial_params_traj_beyond(self):
         """
