@@ -332,7 +332,7 @@ class Utils(object):
                               fix_blend_flux=fix_blend)
         try:
             chi2 = event_1L2S.get_chi2()
-        except TypeError:
+        except (TypeError, ValueError):
             chi2 = float('inf')
 
         return (event_1L2S, chi2)

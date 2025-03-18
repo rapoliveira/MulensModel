@@ -17,8 +17,11 @@ def parse_arguments():
     Parses command-line arguments and returns them.
     """
     defaults = ["UltraNest", "obvious"]
-
     parser = argparse.ArgumentParser(description="Arguments for the script")
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help="Enable verbose mode")
+    parser.add_argument('-lc', '--lowcadence', action='store_true',
+                        help="Enable low-cadence mode")
     parser.add_argument('method', type=str, nargs='?', default=defaults[0],
                         help="Method to get results: UltraNest or EMCEE")
     parser.add_argument('dataset', type=str, nargs='?', default=defaults[1],
@@ -30,6 +33,7 @@ def parse_arguments():
             f'{path}/results_1L2S/{args.dataset}/yaml_results/']
     args.method = args.method.lower()
     idx = 0 if args.method == "ultranest" else 1
+    print()
 
     return args, path, dirs, idx
 
@@ -60,6 +64,19 @@ def declare_and_format_table(method):
     return tab
 
 
+def apply_1L2S_criteria(res_1L2S):
+    """
+    Apply criteria to the 1L2S results, before reading 2L1S results
+    """
+    chi2, dof, best_params, best_fluxes = res_1L2S['Best model'].values()
+    chi2_dof = chi2 / dof
+    t_E = best_params['t_E']
+    max_u_0 = max(best_params['u_0_1'], best_params['u_0_2'])
+    flux_s = min(best_fluxes['flux_s1_1'], best_fluxes['flux_s2_1'])
+
+    return (chi2_dof < 2 and t_E < 200 and max_u_0 > 0.01 and flux_s > 0)
+
+
 def read_results_EMCEE(dir_1L2S):
     """
     Read EMCEE results for both 1L2S and 2L1S models.
@@ -68,6 +85,8 @@ def read_results_EMCEE(dir_1L2S):
     dir_1L2S += "_results.yaml"
     with open(dir_1L2S, encoding='utf-8') as in_1L2S:
         dict_1L2S = yaml.safe_load(in_1L2S)
+    if not apply_1L2S_criteria(dict_1L2S):
+        return None, None
 
     dir_2L1S = dir_1L2S.replace(f'1L2S/{args.dataset}/yaml_results/',
                                 f'2L1S/{args.dataset}/')
@@ -80,6 +99,17 @@ def read_results_EMCEE(dir_1L2S):
         res_2L1S_beyond = yaml.safe_load(in_2L1S)
         chi2_bey = res_2L1S_beyond['Best model']['chi2']
     dict_2L1S = res_2L1S_between if chi2_bet < chi2_bey else res_2L1S_beyond
+
+    chi2_1L2S, dof = [dict_1L2S['Best model'][key] for key in ('chi2', 'dof')]
+    chi2_2L1S = dict_2L1S['Best model']['chi2']
+    dict_ = dict_1L2S if chi2_1L2S / dof < chi2_2L1S / (dof-1) else dict_2L1S
+    min_chi2 = min(chi2_1L2S / dof, chi2_2L1S / (dof-1))
+    # if dict_2L1S['Best model']['Fluxes']['flux_s_1'] < 0:  # temporary!
+    #     print("This event has negative s_flux. Check it!")
+    #     breakpoint()
+    if args.lowcadence:
+        if min_chi2 > 1.52 or dict_['Best model']['Parameters']['t_E'] > 150 or dict_2L1S['Best model']['Fluxes']['flux_s_1'] < 0:
+            return None, None
 
     return dict_1L2S, dict_2L1S
 
@@ -175,8 +205,13 @@ def fill_table(method, dirs, event_ids):
     tab = declare_and_format_table(method)
 
     for event_id in event_ids:
+        print("Starting:", event_id)
         dir_1L2S_emcee = os.path.join(dirs[1], event_id)
         dict_1L2S, dict_2L1S = read_results_EMCEE(dir_1L2S_emcee)
+        if dict_1L2S is None:
+            if args.verbose:
+                print(event_id, "does not meet criteria!")
+            continue
 
         if method == "ultranest":
             sigmas_1L2S_2L1S = get_EMCEE_sigmas(dict_1L2S, dict_2L1S)
@@ -231,4 +266,7 @@ if __name__ == '__main__':
     event_ids = [f.split(str_split)[0] for f in os.listdir(dirs[idx])
                  if f[0] != '.' and f.endswith(".yaml")]
     tab = fill_table(args.method, dirs, sorted(event_ids))
+    if args.verbose:
+        print()
+        print(tab, '\n')
     final_setup_and_save_table(path, tab, args.method)
