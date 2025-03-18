@@ -1,0 +1,26 @@
+photometry_files:
+    - {{file_name: {0:}/phot/{1:}/{2:}_OGLE.dat, add_2450000: True}}
+models:
+    model_1:
+        parameters: t_0_1 u_0_1 t_0_2 u_0_2 t_E
+        values: {3:}
+        source_flux: {4:}
+        blending_flux: {5:}
+    model_2:
+        parameters: t_0 u_0 t_E s q alpha
+        values: {6:}
+        source_flux: {7:}
+        blending_flux: {8:}
+        methods: {9:}
+        default method: point_source_point_lens
+plots:
+    best model:
+        file: {0:}/{10:}/{2:}_model_1L2S_vs_2L1S.pdf  # False
+        t_range: {11:}
+        coords: False
+        chi2: {12:}
+        mag_range: False  # 17.8 15.3
+        labels: 1L2S 2L1S
+        colors: black green
+        show_params_in_label: False
+        third_panel: cumulative

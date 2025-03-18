@@ -17,7 +17,17 @@ import matplotlib.pyplot as plt
 import MulensModel as mm
 import numpy as np
 
-from ulens_model_fit import UlensModelFit
+try:
+    ex16_path = os.path.join(mm.__path__[0], '../../examples/example_16')
+    if os.path.abspath(ex16_path) not in sys.path:
+        sys.path.append(os.path.abspath(ex16_path))
+    from ulens_model_fit import UlensModelFit
+except ImportError as err:
+    print(err)
+    print("Please install MulensModel in editable mode (-e) from within the"
+          "directory cloned from GitHub. This will allow to import the class"
+          "UlensModelFit from example_16.")
+    sys.exit(1)
 
 
 class PlotMultipleModels(UlensModelFit):
@@ -119,7 +129,7 @@ class PlotMultipleModels(UlensModelFit):
             if model.n_lenses == 2:
                 methods = enumerate(item['methods'].split())
                 methods = [float(x) if i % 2 == 0 else x for (i, x) in methods]
-                model.set_default_magnification_method(item['default method'])
+                model.default_magnification_method = item['default method']
                 model.set_magnification_methods(methods)
             events.append(mm.Event(data, model=model,
                                    fix_source_flux={data: fix_source},
@@ -150,10 +160,12 @@ class PlotMultipleModels(UlensModelFit):
         if self._mag_range is not False:
             self._mag_range = [float(val) for val in self._mag_range]
             ax1.set_ylim(*self._mag_range)
-        fig.add_subplot(gs[2:3, :], sharex=ax1)
+        ax2 = fig.add_subplot(gs[2:3, :], sharex=ax1)
+        ax1.tick_params(labelbottom=False)
 
         if self._third_panel is not False:
             ax3 = fig.add_subplot(gs[3:, :], sharex=ax1)
+            ax2.tick_params(labelbottom=False)
             ax3.set_xlabel('Time - 2450000' if self._subtract else 'Time')
             if self._third_panel == "cumulative":
                 ax3.set_ylabel(r'Cumulative $\Delta\chi^2$')
@@ -204,8 +216,9 @@ class PlotMultipleModels(UlensModelFit):
         Returns:
             str: the label with chi2 and model parameters.
         """
-
-        label_more = f': chi2={event.get_chi2():.2f}'
+        n_params = len(event.model.parameters.as_dict())
+        dof = len(event.datasets[0].time) - n_params
+        label_more = f': chi2_dof={event.get_chi2()/dof:.3f}'
         if self._show_params_in_label:
             params = event.model.parameters.as_dict()
             param_names = ', '.join(params.keys())
