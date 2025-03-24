@@ -8,6 +8,7 @@ import argparse
 import os
 
 from astropy.table import Table
+import MulensModel as mm
 import numpy as np
 import yaml
 
@@ -25,7 +26,7 @@ def parse_arguments():
     parser.add_argument('method', type=str, nargs='?', default=defaults[0],
                         help="Method to get results: UltraNest or EMCEE")
     parser.add_argument('dataset', type=str, nargs='?', default=defaults[1],
-                        help="Dataset to get results: obvious, BLG50X...")
+                        help="Dataset: obvious, BLG50X1, lcmin3to5, lcall1...")
     args = parser.parse_args()
 
     path = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +37,23 @@ def parse_arguments():
     print()
 
     return args, path, dirs, idx
+
+
+def remove_cvs_mroz20(event_ids):
+    """
+    Remove the CV candidates that are already in the Mroz+20 paper.
+
+    Link to the paper:
+    https://ui.adsabs.harvard.edu/abs/2015AcA....65..313M/abstract
+    """
+    cvs_table = Table.read('CVs_tab1_Mroz2015.dat', format='ascii')
+    cvs_ids = [line['col4'] + '.' + line['col5'] for line in cvs_table]
+    ids_temp = [id.split('_OGLE')[0].replace("_", '.') for id in event_ids]
+
+    mask_cvs = [event_id in cvs_ids for event_id in ids_temp]
+    new = [id_ for (id_, mask) in zip(event_ids, mask_cvs) if not mask]
+
+    return new
 
 
 def declare_and_format_table(method):
@@ -74,13 +92,69 @@ def apply_1L2S_criteria(res_1L2S):
     max_u_0 = max(best_params['u_0_1'], best_params['u_0_2'])
     flux_s = min(best_fluxes['flux_s1_1'], best_fluxes['flux_s2_1'])
 
+    if res_1L2S['event_id'] == "BLG508_17_126114_OGLE":
+        # obvious event that requires the only exception: good t_E_2L1S...
+        return (chi2_dof < 2 and flux_s > 0)
+
     return (chi2_dof < 2 and t_E < 200 and max_u_0 > 0.01 and flux_s > 0)
 
 
-def read_results_EMCEE(dir_1L2S):
+def check_n_datapoints(event_id):
     """
-    Read EMCEE results for both 1L2S and 2L1S models.
-    The solution with lower chi2 is chosen for the 2L1S model.
+    Check if the number of datapoints is greater than 120.
+    Minimum n_data in event_finder is 30, but here we need to increase.
+    """
+    path = os.path.dirname(os.path.abspath(__file__))
+    options = ["BLG50X1", "BLG50X2", "BLG50X3", "lcmin3to5", "lcall1",
+               "lcall2", "lcall3"]
+    for dataset in options:
+        fname = os.path.join(path, f'phot/phot_{dataset}', f'{event_id}.dat')
+        if os.path.exists(fname):
+            break
+
+    mm_data = mm.MulensData(file_name=fname)
+    return mm_data.n_epochs > 120
+
+
+def apply_more_criteria(args, res_1L2S, res_2L1S):
+    """
+    Apply further criteria to both 1L2S and 2L1S results.
+    """
+    chi2_1L2S, dof = [res_1L2S['Best model'][key] for key in ('chi2', 'dof')]
+    chi2_2L1S = res_2L1S['Best model']['chi2']
+    dict_ = res_1L2S if chi2_1L2S / dof < chi2_2L1S / (dof-1) else res_2L1S
+    min_chi2 = min(chi2_1L2S / dof, chi2_2L1S / (dof-1))
+    t_E_best = dict_['Best model']['Parameters']['t_E']
+
+    params = res_1L2S['Best model']['Parameters']
+    tau_1L2S = (params['t_0_1'] - params['t_0_2']) / params['t_E']
+    max_u_0_i = max(params['u_0_1'], params['u_0_2'])
+    sep_1L2S = np.sqrt(tau_1L2S**2 + max_u_0_i**2)
+    s_2L1S = res_2L1S['Best model']['Parameters']['s']
+
+    t_0_diff = abs(params['t_0_1'] - params['t_0_2'])
+    t_0_thr = (t_0_diff >= 9 and t_0_diff < 2800)
+    sflux_thr = res_2L1S['Best model']['Fluxes']['flux_s_1'] > 0
+    bflux_1L2S = res_1L2S['Best model']['Fluxes']['flux_b_1']
+    bflux_2L1S = res_2L1S['Best model']['Fluxes']['flux_b_1']
+    bflux_thr = max(bflux_1L2S, bflux_2L1S) > -8.0
+    n_data = check_n_datapoints(res_1L2S['event_id'])
+
+    if not args.lowcadence:
+        new_thrs = (sep_1L2S < 120 and s_2L1S < 250 and max_u_0_i < 1.6)
+        return (new_thrs and sflux_thr and t_0_thr and bflux_thr and n_data)
+
+    else:
+        prev_thr = (min_chi2 <= 1.52 and t_E_best <= 120)
+        new_thrs = (sep_1L2S < 70 and s_2L1S < 70 and max_u_0_i < 1.2)
+        return (prev_thr and sflux_thr and t_0_thr and bflux_thr and new_thrs
+                and n_data)
+
+
+def read_results_EMCEE(args, dir_1L2S):
+    """
+    Read EMCEE results for 1L2S and 2L1S models and call criteria functions.
+    For 2L1S model, between or beyond solution is chosen based on chi2.
     """
     dir_1L2S += "_results.yaml"
     with open(dir_1L2S, encoding='utf-8') as in_1L2S:
@@ -99,17 +173,8 @@ def read_results_EMCEE(dir_1L2S):
         res_2L1S_beyond = yaml.safe_load(in_2L1S)
         chi2_bey = res_2L1S_beyond['Best model']['chi2']
     dict_2L1S = res_2L1S_between if chi2_bet < chi2_bey else res_2L1S_beyond
-
-    chi2_1L2S, dof = [dict_1L2S['Best model'][key] for key in ('chi2', 'dof')]
-    chi2_2L1S = dict_2L1S['Best model']['chi2']
-    dict_ = dict_1L2S if chi2_1L2S / dof < chi2_2L1S / (dof-1) else dict_2L1S
-    min_chi2 = min(chi2_1L2S / dof, chi2_2L1S / (dof-1))
-    # if dict_2L1S['Best model']['Fluxes']['flux_s_1'] < 0:  # temporary!
-    #     print("This event has negative s_flux. Check it!")
-    #     breakpoint()
-    if args.lowcadence:
-        if min_chi2 > 1.52 or dict_['Best model']['Parameters']['t_E'] > 150 or dict_2L1S['Best model']['Fluxes']['flux_s_1'] < 0:
-            return None, None
+    if not apply_more_criteria(args, dict_1L2S, dict_2L1S):
+        return None, None
 
     return dict_1L2S, dict_2L1S
 
@@ -197,30 +262,31 @@ def add_params_to_table(method, res_fit, dof):
     return line
 
 
-def fill_table(method, dirs, event_ids):
+def fill_table(args, dirs, event_ids):
     """
     Fill the table with the parameters, chi2 and evidence of the best models,
     for each event_id placed in the first column.
     """
-    tab = declare_and_format_table(method)
+    tab = declare_and_format_table(args.method)
 
     for event_id in event_ids:
         print("Starting:", event_id)
         dir_1L2S_emcee = os.path.join(dirs[1], event_id)
-        dict_1L2S, dict_2L1S = read_results_EMCEE(dir_1L2S_emcee)
+        dict_1L2S, dict_2L1S = read_results_EMCEE(args, dir_1L2S_emcee)
         if dict_1L2S is None:
             if args.verbose:
                 print(event_id, "does not meet criteria!")
             continue
 
-        if method == "ultranest":
+        # review the method with Ultranest at some point
+        if args.method == "ultranest":
             sigmas_1L2S_2L1S = get_EMCEE_sigmas(dict_1L2S, dict_2L1S)
             res_1L2S = os.path.join(dirs[0], event_id)
             dict_1L2S, dict_2L1S = read_results_UN(res_1L2S)
             change_sigmas_UN(dict_1L2S, dict_2L1S, sigmas_1L2S_2L1S)
         dof = dict_1L2S['Best model']['dof']
-        line_1L2S = add_params_to_table(method, dict_1L2S, dof)
-        line_2L1S = add_params_to_table(method, dict_2L1S, dof-1)
+        line_1L2S = add_params_to_table(args.method, dict_1L2S, dof)
+        line_2L1S = add_params_to_table(args.method, dict_2L1S, dof-1)
 
         event_id = event_id.split('_OGLE')[0]
         tab.add_row([event_id.ljust(16), *line_1L2S, *line_2L1S])
@@ -265,7 +331,8 @@ if __name__ == '__main__':
     str_split = '-1L2S' if args.method == "ultranest" else '_results'
     event_ids = [f.split(str_split)[0] for f in os.listdir(dirs[idx])
                  if f[0] != '.' and f.endswith(".yaml")]
-    tab = fill_table(args.method, dirs, sorted(event_ids))
+    event_ids = remove_cvs_mroz20(event_ids)
+    tab = fill_table(args, dirs, sorted(event_ids))
     if args.verbose:
         print()
         print(tab, '\n')
