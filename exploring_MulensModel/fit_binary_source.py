@@ -185,8 +185,9 @@ class FitBinarySource(UlensModelFit):
         """
         print(f'\n\033[1m * Running fit for {self.event_id}\033[0m\n')
         self._get_peak_times()
-        if self.t_peaks.max() < 6000:
+        if self.t_peaks.max() < 6000 or self.t_peaks.min() > 8500:
             chi2_lin = self._quick_linear_fit()
+            chi2_lin = min(chi2_lin, self._quick_linear_fit(right_side=True))
             if chi2_lin < 2.:
                 print('Linear model fits best. Stopping here...')
                 return chi2_lin
@@ -217,53 +218,61 @@ class FitBinarySource(UlensModelFit):
         self.t_peaks_orig = self.t_peaks.copy()
         self.wins = [line['t_start'][0], line['t_start_2'][0]]
 
-    def _quick_linear_fit(self):
+    def _quick_linear_fit(self, right_side=False):
         """
         Fit a constant magnitude for datapoints before and after the two
         peaks, and a linear model in between.
         The chi2/dof is computed for the three segments and returned.
         """
-        mean_mag, data_segments = self._get_mean_mag_and_split()
+        mean_mag, data_segments = self._get_mean_mag_and_split(right_side)
         data_left, data_right, data_middle = data_segments
 
-        chi2_left = np.sum(((data_left['col1'] - np.mean(data_left['col1'])) /
-                            data_left['col2']) ** 2)
-        chi2_right = np.sum(((data_right['col1'] - mean_mag) /
-                            data_right['col2']) ** 2)
+        chi2_left = np.sum(((data_left['mag'] - np.mean(data_left['mag'])) /
+                            data_left['err_mag']) ** 2)
+        chi2_right = np.sum(((data_right['mag'] - mean_mag) /
+                            data_right['err_mag']) ** 2)
         dof_lr = len(data_left) + len(data_right) - 2
         if chi2_left + chi2_right > 2 * dof_lr or len(data_middle) == 0:
             return np.inf
 
-        a, b = np.polyfit(data_middle['col0'], data_middle['col1'], 1)
-        chi2 = np.sum(((data_middle['col1'] - (a * data_middle['col0'] + b)) /
-                      data_middle['col2']) ** 2)
+        a, b = np.polyfit(data_middle['time'], data_middle['mag'], 1)
+        chi2 = np.sum(((data_middle['mag'] - (a * data_middle['time'] + b)) /
+                      data_middle['err_mag']) ** 2)
         dof = len(self._datasets[0].time) - 4
 
         return (chi2_left + chi2_right + chi2) / dof
 
-    def _get_mean_mag_and_split(self):
+    def _get_mean_mag_and_split(self, right_side=False):
         """
         Calculate the mean magnitude and split the data in three segments,
         in order to fit a linear model in the middle.
         """
-        data = self._datasets[0]
-        data = Table([data.time, data.mag, data.err_mag])
-        win0, win1 = 2450000 + self.wins[0], 2450360 + self.wins[0]
-        out_win = data[(data['col0'] < win0) | (data['col0'] > win1)]
-        win0, win1 = 2450000 + self.wins[1], 2450360 + self.wins[1]
-        out_win = out_win[(out_win['col0'] < win0) | (out_win['col0'] > win1)]
-        mean_mag, std_mag = np.mean(out_win['col1']), np.std(out_win['col1'])
+        data, colnames = self._datasets[0], ('time', 'mag', 'err_mag')
+        data = Table([data.time, data.mag, data.err_mag], names=colnames)
+        out = data.copy()
+        for w in self.wins:
+            out = out[(out['time'] < 2.45e6 + w) | (out['time'] > 2450360 + w)]
+        mean_mag, std_mag = np.mean(out['mag']), np.std(out['mag'])
 
-        bins = np.arange(data['col0'].min(), data['col0'].max() + 10, 10)
-        bin_idx = np.digitize(data['col0'], bins)
-        first_bin = self.t_peaks[1] + 2450000
-        for b in np.unique(bin_idx):
-            if np.all(data['col1'][bin_idx == b] >= mean_mag - 3 * std_mag):
-                first_bin = bins[b - 1]
+        t_peaks = np.sort(self.t_peaks) + 2450000
+        start = data['time'].min() - 10 if right_side else t_peaks[0]
+        end = t_peaks[1] if right_side else data['time'].max() + 10
+        bins = np.arange(start, end, 10)
+        bin_idx = np.digitize(data['time'], bins)
+        unique = np.unique(bin_idx)[::-1] if right_side else np.unique(bin_idx)
+        first_bin = t_peaks[0] if right_side else t_peaks[1]
+
+        for b in unique:
+            if np.all(data['mag'][bin_idx == b] >= mean_mag - 3 * std_mag):
+                first_bin = bins[b - 1] if b > 0 else bins[0]
                 break
 
-        mask_left = data['col0'] < self.t_peaks[0] + 2450000
-        mask_right = data['col0'] > first_bin
+        if right_side:
+            mask_left = data['time'] > t_peaks[0]
+            mask_right = data['time'] < first_bin
+        else:
+            mask_left = data['time'] < t_peaks[0]
+            mask_right = data['time'] > first_bin
         data_left, data_right = data[mask_left], data[mask_right]
         data_middle = data[~(mask_left | mask_right)]
 
