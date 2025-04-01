@@ -92,9 +92,13 @@ def apply_1L2S_criteria(res_1L2S):
     max_u_0 = max(best_params['u_0_1'], best_params['u_0_2'])
     flux_s = min(best_fluxes['flux_s1_1'], best_fluxes['flux_s2_1'])
 
-    if res_1L2S['event_id'] == "BLG508_17_126114_OGLE":
+    event_id = res_1L2S['event_id'].split('_OGLE')[0]
+    if event_id == "BLG508_17_126114":
         # obvious event that requires the only exception: good t_E_2L1S...
         return (chi2_dof < 2 and flux_s > 0)
+    if event_id == "BLG506_23_129457":
+        # obvious event twin with BLG506.23.129983, excluded by hand...
+        return False
 
     return (chi2_dof < 2 and t_E < 200 and max_u_0 > 0.01 and flux_s > 0)
 
