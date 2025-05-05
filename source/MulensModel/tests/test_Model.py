@@ -1,20 +1,26 @@
 import numpy as np
 from numpy.testing import assert_almost_equal as almost
 from math import isclose
+import pytest
 import unittest
-from astropy import units as u
-import warnings
+import os.path
 
 import MulensModel as mm
+
+dir_2 = os.path.join(mm.DATA_PATH, 'unit_test_files')
+dir_3 = os.path.join(mm.DATA_PATH, 'ephemeris_files')
+SAMPLE_FILE_02_REF = os.path.join(dir_2, 'ob140939_OGLE_ref_v2.dat')  # HJD'
+SAMPLE_FILE_03_EPH = os.path.join(dir_3, 'Spitzer_ephemeris_01.dat')  # UTC
+SAMPLE_FILE_03_REF = os.path.join(dir_2, 'ob140939_Spitzer_ref_v2.dat')  # HJD'
 
 
 def test_n_lenses():
     """check n_lenses property"""
     model_1 = mm.Model({"t_0": 2456789., "u_0": 1., "t_E": 30.})
     model_2 = mm.Model({"t_0": 2456789., "u_0": 1., "t_E": 30.,
-                        "s": 1.1234, "q": 0.123, 'alpha': 12.34})
+                        "s": 1.1234, "q": 0.123, 'alpha': 192.34})
     model_3 = mm.Model({"t_0": 2456789., "u_0": 1., "t_E": 30.,
-                        "s": 1.1234, "q": 0.123, 'alpha': 12.34,
+                        "s": 1.1234, "q": 0.123, 'alpha': 192.34,
                         'convergence_K': 0.04, 'shear_G': complex(0.1, -0.05)})
     assert model_1.n_lenses == 1
     assert model_2.n_lenses == 2
@@ -52,6 +58,55 @@ class TestModel(unittest.TestCase):
         with self.assertRaises(ValueError):
             mm.Model({'t_0': 2450000., 'u_0': 0.1, 't_E': -100.})
 
+    def test_finite_source_method_without_rho(self):
+        """
+        Test method that requires fintie source to run on model that
+        has point source.
+        """
+        model = mm.Model({'t_0': 10, 'u_0': 0.2, 't_E': 50})
+        with self.assertRaises(ValueError):
+            model.set_magnification_methods(
+                [9, "finite_source_uniform_Gould94", 11])
+
+    def test_finite_source_method_without_rho_1(self):
+        """
+        2 source, only source 1 is finite, but we set finite method for both.
+        """
+        model = mm.Model({'t_0_1': 10, 'u_0_1': 0.2, 't_0_2': 30,
+                          'u_0_2': 0.4, 't_E': 50, 'rho_1': 0.6})
+        with self.assertRaises(ValueError):
+            model.set_magnification_methods(
+                [9, "finite_source_uniform_Gould94", 11])
+
+    def test_finite_source_method_without_rho_2(self):
+        """
+        2 source, only source 1 is finite, but we set finite method for both.
+        """
+        model = mm.Model({'t_0_1': 10, 'u_0_1': 0.2, 't_0_2': 30,
+                          'u_0_2': 0.4, 't_E': 50, 'rho_2': 0.6})
+        with self.assertRaises(ValueError):
+            model.set_magnification_methods(
+                [29, "finite_source_uniform_Gould94", 31])
+
+
+def test_model_methods():
+    """
+    Simplest model and setting point_source method.
+    It obviously should work but it's worth to check it.
+    """
+    model = mm.Model({'t_0': 10, 'u_0': 0.2, 't_E': 50})
+    model.set_magnification_methods([9, "point_source", 11])
+
+
+class TestModelParallaxPIE(unittest.TestCase):
+    def test_parallax_pi_E(self):
+        """
+        Make sure error is raised for API used in v1 and v2.
+        """
+        params = {'t_0': 2450000., 'u_0': 0.1, 't_E': 100., 'pi_E': (0.5, 0.6)}
+        with self.assertRaises(KeyError):
+            mm.ModelParameters(params)
+
 
 def test_model_parallax_definition():
     """Update parameters in an existing model"""
@@ -62,11 +117,6 @@ def test_model_parallax_definition():
     model_2.parameters.pi_E_E = 0.4
     assert model_2.parameters.pi_E_N == 0.3
     assert model_2.parameters.pi_E_E == 0.4
-
-    model_3 = mm.Model({'t_0': 2450000., 'u_0': 0.1, 't_E': 100.,
-                        'pi_E': (0.5, 0.6)})
-    assert model_3.parameters.pi_E_N == 0.5
-    assert model_3.parameters.pi_E_E == 0.6
 
     model_4 = mm.Model({'t_0': 2450000., 'u_0': 0.1, 't_E': 100.,
                         'pi_E_N': 0.7, 'pi_E_E': 0.8})
@@ -88,16 +138,28 @@ def test_coords_transformation():
     almost(model.coords.ecliptic_lat.value, -6.77579203, decimal=2)
 
 
+def test_coords_input():
+    """
+    Test if wrong coords input raises an error.
+    Only test that was missing to have 100% coverage in __init__.
+    """
+    ra, dec = "17:54:32.1", "-30:12:34.0"
+    with pytest.raises(AttributeError):
+        _ = mm.Model({'t_0': 2450000., 'u_0': 0.1, 't_E': 100.}, ra=ra)
+    with pytest.raises(AttributeError):
+        _ = mm.Model({'t_0': 2450000., 'u_0': 0.1, 't_E': 100.}, dec=dec)
+
+
 def test_init_parameters():
     """are parameters properly passed between Model and ModelParameters?"""
     t_0 = 6141.593
     u_0 = 0.5425
-    t_E = 62.63*u.day
+    t_E = 62.63
     params = mm.ModelParameters({'t_0': t_0, 'u_0': u_0, 't_E': t_E})
     model = mm.Model(parameters=params)
     almost(model.parameters.t_0, t_0)
     almost(model.parameters.u_0, u_0)
-    almost(model.parameters.t_E, t_E.value)
+    almost(model.parameters.t_E, t_E)
 
 
 def test_limb_darkening():
@@ -110,6 +172,173 @@ def test_limb_darkening():
 
     almost(model.get_limb_coeff_gamma('I'), gamma)
     almost(model.get_limb_coeff_u('I'), u)
+
+
+def test_limb_darkening_source():
+    """check if limb_darkening is properly set using source=None"""
+    gamma = 0.4555
+    u = 3. * gamma / (2. + gamma)
+    dict_1l2s = {'t_0_1': t_0, 'u_0_1': u_0, 't_0_2': t_0 + 50, 'u_0_2': u_0,
+                 't_E': t_E, 'rho_1': 0.1, 'rho_2': 0.002}
+    model = mm.Model(dict_1l2s)
+
+    with pytest.raises(ValueError):
+        model.get_limb_coeff_gamma('I', source=None)
+
+    model.set_limb_coeff_gamma('I', gamma, source=None)
+    assert model.get_limb_coeff_gamma('I', source=1) == gamma
+    assert (model.get_limb_coeff_gamma('I') == [gamma]*model.n_sources)
+    model.set_limb_coeff_u('I', u, source=1)
+    assert model.get_limb_coeff_u('I', source=2) == u
+    assert (model.get_limb_coeff_u('I') == [u]*model.n_sources)
+
+
+def test_errors_in_get_magnification():
+    """check if errors in get_magnification() are properly raised"""
+    t_0 = 2450000.
+    u_0 = 0.1
+    dict_1l2s = {'t_0_1': t_0, 'u_0_1': u_0, 't_0_2': t_0 + 9, 'u_0_2': u_0, 't_E': 10., 'rho_1': 0.01, 'rho_2': 0.1}
+    model = mm.Model(dict_1l2s)
+    model.set_magnification_methods([2449999., "finite_source_uniform_Gould94", 2450001.], source=1)
+    model.set_magnification_methods([2450008., "finite_source_uniform_Gould94", 2450010.], source=2)
+
+    with pytest.raises(TypeError):
+        model.get_magnification(2450000., source_flux_ratio=1)
+    with pytest.raises(ValueError):
+        model.get_magnification(2450000., separate=False)
+
+    model = mm.Model({'t_0': 2450000., 'u_0': 0.1, 't_E': 100., 'rho': 0.001})
+    model.set_magnification_methods([2449999., "finite_source_uniform_Gould94", 2450001.])
+    with pytest.raises(ValueError):
+        model.get_magnification(2450000., source_flux_ratio=0.5)
+    with pytest.raises(ValueError):
+        model.get_magnification(2450000., separate=True)
+    with pytest.raises(ValueError):
+        model.get_magnification([np.nan])
+
+
+def test_errors_in_limb_darkening():
+    """check if limb_darkening errors are properly raised"""
+    gamma = 0.4555
+    model = mm.Model({'t_0': 2450000., 'u_0': 0.1, 't_E': 100., 'rho': 0.001})
+    model.set_limb_coeff_gamma('I', gamma, source=None)
+
+    with pytest.raises(ValueError):
+        model.get_limb_coeff_gamma('I', source=3)
+    with pytest.raises(ValueError):
+        model.get_limb_coeff_u('I', source=3)
+
+    times = np.arange(2449900., 2450101., 50)
+    with pytest.raises(ValueError):
+        model.get_magnification(times, bandpass='I', gamma=gamma)
+    with pytest.raises(KeyError):
+        model.get_magnification(times, bandpass='V')
+
+
+def test_limb_darkening_with_uniform_methods_single_source():
+    """
+    Fail get_magnification() call with LD if no methods with LD are used,
+    in case of a model with single source.
+    """
+    model = mm.Model({'t_0': 2450000., 'u_0': 0.1, 't_E': 100., 'rho': 0.001})
+    model.set_limb_coeff_gamma('I', -1)
+    model.default_magnification_method = 'finite_source_uniform_Gould94'
+    times = np.arange(2449900., 2450101., 50)
+
+    forbidden = {
+        "finite_source_uniform_Gould94",
+        "finite_source_uniform_Gould94_direct",
+        "finite_source_uniform_WittMao94",
+        "finite_source_uniform_Lee09",
+    }
+    for method in forbidden:
+        model.set_magnification_methods([2449900., method, 2450100.])
+        with pytest.raises(ValueError):
+            model.get_magnification(times, bandpass='I')
+
+
+def test_limb_darkening_with_uniform_methods_multi_source():
+    """
+    Fail get_magnification() with only uniform methods, for multiple source.
+    LD and uniform method is set for one source only and the error persists.
+    """
+    t_0 = 2450000.
+    u_0 = 0.1
+    dict_1l2s = {'t_0_1': t_0, 'u_0_1': u_0, 't_0_2': t_0 + 50, 'u_0_2': u_0,
+                 't_E': 100., 'rho_1': 0.001, 'rho_2': 0.1}
+    model = mm.Model(dict_1l2s)
+    model.set_limb_coeff_gamma('I', -1, source=1)
+    model.default_magnification_method = 'finite_source_uniform_Gould94'
+
+    times = np.arange(2449900., 2450101., 50)
+    model.set_magnification_methods(
+        [2449900., 'finite_source_uniform_WittMao94', 2450100.], source=1)
+    with pytest.raises(ValueError):
+        model.get_magnification(times, bandpass='I')
+
+    model.set_limb_coeff_gamma('I', 2, source=2)
+    model.set_magnification_methods(
+        [2449950., 'finite_source_uniform_Lee09', 2450150.], source=2)
+    with pytest.raises(ValueError):
+        model.get_magnification(times, bandpass='I')
+
+
+def test_different_limb_darkening():
+    """testing effect of different limb darkening for different sources"""
+    t_0 = 2450000.
+    u_0 = 0.001
+    t_E = 100.
+    model_1 = mm.Model({'t_0': t_0, 'u_0': u_0, 't_E': t_E, 'rho': 0.1})
+    model_2 = mm.Model({'t_0': t_0 + 50, 'u_0': u_0, 't_E': t_E, 'rho': 0.002})
+    mag_method = [2449900., 'finite_source_LD_Yoo04', 2450100.]
+    model_1.set_magnification_methods(mag_method)
+    model_2.set_magnification_methods(mag_method)
+
+    model_1.set_limb_coeff_gamma('I', -1)
+    model_2.set_limb_coeff_gamma('I', 2)
+    times = [2449990.0, 2449990.5, 2449991.0, 2450000.0, 2450010.0,
+             2450048.5, 2450049.0, 2450049.9, 2450050.5, 2450051.0]
+    mag_1 = model_1.get_magnification(times, bandpass='I')
+    mag_2 = model_2.get_magnification(times, bandpass='I')
+
+    dict_1l2s = {'t_0_1': t_0, 'u_0_1': u_0, 't_0_2': t_0 + 50, 'u_0_2': u_0,
+                 't_E': t_E, 'rho_1': 0.1, 'rho_2': 0.002}
+    model_1l2s = mm.Model(dict_1l2s)
+    model_1l2s.set_limb_coeff_gamma('I', -1, source=1)
+    model_1l2s.set_limb_coeff_gamma('I', 2, source=2)
+    model_1l2s.set_magnification_methods(mag_method)
+    mags = model_1l2s.get_magnification(times, bandpass='I', separate=True)
+
+    assert (mag_1 == mags[0]).all()
+    assert (mag_2 == mags[1]).all()
+
+
+def test_set_magnification_methods_errors():
+    """
+    Testing if set_magnification_methods() works properly.
+    This improved five lines of code coverage missing in model.py.
+    """
+    t_0 = 2450000.
+    u_0 = 0.1
+    dict_1l2s = {'t_0_1': t_0, 'u_0_1': u_0, 't_0_2': t_0 + 50, 'u_0_2': u_0,
+                 't_E': 100., 'rho_1': 0.001, 'rho_2': 0.1}
+    model = mm.Model(dict_1l2s)
+    model_2 = mm.Model(dict_1l2s)
+    methods = [2449900., 'point_source', 2450100.]
+
+    with pytest.raises(TypeError):
+        model.set_magnification_methods(2449900.)
+    with pytest.raises(ValueError):
+        model.set_magnification_methods(methods, source=0.1)
+    with pytest.raises(ValueError):
+        model.set_magnification_methods(methods, source=3)
+
+    model.set_magnification_methods(methods, source=1)
+    with pytest.raises(ValueError):
+        model.set_magnification_methods(methods)
+    model_2.set_magnification_methods(methods)
+    with pytest.raises(ValueError):
+        model_2.set_magnification_methods(methods, source=1)
 
 
 def test_t_E():
@@ -129,17 +358,17 @@ def test_t_E():
 
 # Binary Lens tests
 # Binary lens parameters:
-alpha = 229.58 * u.deg
+alpha = 49.58
 s = 1.3500
 q = 0.00578
 # Other parameters
-t_E = 62.63 * u.day
+t_E = 62.63
 rho = 0.01
 
 # Adjust t_0, u_0 from primary to CM
 shift_x = -s * q / (1. + q)
-delta_t_0 = -t_E.value * shift_x * np.cos(alpha).value
-delta_u_0 = -shift_x * np.sin(alpha).value
+delta_t_0 = -t_E * shift_x * np.cos(alpha * np.pi / 180. + np.pi)
+delta_u_0 = -shift_x * np.sin(alpha * np.pi / 180. + np.pi)
 t_0 = 2456141.593 + delta_t_0
 u_0 = 0.5425 + delta_u_0
 
@@ -154,40 +383,61 @@ def test_BLPS_01():
     t = np.array([2456112.5])
     data = mm.MulensData(data_list=[t, t*0.+16., t*0.+0.01])
     magnification = model.get_magnification(data.time[0])
-    almost(magnification, 4.691830781584699)
+    almost(magnification[0], 4.691830781584699)
 # This value comes from early version of this code.
 # almost(m, 4.710563917)
 # This value comes from Andy's getbinp().
 
 
-def test_BLPS_shear_active():
+class TestBLPS_ShearActive(unittest.TestCase):
     """
     simple binary lens with point source and external convergence and shear
     """
-    params = mm.ModelParameters({
-        't_0': t_0, 'u_0': u_0, 't_E': t_E, 'alpha': alpha, 's': s,
-        'q': q, 'convergence_K': 0.08, 'shear_G': complex(0.1, -0.1)})
+    def setUp(self):
+        self.params = mm.ModelParameters({
+            't_0': t_0, 'u_0': u_0, 't_E': t_E, 'alpha': alpha, 's': s,
+            'q': q, 'convergence_K': 0.08, 'shear_G': complex(0.1, -0.1)})
 
-    model = mm.Model(parameters=params)
-    t = np.array([2456112.5])
-    data = mm.MulensData(data_list=[t, t*0.+16., t*0.+0.01])
-    magnification = model.get_magnification(data.time[0])
-    assert not isclose(magnification, 4.691830781584699, abs_tol=1e-2)
+        self.model = mm.Model(parameters=self.params)
+        self.t = np.array([2456112.5])
+        self.data = mm.MulensData(data_list=[self.t, self.t*0.+16.,
+                                             self.t*0.+0.01])
+
+    def test_vbbl_fail(self):
+        self.model.default_magnification_method = 'point_source'
+        magnification = self.model.get_magnification(self.data.time[0])
+        assert not isclose(magnification[0], 4.691830781584699, abs_tol=1e-2)
+
+    def test_wm95_fail(self):
+        self.model.default_magnification_method = 'point_source_WM95'
+        magnification = self.model.get_magnification(self.data.time[0])
+        assert not isclose(magnification[0], 4.691830781584699, abs_tol=1e-2)
 
 
-def test_BLPS_shear():
+class TestBLPS_Shear(unittest.TestCase):
     """
     simple binary lens with point source and external convergence and shear
     """
-    params = mm.ModelParameters({
-        't_0': t_0, 'u_0': u_0, 't_E': t_E, 'alpha': alpha, 's': s,
-        'q': q, 'convergence_K': 0.0, 'shear_G': complex(0, 0)})
 
-    model = mm.Model(parameters=params)
-    t = np.array([2456112.5])
-    data = mm.MulensData(data_list=[t, t*0.+16., t*0.+0.01])
-    magnification = model.get_magnification(data.time[0])
-    almost(magnification, 4.691830781584699)
+    def setUp(self):
+        self.params = mm.ModelParameters({
+            't_0': t_0, 'u_0': u_0, 't_E': t_E, 'alpha': alpha, 's': s,
+            'q': q, 'convergence_K': 0.0, 'shear_G': complex(0, 0)})
+
+        self.model = mm.Model(parameters=self.params)
+        self.t = np.array([2456112.5])
+        self.data = mm.MulensData(data_list=[self.t, self.t*0.+16.,
+                                             self.t*0.+0.01])
+
+    def test_vbbl(self):
+        self.model.default_magnification_method = 'point_source'
+        magnification = self.model.get_magnification(self.data.time[0])
+        almost(magnification[0], 4.691830781584699)
+
+    def test_wm95(self):
+        self.model.default_magnification_method = 'point_source_WM95'
+        magnification = self.model.get_magnification(self.data.time[0])
+        almost(magnification[0], 4.691830781584699)
 
 
 def test_BLPS_02():
@@ -375,18 +625,12 @@ class TestMethodsParameters(unittest.TestCase):
 
     def test_default_magnification_methods(self):
         """
-        Test if methods are properly changed and
-        the warning is raised for deprecated method.
+        Test if methods are properly changed, no deprecated method.
         """
         model = mm.Model(self.params)
         assert model.default_magnification_method == 'point_source'
 
-        with warnings.catch_warnings(record=True) as warnings_:
-            warnings.simplefilter("always")
-            model.set_default_magnification_method('point_source_point_lens')
-            assert len(warnings_) == 1
-            assert issubclass(warnings_[0].category, DeprecationWarning)
-
+        model.default_magnification_method = 'point_source_point_lens'
         assert model.default_magnification_method == 'point_source_point_lens'
 
         model.default_magnification_method = 'VBBL'
@@ -406,11 +650,11 @@ def test_caustic_for_orbital_motion():
 
     model.update_caustics()
     almost(model.caustics.get_caustics(),
-           mm.Caustics(q=q, s=s).get_caustics())
+           mm.CausticsBinary(q=q, s=s).get_caustics())
 
     model.update_caustics(100.+365.25/2)
     almost(model.caustics.get_caustics(),
-           mm.Caustics(q=q, s=1.55).get_caustics())
+           mm.CausticsBinary(q=q, s=1.55).get_caustics())
 
 
 def test_update_single_lens_with_shear_caustic():
@@ -421,7 +665,7 @@ def test_update_single_lens_with_shear_caustic():
     shear_G = complex(-0.1, -0.2)
 
     model = mm.Model(mm.ModelParameters({
-        't_0': 0., 'u_0': 1., 't_E': 2., 'alpha': 3.,
+        't_0': 0., 'u_0': 1., 't_E': 2., 'alpha': 183.,
         'convergence_K': 0., 'shear_G': complex(0, 0)}))
     model.parameters.convergence_K = convergence_K
     model.parameters.shear_G = shear_G
@@ -436,7 +680,7 @@ def test_magnifications_for_orbital_motion():
     magnification methods calculations
     """
     dict_static = {'t_0': 100., 'u_0': 0.1, 't_E': 100., 'q': 0.99,
-                   's': 1.1, 'alpha': 10.}
+                   's': 1.1, 'alpha': 190.}
     dict_motion = dict_static.copy()
     dict_motion.update({'ds_dt': -2, 'dalpha_dt': -300.})
     static = mm.Model(dict_static)
@@ -447,7 +691,7 @@ def test_magnifications_for_orbital_motion():
 
     t_2 = 130.
     static.parameters.s = 0.93572895
-    static.parameters.alpha = 345.359342916
+    static.parameters.alpha = 165.359342916
     almost(static.get_magnification(t_2), motion.get_magnification(t_2))
 
 
@@ -617,7 +861,7 @@ def test_repr():
 
     model = mm.Model(parameters)
     model.set_limb_coeff_gamma("I", 0.5)
-    expected = begin + end + "\nlimb-darkening coeffs (gamma): {'I': 0.5}"
+    expected = begin + end + "\nlimb-darkening coeffs (gamma): [{'I': 0.5}]"
     assert str(model) == expected
 
 
@@ -765,13 +1009,203 @@ def test_xallarap_at_t_0_plus_half_of_period_7_eccentric():
     almost(expected, model.get_magnification(t_0+d_time))
 
 
+class TestGetTrajectory(unittest.TestCase):
+
+    def setUp(self):
+        # Parallax model parameters
+        self.model_parameters_par = {
+            't_0': 2456836.22, 'u_0': 0.922, 't_E': 22.87,
+            'pi_E_N': -0.248, 'pi_E_E': 0.234, 't_0_par': 2456836.2}
+        self.coords = "17:47:12.25 -21:22:58.2"
+
+        self.model_with_par = mm.Model(
+            self.model_parameters_par, coords=self.coords)
+        self.model_with_par.parallax(satellite=True, earth_orbital=True,
+                                     topocentric=False)
+
+        self.ref_OGLE = np.loadtxt(SAMPLE_FILE_02_REF, unpack=True)
+        self.times_OGLE = self.ref_OGLE[0] + 2450000.
+        self.ref_Spitzer = np.loadtxt(SAMPLE_FILE_03_REF, unpack=True)
+        self.ephemerides_file = SAMPLE_FILE_03_EPH
+        self.times_spz = self.ref_Spitzer[0] + 2450000.
+
+    def test_1L1S(self):
+        # straight-up trajectory for static point-lens model
+        t_0 = self.model_parameters_par['t_0']
+        u_0 = self.model_parameters_par['u_0']
+        t_E = self.model_parameters_par['t_E']
+        times = np.arange(t_0 - t_E, t_0 + t_E, 1.)
+
+        model = mm.Model({'t_0': t_0, 'u_0': u_0, 't_E': t_E})
+        trajectory = model.get_trajectory(times)
+        y = np.ones(len(times)) * u_0
+        x = (times - t_0) / t_E
+        ratio_x = trajectory.x / x
+        ratio_y = trajectory.y / y
+        np.testing.assert_almost_equal(ratio_x, 1.)
+        np.testing.assert_almost_equal(ratio_y, 1.)
+
+    def test_1L1S_annual_parallax(self):
+        """case with annual parallax"""
+        trajectory = self.model_with_par.get_trajectory(
+            self.times_OGLE)
+
+        ratio_x = trajectory.x / self.ref_OGLE[6]
+        ratio_y = trajectory.y / self.ref_OGLE[7]
+        np.testing.assert_almost_equal(ratio_x, [1.] * len(ratio_x), decimal=3)
+        np.testing.assert_almost_equal(ratio_y, [1.] * len(ratio_y), decimal=3)
+
+    def test_1L1S_satellite_parallax_1(self):
+        """Case with satellite parallax (check test_Model_Parallax.py)"""
+        satellite_skycoord_obj = mm.SatelliteSkyCoord(
+            ephemerides_file=self.ephemerides_file)
+        satellite_skycoord = satellite_skycoord_obj.get_satellite_coords(
+            self.times_spz)
+        trajectory = self.model_with_par.get_trajectory(
+            self.times_spz, satellite_skycoord=satellite_skycoord)
+
+        ratio_x = trajectory.x / self.ref_Spitzer[6]
+        ratio_y = trajectory.y / self.ref_Spitzer[7]
+        np.testing.assert_almost_equal(ratio_x, [1.] * len(ratio_x), decimal=2)
+        np.testing.assert_almost_equal(ratio_y, [1.] * len(ratio_y), decimal=3)
+
+    def test_1L1S_satellite_parallax_2(self):
+        """Case with satellite parallax (check test_Model_Parallax.py)"""
+        model_with_sat_par = mm.Model(
+            self.model_parameters_par, ephemerides_file=self.ephemerides_file,
+            coords=self.coords)
+        trajectory = model_with_sat_par.get_trajectory(self.times_spz)
+
+        ratio_x = trajectory.x / self.ref_Spitzer[6]
+        ratio_y = trajectory.y / self.ref_Spitzer[7]
+        np.testing.assert_almost_equal(ratio_x, [1.] * len(ratio_x), decimal=2)
+        np.testing.assert_almost_equal(ratio_y, [1.] * len(ratio_y), decimal=3)
+
+    def test_1L2S(self):
+        """Binary source trajectories"""
+        model = mm.Model({
+            't_0_1': 5000., 'u_0_1': 0.005, 'rho_1': 0.001,
+            't_0_2': 5100., 'u_0_2': 0.0003, 't_star_2': 0.03, 't_E': 25.})
+        model_1 = mm.Model(model.parameters.source_1_parameters)
+        model_2 = mm.Model(model.parameters.source_2_parameters)
+
+        time = np.linspace(4900., 5200., 4200)
+
+        (traj_1_1L2S, traj_2_1L2S) = model.get_trajectory(time)
+        traj_1_1L1S = model_1.get_trajectory(time)
+        np.testing.assert_equal(traj_1_1L2S.x, traj_1_1L1S.x)
+        np.testing.assert_equal(traj_1_1L2S.y, traj_1_1L1S.y)
+
+        traj_2_1L1S = model_2.get_trajectory(time)
+        np.testing.assert_equal(traj_2_1L2S.x, traj_2_1L1S.x)
+        np.testing.assert_equal(traj_2_1L2S.y, traj_2_1L1S.y)
+
+
+class TestNSources(unittest.TestCase):
+
+    def setUp(self):
+        """
+        Parameters correspond to OB151459: Hwang et al. 2018, AJ, 155, 259
+        Data are simulated without noise.
+        Fluxes in paper were in the 18th magnitude system. MM works with
+        MAG_ZEROPOINT=22, so these magnitudes have an offset relative to the
+        original event.
+        Table 3: Static 1L3S Model
+        """
+        self.t_E = 4.921
+
+        self.source_1_params = {'t_E': self.t_E, 't_0': 7199.946, 'u_0': 0.065}
+        self.source_2_params = {'t_E': self.t_E, 't_0': 7200.193, 'u_0': 2.638e-3, 'rho': 4.503e-3}
+        self.source_3_params = {'t_E': self.t_E, 't_0': 7200.202, 'u_0': 0.281e-3, 'rho': 0.631e-3}
+
+        self.flux_ratios = {'q_2': 0.014, 'q_3': 0.006}
+        self.source_flux_1 = 0.056
+        self.source_flux_2 = self.source_flux_1 * self.flux_ratios['q_2']
+        self.source_flux_3 = self.source_flux_1 * self.flux_ratios['q_3']
+        self.source_fluxes = [self.source_flux_1, self.source_flux_2, self.source_flux_3]
+        self.blend_flux = 0.100
+
+        self.mag_methods = [7200.1, 'finite_source_uniform_Gould94', 7200.3]
+
+        self.model_1 = mm.Model(self.source_1_params)
+        self.model_2 = mm.Model(self.source_2_params)
+        self.model_2.set_magnification_methods(self.mag_methods)
+        self.model_3 = mm.Model(self.source_3_params)
+        self.model_3.set_magnification_methods(self.mag_methods)
+        self.models = [self.model_1, self.model_2, self.model_3]
+
+        self.times = [7199.946, 7200., 7200.193, 7200.202]
+
+        self.magnifications = np.vstack((
+            self.model_1.get_magnification(self.times),
+            self.model_2.get_magnification(self.times),
+            self.model_3.get_magnification(self.times)))
+
+        self.flux = self.source_flux_1 * self.model_1.get_magnification(self.times)
+        self.flux += self.source_flux_2 * self.model_2.get_magnification(self.times)
+        self.flux += self.source_flux_3 * self.model_3.get_magnification(self.times)
+        self.flux += self.blend_flux
+
+        self.model_params = {'t_E': self.t_E}
+        for i, source_params in enumerate(
+                [self.source_1_params, self.source_2_params, self.source_3_params]):
+            for key, value in source_params.items():
+                if key != 't_E':
+                    self.model_params['{0}_{1}'.format(key, i+1)] = value
+
+        self.model = mm.Model(self.model_params)
+        self.model.set_magnification_methods(self.mag_methods, 2)
+        self.model.set_magnification_methods(self.mag_methods, 3)
+
+    def test_get_magnification(self):
+        np.testing.assert_almost_equal(self.model.get_magnification(self.times), self.magnifications, decimal=4)
+
+    def test_get_lc_1(self):
+        """
+        Returns :
+            magnification: *numpy.ndarray*
+                Magnification values for each epoch.
+        """
+        model_mags = self.model.get_lc(self.times, source_flux=self.source_fluxes, blend_flux=self.blend_flux)
+        np.testing.assert_almost_equal(model_mags, mm.Utils.get_mag_from_flux(self.flux), decimal=4)
+
+    def test_get_lc_2(self):
+        """
+        Returns :
+            magnification: *numpy.ndarray*
+                Magnification values for each epoch.
+        """
+        model_mags = self.model.get_lc(
+            self.times, source_flux=self.source_flux_1,
+            source_flux_ratio=[self.flux_ratios['q_2'], self.flux_ratios['q_3']], blend_flux=self.blend_flux)
+        np.testing.assert_almost_equal(
+            model_mags, mm.Utils.get_mag_from_flux(self.flux), decimal=4
+        )
+
+    def test_get_magnification_curves(self):
+        mag_curves = self.model.get_magnification_curves(self.times, None, None)
+        for mag_curve, model in zip(mag_curves, self.models):
+            np.testing.assert_almost_equal(
+                mag_curve.get_magnification(), model.get_magnification(self.times), decimal=6
+            )
+
+    def test_set_times(self):
+        times = self.model.set_times()
+        np.testing.assert_almost_equal(
+            self.source_1_params['t_0'] - 1.5 * self.t_E, times[0], decimal=4
+        )
+        np.testing.assert_almost_equal(
+            self.source_3_params['t_0'] + 1.5 * self.t_E, times[-1], decimal=4
+        )
+
+# def test_N_sources_gamma():
+#    """
+#    Test a model with gammas for different sources.
+#    """
+#    raise NotImplementedError()
+
+
 # Tests to Add:
-#
-# test get_trajectory:
-#   straight-up trajectory
-#   case with annual parallax (check test_Model_Parallax.py)
-#   case with satellite parallax (check test_Model_Parallax.py)
-#   coords is propagating correctly (check test_Model_Parallax.py)
 #
 # test set_times:
 #   keywords to test:
