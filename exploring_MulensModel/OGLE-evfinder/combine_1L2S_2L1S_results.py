@@ -30,13 +30,15 @@ def parse_arguments():
     args = parser.parse_args()
 
     path = os.path.dirname(os.path.abspath(__file__))
+    args.path = path
     dirs = [f'{path}/ultranest_1L2S/{args.dataset}/',
             f'{path}/results_1L2S/{args.dataset}/yaml_results/']
     args.method = args.method.lower()
     idx = 0 if args.method == "ultranest" else 1
     print()
 
-    return args, path, dirs, idx
+    # return args, path, dirs, idx
+    return args, dirs, idx
 
 
 def remove_cvs_mroz20(event_ids):
@@ -54,6 +56,24 @@ def remove_cvs_mroz20(event_ids):
     new = [id_ for (id_, mask) in zip(event_ids, mask_cvs) if not mask]
 
     return new
+
+
+def filter_hc_or_lc(event_ids, lowcadence):
+    """
+    Filter the event_ids based on the lowcadence flag.
+    If lowcadence is True, only low-cadence events are returned.
+    If lowcadence is False, only high-cadence events are returned.
+    """
+    hc_fields = ['BLG500', 'BLG501', 'BLG504', 'BLG505', 'BLG506',
+                 'BLG511', 'BLG512', 'BLG534', 'BLG611']
+    ids_hc, ids_lc = [], []
+    for id_ in event_ids:
+        if id_.split('_')[0] in hc_fields:
+            ids_hc.append(id_)
+        else:
+            ids_lc.append(id_)
+
+    return ids_lc if lowcadence else ids_hc
 
 
 def declare_and_format_table(method):
@@ -96,27 +116,19 @@ def apply_1L2S_criteria(res_1L2S):
     if event_id == "BLG508_17_126114":
         # obvious event that requires the only exception: good t_E_2L1S...
         return (chi2_dof < 2 and flux_s > 0)
-    if event_id == "BLG506_23_129457":
-        # obvious event twin with BLG506.23.129983, excluded by hand...
-        return False
 
     return (chi2_dof < 2 and t_E < 200 and max_u_0 > 0.01 and flux_s > 0)
 
 
-def check_n_datapoints(event_id):
+def check_n_datapoints(args, event_id):
     """
     Check if the number of datapoints is greater than 120.
     Minimum n_data in event_finder is 30, but here we need to increase.
     """
-    path = os.path.dirname(os.path.abspath(__file__))
-    options = ["BLG50X1", "BLG50X2", "BLG50X3", "lcmin3to5", "lcall1",
-               "lcall2", "lcall3"]
-    for dataset in options:
-        fname = os.path.join(path, f'phot/phot_{dataset}', f'{event_id}.dat')
-        if os.path.exists(fname):
-            break
-
+    fname = os.path.join(args.path, f'phot/phot_{args.dataset}',
+                         f'{event_id}.dat')
     mm_data = mm.MulensData(file_name=fname)
+
     return mm_data.n_epochs > 120
 
 
@@ -142,15 +154,15 @@ def apply_more_criteria(args, res_1L2S, res_2L1S):
     bflux_1L2S = res_1L2S['Best model']['Fluxes']['flux_b_1']
     bflux_2L1S = res_2L1S['Best model']['Fluxes']['flux_b_1']
     bflux_thr = max(bflux_1L2S, bflux_2L1S) > -8.0
-    n_data = check_n_datapoints(res_1L2S['event_id'])
+    n_data = check_n_datapoints(args, res_1L2S['event_id'])
 
     if not args.lowcadence:
         new_thrs = (sep_1L2S < 120 and s_2L1S < 250 and max_u_0_i < 1.6)
         return (new_thrs and sflux_thr and t_0_thr and bflux_thr and n_data)
 
     else:
-        prev_thr = (min_chi2 <= 1.52 and t_E_best <= 120)
-        new_thrs = (sep_1L2S < 70 and s_2L1S < 70 and max_u_0_i < 1.2)
+        prev_thr = (min_chi2 <= 1.52 and t_E_best <= 119)
+        new_thrs = (sep_1L2S < 70 and s_2L1S < 70 and max_u_0_i < 1.6)
         return (prev_thr and sflux_thr and t_0_thr and bflux_thr and new_thrs
                 and n_data)
 
@@ -309,7 +321,8 @@ def final_setup_and_save_table(path, tab, method):
     new_idx = 14 if method == "ultranest" else 13
     tab.add_column(column_to_move, index=new_idx)
     method_tmp = "_un" if method == "ultranest" else "_emcee"
-    fname = os.path.join(path, f'comp_1L2S_2L1S{method_tmp}.txt')
+    dataset_tmp = "_" + args.dataset
+    fname = os.path.join(path, f'comp_1L2S_2L1S{method_tmp}{dataset_tmp}.txt')
     tab.write(fname, format='ascii.fixed_width', overwrite=True, delimiter='')
 
     new_header = "# id               t_0_1       u_0_1    t_0_2       " + \
@@ -331,13 +344,14 @@ def final_setup_and_save_table(path, tab, method):
 
 if __name__ == '__main__':
 
-    args, path, dirs, idx = parse_arguments()
+    args, dirs, idx = parse_arguments()
     str_split = '-1L2S' if args.method == "ultranest" else '_results'
     event_ids = [f.split(str_split)[0] for f in os.listdir(dirs[idx])
                  if f[0] != '.' and f.endswith(".yaml")]
     event_ids = remove_cvs_mroz20(event_ids)
+    event_ids = filter_hc_or_lc(event_ids, args.lowcadence)
     tab = fill_table(args, dirs, sorted(event_ids))
     if args.verbose:
         print()
         print(tab, '\n')
-    final_setup_and_save_table(path, tab, args.method)
+    final_setup_and_save_table(args.path, tab, args.method)

@@ -162,13 +162,20 @@ class PlotMultipleModels(UlensModelFit):
             ax1.set_ylim(*self._mag_range)
         ax2 = fig.add_subplot(gs[2:3, :], sharex=ax1)
         ax1.tick_params(labelbottom=False)
+        # ax1.set_ylabel('Magnitude', fontsize=13)
+        # ax1.tick_params(axis='both', which='major', labelsize=12)
+        # ax2.set_ylabel('Residuals', fontsize=13)
+        # ax2.tick_params(axis='both', which='major', labelsize=12)
+        # ax2.set_ylim(-0.47, 0.47)
 
         if self._third_panel is not False:
             ax3 = fig.add_subplot(gs[3:, :], sharex=ax1)
             ax2.tick_params(labelbottom=False)
-            ax3.set_xlabel('Time - 2450000' if self._subtract else 'Time')
+            label = 'Time - 2450000' if self._subtract else 'Time'
+            ax3.set_xlabel(label)  # , fontsize=13)
+            # ax3.tick_params(axis='both', which='major', labelsize=12)
             if self._third_panel == "cumulative":
-                ax3.set_ylabel(r'Cumulative $\Delta\chi^2$')
+                ax3.set_ylabel(r'Cumulative $\Delta\chi^2$')  # , fontsize=13)
             else:
                 ax3.set_ylabel(r'$\Delta\chi^2$')
                 ax3.set_ylim(-9.9, 9.9)
@@ -306,6 +313,7 @@ class PlotMultipleModels(UlensModelFit):
         plt.tight_layout()
         plt.subplots_adjust(hspace=0)
         fig.get_axes()[0].legend(loc='best')
+        # fig.get_axes()[0].legend(loc=2, fontsize=12.5)
 
         return fig
 
@@ -327,6 +335,7 @@ class PlotMultipleModels(UlensModelFit):
                 pdf = PdfPages(self._plot_file)
                 pdf.savefig(fig)
                 pdf.close()
+                # plt.savefig('figure.eps', format='eps', dpi=300)
             elif file_format == '.png':
                 plt.savefig(self._plot_file)
             else:

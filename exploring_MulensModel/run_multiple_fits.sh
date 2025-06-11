@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Usage: ./run_tasks.sh <task> <dataset> <group_X>
+# Usage: ./run_multiple_fits.sh <task> <dataset> <group_X>
 # <task>: Specify the task to run:
 #         - task1: Fit 2L1S models with EMCEE for multiple events.
 #         - task2: Fit 1L2S models with UltraNest for multiple events.
@@ -36,7 +36,8 @@ trap "echo 'Process interrupted'; exit 1" SIGINT SIGTERM
 for yaml_file in $yaml_files
 do
     echo -e "\n--\n\nProcessing $yaml_file"
-    timeout 1800 python3 "$python_script" "$yaml_file"
+    python3 "$python_script" "$yaml_file"
+    # timeout 1800 python3 "$python_script" "$yaml_file"
     # ps aux | grep python --> kill -9 <PID>
 done
 

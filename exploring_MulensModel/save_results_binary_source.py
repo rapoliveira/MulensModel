@@ -259,6 +259,27 @@ class SaveResultsBinarySource(UlensModelFit):
         cplot = corner.corner(states, quantiles=[0.16, 0.50, 0.84],
                               labels=labels, truths=truths, show_titles=True,
                               quiet=True)
+
+        # TEMPORARY CODE FOR PAPER 1 :::
+        # if states.shape[1] == 5:
+        #     states[:, 0] -= 2450000
+        #     states[:, 2] -= 2450000
+        #     truths[0] -= 2450000
+        #     truths[2] -= 2450000
+        #     labels = [r'$t_{0, 1}$', r'$u_{0, 1}$', r'$t_{0, 2}$',
+        #               r'$u_{0, 2}$', r'$t_{\rm E}$']
+        # cplot = corner.corner(states, quantiles=[0.16, 0.50, 0.84],
+        #                       labels=labels, truths=truths, show_titles=True,
+        #                       quiet=True,
+        #                       label_kwargs={"fontsize": 20},
+        #                       title_kwargs={"fontsize": 16})
+        # for ax in cplot.get_axes():
+        #     ax.tick_params(axis='both', labelsize=13)
+        #     xlabel = ax.get_xlabel()
+        #     ylabel = ax.get_ylabel()
+        #     ax.set_xlabel(xlabel, labelpad=20)
+        #     ax.set_ylabel(ylabel, labelpad=20)
+        # plt.savefig('figure.eps', format='eps', dpi=20)
         self._pdf.savefig(cplot)
 
         return cplot

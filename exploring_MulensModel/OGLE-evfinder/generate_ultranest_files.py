@@ -96,8 +96,12 @@ def get_xlim(path, obj_id):
     Get the x-axis range from the 2L1S input yaml file.
     """
     yaml_input = path.format(obj_id)
-    with open(yaml_input, 'r', encoding='utf-8') as data:
-        input_2L1S = yaml.safe_load(data)
+    try:
+        with open(yaml_input, 'r', encoding='utf-8') as data:
+            input_2L1S = yaml.safe_load(data)
+    except FileNotFoundError:
+        print(f"File not found: {yaml_input}")
+        return None, None
 
     model_methods = input_2L1S['model']['methods']
     xlim = input_2L1S['plots']['best model']['time range']
@@ -136,12 +140,15 @@ def get_2L1S_params(args, path, diff_path, obj_id):
     between the trajectory `between` and `beyond` the lenses.
     A similar list to get_1L2S_params() is returned.
     """
-    with open(path.format(obj_id, 'between'), 'r', encoding='utf-8') as data:
-        results_2L1S = yaml.safe_load(data)
-    with open(path.format(obj_id, 'beyond'), 'r', encoding='utf-8') as data:
-        temp = yaml.safe_load(data)
+    try:
+        with open(path.format(obj_id, 'between'), 'r') as data:
+            results_2L1S = yaml.safe_load(data)
+        with open(path.format(obj_id, 'beyond'), 'r') as data:
+            temp = yaml.safe_load(data)
         if temp['Best model']['chi2'] < results_2L1S['Best model']['chi2']:
             results_2L1S = temp
+    except (TypeError, FileNotFoundError):
+        return None
 
     list_2L1S = [os.path.join(diff_path, args.files_dir, obj_id + '.dat')]
     best_vals = results_2L1S['Best model']['Parameters'].values()
@@ -252,11 +259,15 @@ if __name__ == '__main__':
 
     for obj_id in obj_list:
         mag_method, xlim = get_xlim(all_paths[0], obj_id)
+        if mag_method is None:
+            continue
         list_1L2S = get_1L2S_params(args, *all_paths[1], obj_id)
         list_1L2S[-1] = xlim
 
         if args.which_models in ["both", "2l1s"]:
             list_2L1S = get_2L1S_params(args, *all_paths[2], obj_id)
+            if list_2L1S is None:
+                continue
             new_methods = update_mag_methods(mag_method, list_1L2S)
             list_2L1S, sig = update_large_sigmas(list_2L1S)
             list_2L1S[7], list_2L1S[-1] = new_methods, xlim
