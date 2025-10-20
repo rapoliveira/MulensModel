@@ -39,10 +39,10 @@ pi_E_N = -0.248
 pi_E_E = 0.234
 
 ground_model = mm.Model(
-    {'t_0': t_0, 'u_0': u_0, 't_E': t_E, 'pi_E': [pi_E_N, pi_E_E]})
+    {'t_0': t_0, 'u_0': u_0, 't_E': t_E, 'pi_E_N': pi_E_N, 'pi_E_E': pi_E_E})
 ground_model.coords = '17:47:12.25 -21:22:58.2'
 space_model = mm.Model(
-    {'t_0': t_0, 'u_0': u_0, 't_E': t_E, 'pi_E': [pi_E_N, pi_E_E]},
+    {'t_0': t_0, 'u_0': u_0, 't_E': t_E, 'pi_E_N': pi_E_N, 'pi_E_E': pi_E_E},
     ra=ra, dec=dec,
     ephemerides_file=os.path.join(
         ephemeris_dir, 'Spitzer_ephemeris_01.dat'))
