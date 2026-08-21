@@ -1,11 +1,45 @@
 """
 This example takes the results from RTModel in form of txt files and makes yaml files
 compliant with the MulensModel standard.
+
+To-Do: Add here about the extended version...
 """
+import argparse
+import copy
 import glob
 import numpy as np
-import sys
+import os
 import warnings
+import yaml
+
+from example_16.ulens_model_fit import UlensModelFit
+
+
+def parse_args():
+    """
+    Parse command-line arguments.
+    """
+    parser = argparse.ArgumentParser(
+        description="Generate MulensModel parameters from RTModel results."
+    )
+
+    parser.add_argument("event", help="Directory containing the RTModel results.")
+    parser.add_argument("models", choices=["all", "final"],
+                        help="Select models from either all models or final models.")
+    msg = "Include additional fitting information in the YAML file (model methods, starting parameters and ranges)."
+    parser.add_argument("--extended", action="store_true", help=msg)
+    parser.add_argument("-p", "--plot", action="store_true", help="Plot the best model to file.")
+    msg = "Plot the best model to file and display it on screen."
+    parser.add_argument("-p2", "--plot-screen", action="store_true", help=msg)
+
+    args = parser.parse_args()
+    if args.models == "final":
+        models = glob.glob(args.event + "/FinalModels/*")
+    else:
+        models = glob.glob(args.event + "/Models/*")
+    plot = "both" if args.plot_screen else "file" if args.plot else None
+
+    return args.event, models, args.extended, plot
 
 
 def get_yaml_name(event, model):
@@ -38,7 +72,7 @@ def get_parameters_names(ID):
 
     model_and_parnames = {
         'PS': ['u_0', 't_E', 't_0', 'rho'],
-        'PX': ['u_0', 't_E', 't_0', 'rho', 'pi_N', 'pi_E'],
+        'PX': ['u_0', 't_E', 't_0', 'rho', 'pi_E_N', 'pi_E_E'],
         'BS': ['t_E', 'FR', 'u_0_1', 'u_0_2', 't_0_1', 't_0_2', 'rho_1'],
         'BO': ['t_E', 'FR', 'u_0_1', 'u_0_2', 't_0_1', 't_0_2', 'rho_1', 'pi_E_N', 'pi_E_E', 'gamma1', 'gamma2',
                'gammaz'],
@@ -131,28 +165,263 @@ def transform_RTM_to_MM(models_files):
     return out
 
 
-if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print("Two parameters required:")
-        print("1 - direcotry with RTModel results")
-        print("2 - 'all' or 'final' - indicates which models should be selected")
-        sys.exit(1)
+def get_data_dir_and_check(folder_name, checks=True):
+    """
+    Get the data directory for the event and check if it exists.
+    """
+    event_name = folder_name.split("/")[-1]
+    data_dir = os.path.join(folder_name, "Data", f"{event_name}_OGLE.txt")
 
-    event = sys.argv[1]
-    M = sys.argv[2]
-    if M == 'final':
-        models = glob.glob(event + '/FinalModels/*')
-    elif M == 'all':
-        models = glob.glob(event + '/Models/*')
+    if checks:
+        if not os.path.isfile(data_dir):
+            raise FileNotFoundError(f"File not found: {data_dir}. Please check the path and ensure the file exists.")
+
+        with open(data_dir, 'r') as f:
+            first_line = f.readline().strip()
+            if float(first_line.split()[0]) > 2450000:
+                warnings.warn(f"Times in {data_dir} are not subtracted by 2450000. Please check the file content.")
+
+    return f"    - {{file_name: {data_dir}, add_2450000: True, phot_fmt: mag}}\n"
+
+
+def get_model_methods(model_type, par_dict):
+    """
+    Write later, based on the notes of each model type below...
+
+    # Example for LS, LX, LO:
+    # methods: 2455895. point_source 2456013. VBBL 2456036. point_source 2456150.
+    # default method: point_source_point_lens
+    # parameters: s q u_0 alpha rho t_E t_0 pi_E_N pi_E_E ds_dt ds_z_dt dalpha_dt
+
+    # Example for BS, BO:
+    # methods source 1:
+    #     2457913. finite_source_uniform_Gould94 2458062.
+    # default method: point_source
+    # parameters: t_E u_0_1 u_0_2 t_0_1 t_0_2 rho_1 (pi_E_N pi_E_E gamma1 gamma2 gammaz)
+
+    # Example for PS, PX:
+    # methods: 2458499. finite_source_uniform_Gould94 2458594.
+    # default method: point_source
+    # parameters: u_0 t_E t_0 rho (pi_E_N pi_E_E)
+    """
+    t_0_name = "t_0" if model_type not in ['BS', 'BO'] else "t_0_1"
+    rho_value = par_dict['rho'] if 'rho' in par_dict else par_dict['rho_1']
+    delta = 3*par_dict['t_E'] if model_type in ['LS', 'LX', 'LO'] else max(0.1, 5*rho_value*par_dict['t_E'])
+    left_limit = "%.1f" % (par_dict[t_0_name] - delta)
+    right_limit = "%.1f" % (par_dict[t_0_name] + delta)
+
+    if model_type in ['LS', 'LX', 'LO']:
+        default_method = "point_source_point_lens"
+        methods = " ".join([left_limit, "VBBL", right_limit])
     else:
-        raise TypeError("all or final allowed as a second arg")
+        default_method = "point_source"
+        methods = " ".join([left_limit, "finite_source_uniform_Gould94", right_limit])
 
+    pre_methods = "methods:" if model_type not in ["BS", "BO"] else "methods source 1:"
+    default_method = "\n    default method: " + default_method
+    full_str = "    " + " ".join([pre_methods, methods]) + default_method
+
+    return full_str
+
+
+def get_coords(event):
+    """
+    Get the coordinates of the event from the RTModel results.
+    """
+    coords_file = event + "/Data/event.coordinates"
+    if not glob.glob(coords_file):
+        raise FileNotFoundError(f"Coordinates file not found: {coords_file}")
+    with open(coords_file) as f:
+        ra_dec_str = f.readlines()[0].strip()
+
+    return ra_dec_str
+
+
+def get_params_and_values(par_dict, chi2=0.):
+    """
+    Format parameters and values for the yaml file, excluding FR and t_0_par.
+    """
+    parameters_lst, values_lst = list(par_dict.keys()), list(par_dict.values())
+    for i, param in enumerate(parameters_lst):
+        if param in ["FR", "t_0_par"]:
+            parameters_lst = parameters_lst[:i] + parameters_lst[i+1:]
+            values_lst = values_lst[:i] + values_lst[i+1:]
+
+    params_str = "    parameters: " + " ".join(parameters_lst) + "\n"
+    params_str += f"    # From RTModel, chi2={chi2}:\n"
+    params_str += "    values: " + " ".join([str(v) for v in values_lst]) + "\n"
+
+    return params_str
+
+
+def get_starting_params_and_sigmas(par_dict):
+    """
+    Format starting parameters and sigmas for the yaml file.
+    A sigma of 1e-7 is used for rho and q, and 1e-3 for the other parameters.
+    """
+    starting_params_str = "starting_parameters:\n"
+    for param, value in par_dict.items():
+        if param in ["FR", "t_0_par"]:
+            continue
+        if param.startswith("rho") or param == "q":
+            starting_params_str += f"    {param}: gauss {value:.7f} 0.00001\n"
+        else:
+            starting_params_str += f"    {param}: gauss {value:.5f} 0.001\n"
+
+    return starting_params_str
+
+
+def get_min_max_values(par_dict):
+    """
+    Format min and max values for the yaml file.
+    To-Do: Mention pi_E values, also rho and s...
+    """
+    min_values_str = "min_values:\n"
+    max_values_str = "max_values:\n"
+    for param, value in par_dict.items():
+        if param in ["FR", "t_0_par"]:
+            continue
+        if param.startswith("t_0"):
+            min_values_str += f"    {param}: 2455000.\n"
+            max_values_str += f"    {param}: 2459000.\n"
+        if param.startswith("u_0"):
+            if value > 0:
+                min_values_str += f"    {param}: 0.\n"
+            else:
+                max_values_str += f"    {param}: 0.\n"
+        if param == "t_E":
+            min_values_str += f"    {param}: 0.\n"
+        if param == "s":
+            min_values_str += f"    {param}: 0.\n"
+            max_value = 2.0 if value < 1.5 else round(2*value, 1)
+            max_values_str += f"    {param}: {max_value}\n"
+        if param.startswith("rho"):
+            min_values_str += f"    {param}: 0.\n"
+            max_value = 0.1 if value < 0.08 else round(2*value, 5)
+            max_values_str += f"    {param}: {max_value}\n"
+        if param == "q":
+            min_values_str += f"    {param}: 0.\n"
+            max_values_str += f"    {param}: 1.\n"
+        if param == "alpha":
+            min_values_str += f"    {param}: 0.\n"
+            max_values_str += f"    {param}: 360.\n"
+        if param.startswith("pi_E"):
+            min_values_str += f"    {param}: {value-0.5:.1f}\n"
+            max_values_str += f"    {param}: {value+0.5:.1f}\n"
+
+    return min_values_str + max_values_str
+
+
+def get_plots_directory(folder_name, par_dict, model_id):
+    """
+    Create a directory named figs for the plots (the same as RTModel) and save
+    the paths for best model, triangle, and trace plots in the yaml file.
+    Improve docstrings...
+    """
+    figs_folder = os.path.join(folder_name, "figs")
+    os.makedirs(figs_folder, exist_ok=True)
+    event_name = folder_name.split("/")[-1]
+    best_model_plot = os.path.join(figs_folder, f"{event_name}_{model_id}_model.png")
+
+    t_0_left = par_dict['t_0'] if "t_0_2" not in par_dict else min(par_dict['t_0_1'], par_dict['t_0_2'])
+    left_limit = t_0_left - min(3*par_dict['t_E'], 250)
+    t_0_right = par_dict['t_0'] if "t_0_2" not in par_dict else max(par_dict['t_0_1'], par_dict['t_0_2'])
+    right_limit = t_0_right + min(3*par_dict['t_E'], 250)
+    t_range = f"{left_limit:.1f} {right_limit:.1f}"
+
+    triangle_plot = os.path.join(figs_folder, f"{event_name}_{model_id}_triangle.png")
+    trace_plot = os.path.join(figs_folder, f"{event_name}_{model_id}_trace.png")
+
+    plots_str = f"\nplots:\n    best model:\n        file: {best_model_plot}\n        time range: {t_range}"
+    plots_str += f"\n    triangle:\n        file: {triangle_plot}\n        shift t_0: False"
+    plots_str += f"\n    trace:\n        file: {trace_plot}\n"
+
+    return plots_str
+
+
+def call_example_16(yaml_str, plot=None):
+    """
+    Call example_16.ulens_model_fit with the given yaml_dict to get chi2 and
+    plot the best model if the -p flag is set. [...]
+    Improve docstrings...
+    """
+    yaml_dict = yaml.safe_load(yaml_str)
+    keys = ["starting_parameters", "min_values", "max_values", "fitting_parameters"]
+    for key in keys:
+        yaml_dict[key] = None
+    if "plots" in yaml_dict:
+        yaml_dict["plots"].pop("triangle", None)
+        yaml_dict["plots"].pop("trace", None)
+    orig_dict = copy.deepcopy(yaml_dict)
+
+    new_name = yaml_dict["plots"]["best model"]['file'].replace("_model.png", "_RTM.png")
+    yaml_dict["plots"]["best model"]['file'] = new_name
+    ulens_model_fit = UlensModelFit(**yaml_dict)
+    ulens_model_fit.plot_best_model()
+    chi2 = ulens_model_fit._event.get_chi2()
+
+    if plot not in ["file", "both"]:
+        os.remove(new_name)
+    if plot in ["screen", "both"]:
+        orig_dict["plots"]["best model"].pop("file")
+        ulens_model_fit = UlensModelFit(**orig_dict)
+        ulens_model_fit.plot_best_model()
+
+    return chi2
+
+
+def write_short_yaml(yaml_name, par_dict):
+    """
+    Write a short yaml file with the parameters, as in the original code.
+    """
+    with open(yaml_name, 'x') as file_out:
+        print(yaml_name)
+        file_out.writelines("Best model:\n")
+        file_out.writelines("  Parameters:\n")
+        for x, y in par_dict.items():
+            file_out.writelines("    {:}: {:}\n".format(x, y))
+
+
+def write_extended_yaml(yaml_name, par_dict, model_id, plot):
+    """
+    Write an extended yaml file with the parameters and additional information.
+    Improve docstrings...
+    """
+    yaml_str = "photometry_files:\n"
+    folder_name = yaml_name.split(model_id)[0][:-1]
+    yaml_str += get_data_dir_and_check(folder_name, checks=True)
+    yaml_str += "fit_method: EMCEE\nmodel:\n"
+    yaml_str += f"{get_model_methods(model_id[:2], par_dict)}\n"
+    yaml_str += f"    coords: {get_coords(event)}\n"
+    yaml_str += get_params_and_values(par_dict)
+
+    if "t_0_par" in par_dict:
+        yaml_str += "\nfixed_parameters:\n    t_0_par: {0}\n".format(par_dict["t_0_par"])
+
+    yaml_str += "\n" + get_starting_params_and_sigmas(par_dict)
+    yaml_str += get_min_max_values(par_dict)
+    yaml_str += "fitting_parameters:\n    n_walkers: 100\n    n_steps: 10000\n    n_burn: 5000\n    progress: True\n"
+    yaml_str += get_plots_directory(folder_name, par_dict, model_id)
+
+    best_chi2 = call_example_16(yaml_str, plot)
+    yaml_str = yaml_str.replace("    parameters: ", "    # parameters: ")
+    yaml_str = yaml_str.replace("chi2=0.0", f"chi2={best_chi2:.4f}")
+    yaml_str = yaml_str.replace("    values: ", "    # values: ")
+
+    with open(yaml_name, 'x') as file_out:
+        print(yaml_name)
+        file_out.writelines(yaml_str)
+        print("chi2_RTModel =", best_chi2)
+
+
+if __name__ == '__main__':
+
+    event, models, extended, plot = parse_args()
     MM_dicts = transform_RTM_to_MM(models)
 
     for (par_dict, model_id) in zip(MM_dicts, get_ids(models)):
-        with open(get_yaml_name(event, model_id), 'x') as file_out:
-            print(get_yaml_name(event, model_id))
-            file_out.writelines("Best model:\n")
-            file_out.writelines("  Parameters:\n")
-            for x, y in par_dict.items():
-                file_out.writelines("    {:}: {:}\n".format(x, y))
+        yaml_name = get_yaml_name(event, model_id)
+        if not extended:
+            write_short_yaml(yaml_name, par_dict)
+        else:
+            write_extended_yaml(yaml_name, par_dict, model_id, plot)
