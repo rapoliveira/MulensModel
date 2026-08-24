@@ -7,6 +7,13 @@ while the extended version (--extended) creates a complete YAML file to be used
 in example_16, with model methods, starting parameters, ranges and paths to the
 plots. In this case, an additional option allows to plot the RTModel result to
 a file (-p) or to also display it on screen (-p2).
+
+Usage can be checked in parse_args function or running with -h option.
+Standard version requires that the RTModel folder contain at least the Models
+or FinalModels with the results in txt files.
+Extended version also requires the Data folder with the data file (at least in
+the RTModel format) and the the coordinates file. In this case, the OGLE data
+file and the figs/ folder may be created if not present.
 """
 
 import argparse
