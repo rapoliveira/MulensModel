@@ -303,12 +303,12 @@ def get_min_max_values(par_dict):
         elif param.startswith("u_0"):
             (min_values if value > 0 else max_values).append(f"    {param}: 0.")
 
-        elif param in ["t_E", "s", "rho"]:
+        elif param in ["t_E", "s", "rho", "rho_1"]:
             min_values.append(f"    {param}: 0.")
             if param == "s":
                 max_value = max(2.0, round(2 * value, 1))
                 max_values.append(f"    {param}: {max_value}")
-            elif param == "rho":
+            elif param in ["rho", "rho_1"]:
                 max_value = max(0.1, round(2 * value, 5))
                 max_values.append(f"    {param}: {max_value}")
         elif param == "q":
@@ -376,16 +376,16 @@ def call_example_16(yaml_str, plot=None):
     # Temporarily changing paths to be relative to current work directory
     phot_files_dict = yaml_dict["photometry_files"][0]
     phot_files_dict["file_name"] = phot_files_dict["file_name"].removeprefix("../")
-    new_name = yaml_dict["plots"]["best model"]['file'].replace("_model.png", "_RTM.png")
-    yaml_dict["plots"]["best model"]['file'] = new_name.removeprefix("../")
+    best_model = yaml_dict["plots"]["best model"]
+    best_model['file'] = best_model['file'].replace("_model.png", "_RTM.png").removeprefix("../")
     orig_dict = copy.deepcopy(yaml_dict)
 
     ulens_model_fit = UlensModelFit(**yaml_dict)
     ulens_model_fit.plot_best_model()
     chi2 = ulens_model_fit._event.get_chi2()
 
-    if plot not in ["file", "both"]:
-        os.remove(new_name)
+    if plot not in ["file", "both"] and os.path.isfile(best_model["file"]):
+        os.remove(best_model["file"])  # To-Do: only remove if created on this run
     if plot in ["screen", "both"]:
         orig_dict["plots"]["best model"].pop("file")
         ulens_model_fit = UlensModelFit(**orig_dict)
