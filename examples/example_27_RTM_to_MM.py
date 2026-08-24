@@ -1,9 +1,14 @@
 """
-This example takes the results from RTModel in form of txt files and makes yaml files
-compliant with the MulensModel standard.
+This example takes the results from RTModel in form of txt files (either final
+or all models) and makes YAML files compliant with the MulensModel standard.
 
-To-Do: Add here about the extended version...
+The standard example creates a short YAML file with the parameters and values,
+while the extended version (--extended) creates a complete YAML file to be used
+in example_16, with model methods, starting parameters, ranges and paths to the
+plots. In this case, an additional option allows to plot the RTModel result to
+a file (-p) or to also display it on screen (-p2).
 """
+
 import argparse
 import copy
 import glob
@@ -19,24 +24,23 @@ def parse_args():
     """
     Parse command-line arguments.
     """
-    parser = argparse.ArgumentParser(
-        description="Generate MulensModel parameters from RTModel results."
-    )
-
+    parser = argparse.ArgumentParser(description="Generate MulensModel parameters from RTModel results.")
     parser.add_argument("event", help="Directory containing the RTModel results.")
     parser.add_argument("models", choices=["all", "final"],
-                        help="Select models from either all models or final models.")
+                        help="Select models from either all Models or FinalModels folders.")
     msg = "Include additional fitting information in the YAML file (model methods, starting parameters and ranges)."
     parser.add_argument("--extended", action="store_true", help=msg)
-    parser.add_argument("-p", "--plot", action="store_true", help="Plot the best model to file.")
-    msg = "Plot the best model to file and display it on screen."
-    parser.add_argument("-p2", "--plot-screen", action="store_true", help=msg)
+
+    plot_group = parser.add_mutually_exclusive_group()
+    plot_group.add_argument("-p", "--plot", action="store_true", help="Plot the RTModel result to file.")
+    msg = "Plot the RTModel result to file and display it on screen."
+    plot_group.add_argument("-p2", "--plot-screen", action="store_true", help=msg)
 
     args = parser.parse_args()
-    if args.models == "final":
-        models = glob.glob(args.event + "/FinalModels/*")
-    else:
-        models = glob.glob(args.event + "/Models/*")
+    model_folder = "FinalModels" if args.models == "final" else "Models"
+    models = glob.glob(os.path.join(args.event, model_folder, "*"))
+    if (args.plot or args.plot_screen) and not args.extended:
+        parser.error("-p/-p2 can only be used together with --extended")
     plot = "both" if args.plot_screen else "file" if args.plot else None
 
     return args.event, models, args.extended, plot
@@ -62,7 +66,7 @@ def get_ids(list_of_models):
 
 def get_parameters_names(ID):
     """
-    Based on the shortened  model code, gives the parameters names
+    Based on the shortened model code, gives the parameters names
     """
     model_id_short = ID[0:2]
     if model_id_short in ['BO', 'LK', 'TS', 'TX', 'TO']:
@@ -167,19 +171,27 @@ def transform_RTM_to_MM(models_files):
 
 def get_data_dir_and_check(folder_name, checks=True):
     """
-    Get the data directory for the event and check if it exists.
+    Get the directory path for the data file (OGLE format: HJD, mag, err) and
+    check if it exists.
+    If the file does not exist, issue a warning and create it from the RTModel
+    data file (TelescopeA.dat, with columns Mag, err, HJD).
+
+    Note: All produced paths are relative to example_16's folder, which is one
+    level up from the current working directory.
     """
-    event_name = folder_name.split("/")[-1]
-    data_dir = os.path.join(folder_name, "Data", f"{event_name}_OGLE.txt")
+    event_name = os.path.basename(folder_name)
+    data_dir = os.path.join("..", folder_name, "Data", f"{event_name}_OGLE.txt")
 
     if checks:
-        if not os.path.isfile(data_dir):
-            raise FileNotFoundError(f"File not found: {data_dir}. Please check the path and ensure the file exists.")
+        temp_dir = data_dir.removeprefix("../")
+        if not os.path.isfile(temp_dir):
+            warnings.warn(f"Data file not found: {temp_dir}. Attempting to create it from RTModel data.")
+            rtm_data_file = os.path.join(folder_name, "Data", "TelescopeA.dat")
+            rtm_data = np.loadtxt(rtm_data_file)
+            np.savetxt(temp_dir, rtm_data[:, [2, 0, 1]], fmt=["%12.6f", "%9.6f", "%9.6f"])
 
-        with open(data_dir, 'r') as f:
-            first_line = f.readline().strip()
-            if float(first_line.split()[0]) > 2450000:
-                warnings.warn(f"Times in {data_dir} are not subtracted by 2450000. Please check the file content.")
+        elif np.loadtxt(temp_dir, max_rows=1)[0] > 2450000:
+            raise ValueError(f"Times in {temp_dir} are not subtracted by 2450000. Please check the file content.")
 
     return f"    - {{file_name: {data_dir}, add_2450000: True, phot_fmt: mag}}\n"
 
@@ -321,6 +333,7 @@ def get_plots_directory(folder_name, par_dict, model_id):
     figs_folder = os.path.join(folder_name, "figs")
     os.makedirs(figs_folder, exist_ok=True)
     event_name = folder_name.split("/")[-1]
+    figs_folder = os.path.join("..", figs_folder)
     best_model_plot = os.path.join(figs_folder, f"{event_name}_{model_id}_model.png")
 
     t_0_left = par_dict['t_0'] if "t_0_2" not in par_dict else min(par_dict['t_0_1'], par_dict['t_0_2'])
@@ -346,6 +359,8 @@ def call_example_16(yaml_str, plot=None):
     Improve docstrings...
     """
     yaml_dict = yaml.safe_load(yaml_str)
+    phot_files_dict = yaml_dict["photometry_files"][0]
+    phot_files_dict["file_name"] = phot_files_dict["file_name"].removeprefix("../")
     keys = ["starting_parameters", "min_values", "max_values", "fitting_parameters"]
     for key in keys:
         yaml_dict[key] = None
@@ -355,7 +370,7 @@ def call_example_16(yaml_str, plot=None):
     orig_dict = copy.deepcopy(yaml_dict)
 
     new_name = yaml_dict["plots"]["best model"]['file'].replace("_model.png", "_RTM.png")
-    yaml_dict["plots"]["best model"]['file'] = new_name
+    yaml_dict["plots"]["best model"]['file'] = new_name.removeprefix("../")
     ulens_model_fit = UlensModelFit(**yaml_dict)
     ulens_model_fit.plot_best_model()
     chi2 = ulens_model_fit._event.get_chi2()
@@ -408,7 +423,7 @@ def write_extended_yaml(yaml_name, par_dict, model_id, plot):
     yaml_str = yaml_str.replace("chi2=0.0", f"chi2={best_chi2:.4f}")
     yaml_str = yaml_str.replace("    values: ", "    # values: ")
 
-    with open(yaml_name, 'x') as file_out:
+    with open(yaml_name, 'w') as file_out:
         print(yaml_name)
         file_out.writelines(yaml_str)
         print("chi2_RTModel =", best_chi2)
