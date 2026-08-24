@@ -198,47 +198,35 @@ def get_data_dir_and_check(folder_name, checks=True):
 
 def get_model_methods(model_type, par_dict):
     """
-    Write later, based on the notes of each model type below...
+    Add model methods and default method to the YAML string, both based on the
+    model type. If model type is binary lens (LS, LX, LO), use VBBL method in
+    the range t_0 +/- 3*t_E and point_source_point_lens as default. Otherwise,
+    use finite_source_uniform_Gould94 method in the range t_0 +/- 5*rho*t_E and
+    point_source as default method.
 
-    # Example for LS, LX, LO:
-    # methods: 2455895. point_source 2456013. VBBL 2456036. point_source 2456150.
-    # default method: point_source_point_lens
-    # parameters: s q u_0 alpha rho t_E t_0 pi_E_N pi_E_E ds_dt ds_z_dt dalpha_dt
-
-    # Example for BS, BO:
-    # methods source 1:
-    #     2457913. finite_source_uniform_Gould94 2458062.
-    # default method: point_source
-    # parameters: t_E u_0_1 u_0_2 t_0_1 t_0_2 rho_1 (pi_E_N pi_E_E gamma1 gamma2 gammaz)
-
-    # Example for PS, PX:
-    # methods: 2458499. finite_source_uniform_Gould94 2458594.
-    # default method: point_source
-    # parameters: u_0 t_E t_0 rho (pi_E_N pi_E_E)
+    Note: LK, TS, TX, BO are not yet implemented in this function yet.
     """
-    t_0_name = "t_0" if model_type not in ['BS', 'BO'] else "t_0_1"
-    rho_value = par_dict['rho'] if 'rho' in par_dict else par_dict['rho_1']
-    delta = 3*par_dict['t_E'] if model_type in ['LS', 'LX', 'LO'] else max(0.1, 5*rho_value*par_dict['t_E'])
-    left_limit = "%.1f" % (par_dict[t_0_name] - delta)
-    right_limit = "%.1f" % (par_dict[t_0_name] + delta)
+    binary_source, binary_lens = {'BS', 'BO'}, {'LS', 'LX', 'LO'}
+    t_0_name = "t_0" if model_type not in binary_source else "t_0_1"
+    rho_value = par_dict.get('rho', par_dict.get('rho_1'))
+    delta = 3*par_dict['t_E'] if model_type in binary_lens else max(0.1, 5*rho_value*par_dict['t_E'])
+    left_limit = f"{par_dict[t_0_name] - delta:.1f}"
+    right_limit = f"{par_dict[t_0_name] + delta:.1f}"
 
-    if model_type in ['LS', 'LX', 'LO']:
+    if model_type in binary_lens:
+        method = "VBBL"
         default_method = "point_source_point_lens"
-        methods = " ".join([left_limit, "VBBL", right_limit])
     else:
+        method = "finite_source_uniform_Gould94"
         default_method = "point_source"
-        methods = " ".join([left_limit, "finite_source_uniform_Gould94", right_limit])
+    prefix = "methods source 1:" if model_type in binary_source else "methods:"
 
-    pre_methods = "methods:" if model_type not in ["BS", "BO"] else "methods source 1:"
-    default_method = "\n    default method: " + default_method
-    full_str = "    " + " ".join([pre_methods, methods]) + default_method
-
-    return full_str
+    return f"    {prefix} {left_limit} {method} {right_limit}\n    default method: {default_method}"
 
 
 def get_coords(event):
     """
-    Get the coordinates of the event from the RTModel results.
+    Get the coordinates of the event from the RTModel Data folder.
     """
     coords_file = event + "/Data/event.coordinates"
     if not glob.glob(coords_file):
