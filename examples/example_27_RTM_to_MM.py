@@ -237,18 +237,19 @@ def get_coords(event):
     return ra_dec_str
 
 
-def get_params_and_values(par_dict, chi2=0.):
+def get_params_and_values(par_dict):
     """
-    Format parameters and values for the yaml file, excluding FR and t_0_par.
+    Format parameters and values obtained in RTModel result for the YAML file,
+    excluding FR and t_0_par, which are not needed.
     """
-    parameters_lst, values_lst = list(par_dict.keys()), list(par_dict.values())
-    for i, param in enumerate(parameters_lst):
+    params_lst, values_lst = list(par_dict.keys()), list(par_dict.values())
+    for i, param in enumerate(params_lst):
         if param in ["FR", "t_0_par"]:
-            parameters_lst = parameters_lst[:i] + parameters_lst[i+1:]
+            params_lst = params_lst[:i] + params_lst[i+1:]
             values_lst = values_lst[:i] + values_lst[i+1:]
 
-    params_str = "    parameters: " + " ".join(parameters_lst) + "\n"
-    params_str += f"    # From RTModel, chi2={chi2}:\n"
+    params_str = "    parameters: " + " ".join(params_lst) + "\n"
+    params_str += "    # From RTModel, chi2=0.0:\n"
     params_str += "    values: " + " ".join([str(v) for v in values_lst]) + "\n"
 
     return params_str
@@ -256,8 +257,9 @@ def get_params_and_values(par_dict, chi2=0.):
 
 def get_starting_params_and_sigmas(par_dict):
     """
-    Format starting parameters and sigmas for the yaml file.
-    A sigma of 1e-7 is used for rho and q, and 1e-3 for the other parameters.
+    Format starting parameters and sigmas for the YAML file.
+    The starting parameters are rounded from the RTModel central values.
+    A sigma of 1e-5 is used for rho and q, and 1e-3 for the other parameters.
     """
     starting_params_str = "starting_parameters:\n"
     for param, value in par_dict.items():
@@ -273,66 +275,72 @@ def get_starting_params_and_sigmas(par_dict):
 
 def get_min_max_values(par_dict):
     """
-    Format min and max values for the yaml file.
-    To-Do: Mention pi_E values, also rho and s...
+    Format minimum and maximum values allowed for the model parameters.
+
+    Time parameters are limited to 2455000. to 2459000., u_0 is limited to 0.0
+    (minimum if positive, maximum if negative), pi_E_E and pi_E_N are limited
+    to +/- 0.5 around the RTModel value, all remaining parameters are limited
+    to positive values. Other upper limits are q <= 1, alpha <= 360 d, s <= 2
+    (or twice the RTModel value if greater than 1.5) and rho <= 0.1 (or twice
+    the RTModel value if greater than 0.08).
     """
-    min_values_str = "min_values:\n"
-    max_values_str = "max_values:\n"
+    min_values = ["min_values:"]
+    max_values = ["max_values:"]
+
     for param, value in par_dict.items():
         if param in ["FR", "t_0_par"]:
             continue
         if param.startswith("t_0"):
-            min_values_str += f"    {param}: 2455000.\n"
-            max_values_str += f"    {param}: 2459000.\n"
-        if param.startswith("u_0"):
-            if value > 0:
-                min_values_str += f"    {param}: 0.\n"
-            else:
-                max_values_str += f"    {param}: 0.\n"
-        if param == "t_E":
-            min_values_str += f"    {param}: 0.\n"
-        if param == "s":
-            min_values_str += f"    {param}: 0.\n"
-            max_value = 2.0 if value < 1.5 else round(2*value, 1)
-            max_values_str += f"    {param}: {max_value}\n"
-        if param.startswith("rho"):
-            min_values_str += f"    {param}: 0.\n"
-            max_value = 0.1 if value < 0.08 else round(2*value, 5)
-            max_values_str += f"    {param}: {max_value}\n"
-        if param == "q":
-            min_values_str += f"    {param}: 0.\n"
-            max_values_str += f"    {param}: 1.\n"
-        if param == "alpha":
-            min_values_str += f"    {param}: 0.\n"
-            max_values_str += f"    {param}: 360.\n"
-        if param.startswith("pi_E"):
-            min_values_str += f"    {param}: {value-0.5:.1f}\n"
-            max_values_str += f"    {param}: {value+0.5:.1f}\n"
+            min_values.append(f"    {param}: 2455000.")
+            max_values.append(f"    {param}: 2459000.")
+        elif param.startswith("u_0"):
+            (min_values if value > 0 else max_values).append(f"    {param}: 0.")
 
-    return min_values_str + max_values_str
+        elif param in ["t_E", "s", "rho"]:
+            min_values.append(f"    {param}: 0.")
+            if param == "s":
+                max_value = max(2.0, round(2 * value, 1))
+                max_values.append(f"    {param}: {max_value}")
+            elif param == "rho":
+                max_value = max(0.1, round(2 * value, 5))
+                max_values.append(f"    {param}: {max_value}")
+        elif param == "q":
+            min_values.append(f"    {param}: 0.")
+            max_values.append(f"    {param}: 1.")
+        elif param == "alpha":
+            min_values.append(f"    {param}: 0.")
+            max_values.append(f"    {param}: 360.")
+        elif param.startswith("pi_E"):
+            min_values.append(f"    {param}: {value - 0.5:.1f}")
+            max_values.append(f"    {param}: {value + 0.5:.1f}")
+
+    return "\n".join(min_values + max_values) + "\n"
 
 
 def get_plots_directory(folder_name, par_dict, model_id):
     """
-    Create a directory named figs for the plots (the same as RTModel) and save
-    the paths for best model, triangle, and trace plots in the yaml file.
-    Improve docstrings...
+    Create the figs/ directory and generate YAML entries for the model plots.
+
+    The directory structure follows RTModel, with plots saved as best-model,
+    triangle, and trace figures. The best-model plot time range is set to
+    ±min(3*t_E, 250) days around t_0. For binary-source models, the range is
+    centered on the earliest and latest of t_0_1 and t_0_2.
     """
     figs_folder = os.path.join(folder_name, "figs")
     os.makedirs(figs_folder, exist_ok=True)
     event_name = folder_name.split("/")[-1]
     figs_folder = os.path.join("..", figs_folder)
+
+    if "t_0_2" in par_dict:
+        t_0_left, t_0_right = min(par_dict["t_0_1"], par_dict["t_0_2"]), max(par_dict["t_0_1"], par_dict["t_0_2"])
+    else:
+        t_0_left = t_0_right = par_dict["t_0"]
+    delta_t = min(3*par_dict['t_E'], 250)
+    t_range = f"{t_0_left - delta_t:.1f} {t_0_right + delta_t:.1f}"
+
     best_model_plot = os.path.join(figs_folder, f"{event_name}_{model_id}_model.png")
-
-    t_0_left = par_dict['t_0'] if "t_0_2" not in par_dict else min(par_dict['t_0_1'], par_dict['t_0_2'])
-    left_limit = t_0_left - min(3*par_dict['t_E'], 250)
-    t_0_right = par_dict['t_0'] if "t_0_2" not in par_dict else max(par_dict['t_0_1'], par_dict['t_0_2'])
-    right_limit = t_0_right + min(3*par_dict['t_E'], 250)
-    t_range = f"{left_limit:.1f} {right_limit:.1f}"
-
     triangle_plot = os.path.join(figs_folder, f"{event_name}_{model_id}_triangle.png")
     trace_plot = os.path.join(figs_folder, f"{event_name}_{model_id}_trace.png")
-
     plots_str = f"\nplots:\n    best model:\n        file: {best_model_plot}\n        time range: {t_range}"
     plots_str += f"\n    triangle:\n        file: {triangle_plot}\n        shift t_0: False"
     plots_str += f"\n    trace:\n        file: {trace_plot}\n"
@@ -342,23 +350,29 @@ def get_plots_directory(folder_name, par_dict, model_id):
 
 def call_example_16(yaml_str, plot=None):
     """
-    Call example_16.ulens_model_fit with the given yaml_dict to get chi2 and
-    plot the best model if the -p flag is set. [...]
-    Improve docstrings...
+    Call example_16's UlensModelFit class to compute chi2 from RTModel result
+    and optionally plot the best model. Chi2 differs from RTModel because of
+    their limit in 4000 points and errors renormalization.
+
+    Some changes are made to yaml_str: activate the plotting mode (removing
+    triangle and trace plots), renaming the best model plot, and fixing the
+    paths to be relative to current working directory.
     """
     yaml_dict = yaml.safe_load(yaml_str)
-    phot_files_dict = yaml_dict["photometry_files"][0]
-    phot_files_dict["file_name"] = phot_files_dict["file_name"].removeprefix("../")
     keys = ["starting_parameters", "min_values", "max_values", "fitting_parameters"]
     for key in keys:
         yaml_dict[key] = None
     if "plots" in yaml_dict:
         yaml_dict["plots"].pop("triangle", None)
         yaml_dict["plots"].pop("trace", None)
-    orig_dict = copy.deepcopy(yaml_dict)
 
+    # Temporarily changing paths to be relative to current work directory
+    phot_files_dict = yaml_dict["photometry_files"][0]
+    phot_files_dict["file_name"] = phot_files_dict["file_name"].removeprefix("../")
     new_name = yaml_dict["plots"]["best model"]['file'].replace("_model.png", "_RTM.png")
     yaml_dict["plots"]["best model"]['file'] = new_name.removeprefix("../")
+    orig_dict = copy.deepcopy(yaml_dict)
+
     ulens_model_fit = UlensModelFit(**yaml_dict)
     ulens_model_fit.plot_best_model()
     chi2 = ulens_model_fit._event.get_chi2()
@@ -387,8 +401,13 @@ def write_short_yaml(yaml_name, par_dict):
 
 def write_extended_yaml(yaml_name, par_dict, model_id, plot):
     """
-    Write an extended yaml file with the parameters and additional information.
-    Improve docstrings...
+    Write an extended YAML file with the parameters and additional information
+    and prints the path of the YAML file and the chi2 value.
+
+    Several functions are called to generate the different sections of the
+    YAML file, including photometry files, model methods, coordinates,
+    parameters and values, starting parameters and sigmas, min/max values,
+    fitting parameters, and plots directory.
     """
     yaml_str = "photometry_files:\n"
     folder_name = yaml_name.split(model_id)[0][:-1]
