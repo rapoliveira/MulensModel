@@ -256,7 +256,7 @@ def get_params_and_values(par_dict):
             values_lst = values_lst[:i] + values_lst[i+1:]
 
     params_str = "    parameters: " + " ".join(params_lst) + "\n"
-    params_str += "    # From RTModel, chi2=0.0:\n"
+    params_str += "    # From RTModel (chi2=0.0):\n"
     params_str += "    values: " + " ".join([str(v) for v in values_lst]) + "\n"
 
     return params_str
@@ -383,6 +383,9 @@ def call_example_16(yaml_str, plot=None):
     ulens_model_fit = UlensModelFit(**yaml_dict)
     ulens_model_fit.plot_best_model()
     chi2 = ulens_model_fit._event.get_chi2()
+    params = ulens_model_fit._model.parameters.as_dict()
+    params.pop("t_0_par")
+    chi2_dof = chi2 / (ulens_model_fit._event.datasets[0].n_epochs - len(params))
 
     if plot not in ["file", "both"] and os.path.isfile(best_model["file"]):
         os.remove(best_model["file"])  # To-Do: only remove if created on this run
@@ -391,7 +394,7 @@ def call_example_16(yaml_str, plot=None):
         ulens_model_fit = UlensModelFit(**orig_dict)
         ulens_model_fit.plot_best_model()
 
-    return chi2
+    return chi2, chi2_dof
 
 
 def write_short_yaml(yaml_name, par_dict):
@@ -432,15 +435,15 @@ def write_extended_yaml(yaml_name, par_dict, model_id, plot):
     yaml_str += "fitting_parameters:\n    n_walkers: 100\n    n_steps: 10000\n    n_burn: 5000\n    progress: True\n"
     yaml_str += get_plots_directory(folder_name, par_dict, model_id)
 
-    best_chi2 = call_example_16(yaml_str, plot)
+    best_chi2, chi2_dof = call_example_16(yaml_str, plot)
     yaml_str = yaml_str.replace("    parameters: ", "    # parameters: ")
-    yaml_str = yaml_str.replace("chi2=0.0", f"chi2={best_chi2:.4f}")
+    yaml_str = yaml_str.replace("chi2=0.0", f"chi2={best_chi2:.4f}, chi2_dof={chi2_dof:.4f}")
     yaml_str = yaml_str.replace("    values: ", "    # values: ")
 
     with open(yaml_name, 'w') as file_out:
         print(yaml_name)
         file_out.writelines(yaml_str)
-        print("chi2_RTModel =", best_chi2)
+        print(f"chi2_RTModel = {best_chi2}, chi2_dof = {chi2_dof}")
 
 
 if __name__ == '__main__':
