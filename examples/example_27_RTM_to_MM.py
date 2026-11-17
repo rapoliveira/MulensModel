@@ -76,10 +76,10 @@ def get_parameters_names(ID):
     Based on the shortened model code, gives the parameters names
     """
     model_id_short = ID[0:2]
-    if model_id_short in ['BO', 'LK', 'TS', 'TX', 'TO']:
-        warnings.warn("Transformation for {:} model is not accurate!".format(model_id_short))
-        print("This model category: {:}, includes one of the following: xallarap, triple lens or elliptical orbital "
-              "motion.\nThese effects are not yet included in this example.".format(model_id_short))
+    # if model_id_short in ['BO', 'LK', 'TS', 'TX', 'TO']:
+    #     warnings.warn("Transformation for {:} model is not accurate!".format(model_id_short))
+    #     print("This model category: {:}, includes one of the following: xallarap, triple lens or elliptical orbital "
+    #           "motion.\nThese effects are not yet included in this example.".format(model_id_short))
 
     model_and_parnames = {
         'PS': ['u_0', 't_E', 't_0', 'rho'],
@@ -192,7 +192,7 @@ def get_data_dir_and_check(folder_name, checks=True):
     if checks:
         temp_dir = data_dir.removeprefix("../")
         if not os.path.isfile(temp_dir):
-            warnings.warn(f"Data file not found: {temp_dir}. Attempting to create it from RTModel data.")
+            # warnings.warn(f"Data file not found: {temp_dir}. Attempting to create it from RTModel data.")
             rtm_data_file = os.path.join(folder_name, "Data", "TelescopeA.dat")
             rtm_data = np.loadtxt(rtm_data_file)
             np.savetxt(temp_dir, rtm_data[:, [2, 0, 1]], fmt=["%12.6f", "%9.6f", "%9.6f"])
@@ -380,11 +380,12 @@ def call_example_16(yaml_str, plot=None):
     best_model['file'] = best_model['file'].replace("_model.png", "_RTM.png").removeprefix("../")
     orig_dict = copy.deepcopy(yaml_dict)
 
+    warnings.filterwarnings("ignore")  # TEMP: filtering warning
     ulens_model_fit = UlensModelFit(**yaml_dict)
     ulens_model_fit.plot_best_model()
     chi2 = ulens_model_fit._event.get_chi2()
     params = ulens_model_fit._model.parameters.as_dict()
-    params.pop("t_0_par")
+    params.pop("t_0_par", None)
     chi2_dof = chi2 / (ulens_model_fit._event.datasets[0].n_epochs - len(params))
 
     if plot not in ["file", "both"] and os.path.isfile(best_model["file"]):
@@ -420,7 +421,8 @@ def write_extended_yaml(yaml_name, par_dict, model_id, plot):
     fitting parameters, and plots directory.
     """
     yaml_str = "photometry_files:\n"
-    folder_name = yaml_name.split(model_id)[0][:-1]
+    # folder_name = yaml_name.split(model_id)[0][:-1]
+    folder_name = "/".join(yaml_name.split("/")[:-1])  # TEMP folder
     yaml_str += get_data_dir_and_check(folder_name, checks=True)
     yaml_str += "fit_method: EMCEE\nmodel:\n"
     yaml_str += f"{get_model_methods(model_id[:2], par_dict)}\n"
@@ -448,12 +450,19 @@ def write_extended_yaml(yaml_name, par_dict, model_id, plot):
 
 if __name__ == '__main__':
 
+    print()
     event, models, extended, plot = parse_args()
     MM_dicts = transform_RTM_to_MM(models)
 
     for (par_dict, model_id) in zip(MM_dicts, get_ids(models)):
+        if extended and model_id.startswith("BO"):
+            print(f"Skipped {model_id}, yet to be implemented...")
+            continue
+
         yaml_name = get_yaml_name(event, model_id)
+        temp_yaml_name = os.path.join(event, yaml_name.split("/")[-1])  # TEMP folder
         if not extended:
             write_short_yaml(yaml_name, par_dict)
         else:
-            write_extended_yaml(yaml_name, par_dict, model_id, plot)
+            # write_extended_yaml(yaml_name, par_dict, model_id, plot)
+            write_extended_yaml(temp_yaml_name, par_dict, model_id, plot)  # TEMP folder
